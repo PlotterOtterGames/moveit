@@ -1,0 +1,28 @@
+// Tundu cloud client: Game Pass, gift card redemption, signed app/firmware updates (see docs/cloud.md).
+// Android library module that Unity adds to the generated Gradle project (folders ending in .androidlib).
+// No dependencies: org.json, java.security and PackageInstaller come with Android.
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'al.moveit.cloud'
+    compileSdk 36
+    // Same tools as Unity's own modules (Unity ships only these).
+    buildToolsVersion = "36.0.0"
+
+    defaultConfig {
+        minSdk 28
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = ['src/main/java']
+            res.srcDirs = ['res']
+        }
+    }
+}

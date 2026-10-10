@@ -137,6 +137,32 @@ The user writes informal English, wants clear recommendations rather than option
   while a game asks (`CameraFeed.Request()`): PC `video.py` (control port 5007), fake player draws a room + the
   scripted player, Android `VideoStreamer.java` via JNI `setVideo` (encodes on its own thread, never delays the
   pose AI). The Java compiles (checked with javac against the cached dependencies); not yet run on MuMu.
+- **Cloud: gift cards, Game Pass, updates (2026-10-10, user: "gift cards that activate game pass for x time, system
+  updates of the consoles, push new free and game pass games; don't get hacked, no version mismatches, crashes,
+  corruptions, exploits"). Researched and built in a cloud session: design, threat model, setup steps, runbooks and
+  sources in `docs/cloud.md`.** Two halves: **updates + game catalog are static manifests signed offline** on the
+  laptop (release key, `server/cli/tundu.ts release …`, files on R2 `cdn.tundu.al` named by SHA-256), so a hacked
+  server can't push anything; a **small API** (Cloudflare Worker + D1, `server/`, no runtime dependencies,
+  `api.tundu.al`) does enrolment, codes → days, check-ins, health events and the admin API. Codes: 16 characters (75
+  bits + Luhn mod 32 check, no 0/1/I/O), stored as HMAC(pepper), batches inactive until activated, one-time claim in
+  one D1 transaction, retries idempotent by request id, max 10 wrong codes per box per day. Game Pass belongs to the
+  box (no accounts): signed token (ECDSA P-256, DER; keys pinned per role in `TrustedKeys.java`) + `PassClock`
+  (server time + monotonic clock; the floor never goes back). Box client `Assets/Plugins/Android/MoveItCloud.androidlib`
+  (Java, `al.moveit.cloud`): verify, rollout buckets, resumable verified download, PackageInstaller (silent as device
+  owner: `provision.ps1 -DeviceOwner`), installs only when no game runs (first minute after the box starts, menu idle
+  10 min, night 02-05, or safe mode after 3 starts that never reached the home screen), crash reports from
+  ApplicationExitInfo, firmware via `installSystemUpdate` (device owner; exact model + fingerprint). Unity:
+  `Games/Common/Cloud` (`TunduCloud.cs` bridge, simulated in the editor: any well-formed code adds 30 days, e.g.
+  `TUND-UTES-TKAR-TE2R`; `GameAccess`; `GiftCode`), `Shell/Scripts/GamePassPanel.cs` (code entry with the remote,
+  Settings → Game Pass, "GAME PASS" badge on locked tiles, catalog can hide games), BoxBuild: versionCode =
+  MAJOR*10000 + MINOR*100 + PATCH, release signing from `TUNDU_KEYSTORE*` environment variables, menu *Build Release
+  APK (signed)*. **Every game stays free** until the signed catalog (or `GameAccess.DefaultTier`) says otherwise.
+  Not yet: the user's Cloudflare account, keys and keystore (**no production keys exist: `releases/keys.json` is
+  empty, so builds trust no manifest or token yet**), a look in Unity (Game Pass screen, the changed
+  `HomeScreenTests`; `BoxBuild.cs` can't be compile-checked in the cloud), a real silent update on a box, QR scanning
+  with the camera, the user's decisions (which games in Game Pass, prices, card durations), the accountant (fiscal
+  receipts for cards, VAT on vouchers). `npm audit`: undici advisories in local dev tools only; upgrade wrangler ≥
+  4.149 and @cloudflare/vitest-plugin ≥ 1.4.0 after 2026-10-22.
 - **Hardware sourcing (2026-10-08): `docs/sourcing.md`**: AliExpress links for the samples (checked from Albania,
   prices in lek), Alibaba batch suppliers (boxes with custom firmware/logo, OEM webcams, packaging), the kit contents,
   customs (€22 duty-free, VAT 20%), CE/AKEP, the step-by-step process, unit cost (RK3566 kit €53–82 landed).
@@ -170,6 +196,12 @@ The user writes informal English, wants clear recommendations rather than option
 | `Assets/Games/Sword` | Shpata!: `SwordGame` (duel: knight AI, blocks, counterattacks, markers, HUD), `SwordMoves` (swing/hit/shield/parry rules on the screen, tested), `GhostAvatar` (see-through player + sword + shield), `Knight` (toy knight, animated by state), `SwordArt` (shield-spot ring, alert, heart drawn in code). Shader `Games/Common/Shaders/TunduGhost` |
 | `tools/paint/pages.py` | Colouring pages as code (OpenCV, figures outlined by morphology): dino, house, fish, butterfly, rocket, cake. `--preview` writes checks with the toolbar areas to `tools/paint/out/` |
 | `docs/sourcing.md` | Where to buy every part (links), batch suppliers, Albanian import and CE, the ordering process |
+| `docs/cloud.md` | **Gift cards, Game Pass, app/firmware updates, new games**: recommendation, threat model, formats, release steps, setup, runbooks, costs, sources |
+| `server/` | Tundu cloud: Cloudflare Worker + D1 (`src/`, `migrations/`, `wrangler.jsonc`), the CLI `node cli/tundu.ts help` (keys, cards, devices, stats, releases, a pretend box `devbox`), tests (`npm run test:all`: typecheck, 49 Worker tests in workerd, 14 CLI tests), shared test vectors `test/vectors` (codes, signed docs, rollout) checked by Java and C# too. Node ≥ 22.18 runs the TypeScript CLI directly |
+| `releases/` | Public keys the app pins (`keys.json` → generated `TrustedKeys.java`), signed channel manifests (git history = release log), staged APK/firmware lists. Written only by the CLI |
+| `Assets/Plugins/Android/MoveItCloud.androidlib` | **Box cloud client** (Java, no dependencies): `TunduCloud` (Unity API + jobs), `CloudState` (all rules, pure), `SignedDoc`, `PassClock`, `PassToken`, `ChannelManifest`, `GiftCode`, `Downloader`, `CloudApi`, `Installer` (+ receivers), `UpdateJobService`, `DeviceOwner`/`AdminReceiver`, `FirmwareUpdater`, `CrashReports`, generated `TrustedKeys` |
+| `Assets/Games/Common/Cloud` | Unity side: `TunduCloud.cs` (JNI bridge, editor simulation), `GameAccess` (catalog rules, tested), `GiftCode` (tested against the server vectors). UI: `Shell/Scripts/GamePassPanel.cs` |
+| `tools/cloud-java-tests/` | `run.py`: compiles MoveItCloud against Android API 36 (Robolectric's android-all jar from Maven Central, ~200 MB cached) with warnings as errors and runs its 33 JUnit tests |
 | `Assets/Shell/Scripts/MainMenu.cs` | Box home screen (6 game tiles; a step left/right or ← → moves one tile) + Settings (Wi-Fi, volume, language, camera, version, device; hidden Android settings: 7× OK on "Device") |
 | `Assets/Editor/MoveItSceneBuilder.cs` | **Scenes are generated by code**: menu *MoveIt → Build All Scenes* (Menu, Runner, Slash, Bowling, Paint, Sword, Fly, MotionDebug). Re-running overwrites them |
 | `Assets/Editor/BoxBuild.cs` | *MoveIt → Box → Build Android APK* → `builds/android/<brand name>.apk` (~54 MB). Applies branding, IL2CPP ARM64, min API 28, TV banner and icon, copies models, sets GRADLE_USER_HOME=D:\.gradle in-process, caps Gradle heap at 2 GB |
@@ -193,7 +225,9 @@ The user writes informal English, wants clear recommendations rather than option
   `PaintGameTests` ×3: paper mode, camera mode, all tools + photo; screenshots in `unity/captures/paint_*.png`;
   `SwordGameTests`: the duel with the scripted player: a swing off the guard, shield blocks from all three sides each
   followed by a counterattack that lands, an unblocked blow costs a heart, `sword_*.png`),
-  EditMode 29 (`BowlingScoreTests` 10, `PaintCanvasTests` 11, `HandCursorTests` 3, `SwordMovesTests` 5). On 2026-10-09
+  EditMode 29 (`BowlingScoreTests` 10, `PaintCanvasTests` 11, `HandCursorTests` 3, `SwordMovesTests` 5; + since
+  2026-10-10, not yet run in Unity: `GiftCodeTests` 3, `GameAccessTests` 4; `HomeScreenTests` now also opens
+  Settings → Game Pass). On 2026-10-09
   all passed (2026-10-10: 11/11 PlayMode, 29/29 EditMode; `IdleFidgeting_TriggersNothing` still fails now and then).
   Added in the cloud on 2026-10-10, not yet run in Unity: EditMode `PunchDetectorTests` 5 (+ 2 explicit diagnostics),
   `FlyRunTests` 17 (both pass under dotnet), PlayMode `FlyGameTests` (fake_sender --script fly, port 5014: exactly 6
@@ -229,7 +263,8 @@ The user writes informal English, wants clear recommendations rather than option
   `HandPresence`, `OneEuroFilter`, `Body`, `Joint`) and their EditMode tests (40 tests; `PaintCanvasTests` need the
   GPU), compiled as C# 9 against `tools/logic-tests/UnityShim` (Vector2/3, Mathf, Time with Unity's exact formulas),
   and **`python3 tools/compile-check/check.py`**: all the game C# (MonoBehaviours, PlayMode tests) against Unity's
-  reference assemblies. Put engine-free rules in their own class (like `FlyRun`, `SwordMoves`) so they can be tested
+  reference assemblies. Also here: **`cd server && npm run test:all`** (Worker + CLI) and
+  **`python3 tools/cloud-java-tests/run.py`** (box cloud client). Put engine-free rules in their own class (like `FlyRun`, `SwordMoves`) so they can be tested
   here; adding a file to the logic tests: link it in the csproj, a missing UnityEngine member goes into the shim with
   Unity's behaviour. Not checkable here: the editor scripts (scene builder, BoxBuild), shaders, scenes, how it looks and
   feels, and the Java: say so, the user checks on the laptop. Re-rendered OGGs
@@ -238,6 +273,11 @@ The user writes informal English, wants clear recommendations rather than option
   pulls, checks in Unity and merges.
 
 ## Gotchas (learned the hard way)
+- **Cloud secrets that can never be lost**: the Android release keystore and the release key file (boxes can't be
+  updated without them), and `CODE_PEPPER` (every card's hash depends on it). Back them up offline (docs/cloud.md).
+- In a Bash tool, `pkill -f "wrangler dev"` kills the tool's own shell (the pattern matches its command line): find the
+  PIDs with `ps` instead. Cloudflare's docs sites are blocked in the cloud container (WebSearch summaries work).
+  Maven Central rate-limits bursts (HTTP 429 with a tiny body); `tools/cloud-java-tests/run.py` retries.
 - **unityMCP pins itself to the user's other project "apa-roll" after restarts.** First call
   `set_active_instance "MoveItGames@36707906"`. If calls say "no instances", just retry.
 - **Any new unityMCP connection during Play mode triggers a recompile** that breaks game state (domain reload

@@ -1,0 +1,152 @@
+[
+ {
+  "device": "d_WJRFKUTKUPKJGTGYPAWA",
+  "salt": "rk3566/tx66:11/RQ1A.210105.003/20261101:user/release-keys",
+  "bucket": 80
+ },
+ {
+  "device": "d_M9DPQPKF5682FESNWJAA",
+  "salt": "10007",
+  "bucket": 85
+ },
+ {
+  "device": "d_8V3SXBQA6SWL49HQBKX9",
+  "salt": "10014",
+  "bucket": 73
+ },
+ {
+  "device": "d_B2LZ7H796ZNC8JCNWEN7",
+  "salt": "rk3566/tx66:11/RQ1A.210105.003/20261101:user/release-keys",
+  "bucket": 5
+ },
+ {
+  "device": "d_CRJQ9AA5ZPFVXM7VB3XB",
+  "salt": "10028",
+  "bucket": 1
+ },
+ {
+  "device": "d_3CRQMSMLB4974UGST958",
+  "salt": "10035",
+  "bucket": 81
+ },
+ {
+  "device": "d_YJU3DNY5KFUM8JU32LG6",
+  "salt": "rk3566/tx66:11/RQ1A.210105.003/20261101:user/release-keys",
+  "bucket": 75
+ },
+ {
+  "device": "d_GYG3H2VYRNT8RU9LR4T2",
+  "salt": "10049",
+  "bucket": 41
+ },
+ {
+  "device": "d_URQLDEUZHNHUUN8DNALM",
+  "salt": "10056",
+  "bucket": 46
+ },
+ {
+  "device": "d_YQL8S5AXWR8EV4KLLCS2",
+  "salt": "rk3566/tx66:11/RQ1A.210105.003/20261101:user/release-keys",
+  "bucket": 68
+ },
+ {
+  "device": "d_WN2RXW5C9W6ZJLP3CX7U",
+  "salt": "10070",
+  "bucket": 32
+ },
+ {
+  "device": "d_HAE45WUGPQ7UJBJ4CAUE",
+  "salt": "10077",
+  "bucket": 22
+ },
+ {
+  "device": "d_Y2LESS5THB8J6CA962MP",
+  "salt": "rk3566/tx66:11/RQ1A.210105.003/20261101:user/release-keys",
+  "bucket": 39
+ },
+ {
+  "device": "d_JJ6RL4K9AZD962MY6VGG",
+  "salt": "10091",
+  "bucket": 23
+ },
+ {
+  "device": "d_65FAMJKCJG73VH82TPHT",
+  "salt": "10098",
+  "bucket": 49
+ },
+ {
+  "device": "d_588APT95JM9YPNF2UPYT",
+  "salt": "rk3566/tx66:11/RQ1A.210105.003/20261101:user/release-keys",
+  "bucket": 24
+ },
+ {
+  "device": "d_R287AWLF459DBD58H274",
+  "salt": "10112",
+  "bucket": 60
+ },
+ {
+  "device": "d_A8Q4G2R89B8PRYTP5NCS",
+  "salt": "10119",
+  "bucket": 10
+ },
+ {
+  "device": "d_FSKJQZQCK7GQ6WLRW87Y",
+  "salt": "rk3566/tx66:11/RQ1A.210105.003/20261101:user/release-keys",
+  "bucket": 33
+ },
+ {
+  "device": "d_X4T79JN8DP4H9HNVULQN",
+  "salt": "10133",
+  "bucket": 90
+ },
+ {
+  "device": "d_E6M8E9LVG2CS8QMLFG22",
+  "salt": "10140",
+  "bucket": 58
+ },
+ {
+  "device": "d_V2H2WFBUZSMQQPP64YAL",
+  "salt": "rk3566/tx66:11/RQ1A.210105.003/20261101:user/release-keys",
+  "bucket": 96
+ },
+ {
+  "device": "d_DE484L2DQN655ZY4A2JQ",
+  "salt": "10154",
+  "bucket": 54
+ },
+ {
+  "device": "d_C6S2WMEQCJY8246ZV9VW",
+  "salt": "10161",
+  "bucket": 28
+ },
+ {
+  "device": "d_YX5XQBX5MAJ3ZMNQ53HT",
+  "salt": "rk3566/tx66:11/RQ1A.210105.003/20261101:user/release-keys",
+  "bucket": 53
+ },
+ {
+  "device": "d_BMWSND6QB2PTHFX38YC6",
+  "salt": "10175",
+  "bucket": 75
+ },
+ {
+  "device": "d_8WJARR5ZSX4HJ9Y9ZJZX",
+  "salt": "10182",
+  "bucket": 30
+ },
+ {
+  "device": "d_L6X4E4C29VXXH6DETVX5",
+  "salt": "rk3566/tx66:11/RQ1A.210105.003/20261101:user/release-keys",
+  "bucket": 21
+ },
+ {
+  "device": "d_KUGU2LMEC8E9XSTAQ6B7",
+  "salt": "10196",
+  "bucket": 85
+ },
+ {
+  "device": "d_S46H6G5ASU5C9D6WTJV6",
+  "salt": "10203",
+  "bucket": 63
+ }
+]

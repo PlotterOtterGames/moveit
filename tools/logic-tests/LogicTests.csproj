@@ -29,6 +29,8 @@
 
   <ItemGroup Label="Game rules (linked from the Unity project)">
     <Compile Include="$(UnityAssets)/Games/Bowling/Scripts/BowlingScore.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Common/Cloud/GameAccess.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Common/Cloud/GiftCode.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Fly/Scripts/FlyRun.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Sword/Scripts/SwordMoves.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Runtime/Body.cs" Link="Rules/%(Filename)%(Extension)" />
@@ -41,6 +43,8 @@
 
   <ItemGroup Label="EditMode tests (linked from the Unity project)">
     <Compile Include="$(UnityAssets)/Games/Bowling/Tests/Editor/BowlingScoreTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Common/Tests/Editor/GameAccessTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Common/Tests/Editor/GiftCodeTests.cs" Link="Tests/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Fly/Tests/Editor/FlyRunTests.cs" Link="Tests/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Sword/Tests/Editor/SwordMovesTests.cs" Link="Tests/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Tests/Editor/HandCursorTests.cs" Link="Tests/%(Filename)%(Extension)" />

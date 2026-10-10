@@ -1,0 +1,6 @@
+node_modules/
+.wrangler/
+# local secrets for `npx wrangler dev` (npm run dev:vars writes the TEST ones)
+.dev.vars
+# the pretend box identity (cli devbox)
+.devbox.json

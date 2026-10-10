@@ -20,6 +20,11 @@ namespace MoveIt.Games
         public static bool Back =>
             Key(k => k.escapeKey) || Key(k => k.backspaceKey) || Pad(p => p.buttonEast.wasPressedThisFrame);
 
+        /// <summary>Back without Backspace, for screens where Backspace deletes a typed character.</summary>
+        public static bool BackNotBackspace => Key(k => k.escapeKey) || Pad(p => p.buttonEast.wasPressedThisFrame);
+
+        public static bool Backspace => Key(k => k.backspaceKey);
+
         static bool Key(System.Func<Keyboard, UnityEngine.InputSystem.Controls.KeyControl> key)
         {
             var kb = Keyboard.current;

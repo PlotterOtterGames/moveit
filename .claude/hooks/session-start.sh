@@ -3,6 +3,7 @@
 #  - Python venv for the motion service and the tools/ scripts (sim, fake player, music, pages, branding)
 #  - .NET 8 SDK + the C# logic tests (tools/logic-tests: game rules and their EditMode tests outside Unity)
 #  - the compile check (tools/compile-check: all game C# against Unity's reference assemblies)
+#  - the Tundu server's dev tools (server/: Worker tests in workerd, CLI tests)
 # The laptop setup (Windows, Unity, Blender, MuMu) is in CLAUDE.md; this hook does nothing there.
 set -euo pipefail
 
@@ -37,7 +38,11 @@ if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   echo 'export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1' >> "$CLAUDE_ENV_FILE"
 fi
 dotnet build tools/logic-tests -v quiet -nologo
+# Server (Cloudflare Worker + CLI) dev tools from the lockfile, without install scripts (server/.npmrc).
+if command -v npm >/dev/null 2>&1; then
+  (cd server && npm ci --no-audit --no-fund >/dev/null 2>&1) || echo "[session-start] npm ci in server/ failed"
+fi
 # The Unity code against Unity's reference assemblies (downloads them once); a failure here is reported, not fatal.
 python3 tools/compile-check/check.py || echo "[session-start] compile check found errors (see above)"
 
-echo "[session-start] ready: motion-service-py/.venv/bin/python, dotnet test tools/logic-tests, python3 tools/compile-check/check.py"
+echo "[session-start] ready: motion-service-py/.venv/bin/python, dotnet test tools/logic-tests, python3 tools/compile-check/check.py, (cd server && npm run test:all), python3 tools/cloud-java-tests/run.py"

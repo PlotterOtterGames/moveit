@@ -1,0 +1,35 @@
+// Tundu API on Cloudflare Workers. Setup steps: server/README.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tundu-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-01",
+  // Only the custom domain: no *.workers.dev or preview URLs that would bypass rules set on the domain.
+  "workers_dev": false,
+  "preview_urls": false,
+  "routes": [{ "pattern": "api.tundu.al", "custom_domain": true }],
+  // Workers Logs: our console.log lines (device ids and results, never codes or secrets).
+  "observability": { "enabled": true },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tundu",
+      // From `npx wrangler d1 create tundu` (an id is not a secret).
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // Per Cloudflare location, per key. Keys: client IP (enrol), device id (redeem), device id / "ip:<ip>" (API).
+  "ratelimits": [
+    { "name": "LIMIT_ENROLL", "namespace_id": "1001", "simple": { "limit": 5, "period": 60 } },
+    { "name": "LIMIT_REDEEM", "namespace_id": "1002", "simple": { "limit": 10, "period": 60 } },
+    { "name": "LIMIT_API", "namespace_id": "1003", "simple": { "limit": 120, "period": 60 } }
+  ],
+  // Daily cleanup of old health events (03:17 UTC).
+  "triggers": { "crons": ["17 3 * * *"] },
+  "vars": {
+    "ENROLL_DAILY_MAX": "1000",
+    "ADMIN_IPS": ""
+  }
+  // Secrets (never in this file): PASS_SIGNING_KEY, CODE_PEPPER, ADMIN_TOKEN_SHA256 -> `npx wrangler secret put <NAME>`
+}

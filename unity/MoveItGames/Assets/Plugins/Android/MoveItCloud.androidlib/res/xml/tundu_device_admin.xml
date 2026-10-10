@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Device admin declaration for AdminReceiver. It only matters when the app is made device owner at provisioning
+     (adb shell dpm set-device-owner al.tundu.games/al.moveit.cloud.AdminReceiver): then updates install silently. -->
+<device-admin>
+    <uses-policies />
+</device-admin>

@@ -1,0 +1,122 @@
+{
+ "keys": {
+  "pass": {
+   "t1": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEsq8W2VsfauPlaIRW59LnMZ4zXaRagef47XX3EhAFkHgYrw5eICxXdUmGiYVUpknfbgK3MotrEREBZUW2CFCIbg=="
+  },
+  "release": {
+   "tr1": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEba5DWyyDsOulSKF8exkryM4mQYotWfF+wEdCpLRH/GVAZgqZSqg1n9Cdedd+EVyWfZDhBVMoMVeobWK1uxirPQ=="
+  }
+ },
+ "docs": [
+  {
+   "name": "pass_ok",
+   "role": "pass",
+   "expect": "ok",
+   "doc": {
+    "kid": "t1",
+    "payload": "eyJ0eXBlIjoidHVuZHUucGFzcyIsInYiOjEsImRldmljZSI6ImRfQUFBQUFBQUFBQUFBQUFBQUFBQUEiLCJwYXNzX3VudGlsIjoxODAwMDAwMDAwLCJub3ciOjE3NjAwMDAwMDAsImJsb2NrZWQiOmZhbHNlfQ",
+    "sig": "MEYCIQDHw04jnutBjCAhqxElyxBTPizilmulbxe2Ezt5WEbRWgIhAJhcR6G2166Fy-SihIXsf0Dp5jGFR5MiAgB8a6w9He2m"
+   },
+   "payload": {
+    "type": "tundu.pass",
+    "v": 1,
+    "device": "d_AAAAAAAAAAAAAAAAAAAA",
+    "pass_until": 1800000000,
+    "now": 1760000000,
+    "blocked": false
+   }
+  },
+  {
+   "name": "channel_ok",
+   "role": "release",
+   "expect": "ok",
+   "doc": {
+    "kid": "tr1",
+    "payload": "eyJ0eXBlIjoidHVuZHUuY2hhbm5lbCIsInYiOjEsImNoYW5uZWwiOiJzdGFibGUiLCJzZXJpYWwiOjMsImlzc3VlZCI6MTc2MDAwMDAwMCwiZXhwaXJlcyI6MTc3NTAwMDAwMCwiYXBwIjp7InBhY2thZ2UiOiJhbC50dW5kdS5nYW1lcyIsInZlcnNpb25Db2RlIjoxMDIwMywidmVyc2lvbk5hbWUiOiIxLjIuMyIsImZpbGUiOiJhcGsvYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYi5hcGsiLCJzaGEyNTYiOiJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiIiwic2l6ZSI6NTY3ODkwMTIsInNpZ25lciI6ImNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2QiLCJtaW5TZGsiOjI4LCJyb2xsb3V0IjoyNSwicmVxdWlyZWQiOjB9LCJnYW1lcyI6W3siaWQiOiJydW5uZXIiLCJ0aWVyIjoiZnJlZSJ9LHsiaWQiOiJmbHkiLCJ0aWVyIjoicGFzcyIsIm1pbkFwcCI6MTAyMDN9XSwiZmlybXdhcmUiOltdfQ",
+    "sig": "MEUCIQDnqX66bf-C20VMXNN92YRFq-yd1cI1ZLp8d94-69DvjAIgRuzNTmyQORxIZovuk0xbjyu7MYTmlIi60oGK5VCGVh0"
+   },
+   "payload": {
+    "type": "tundu.channel",
+    "v": 1,
+    "channel": "stable",
+    "serial": 3,
+    "issued": 1760000000,
+    "expires": 1775000000,
+    "app": {
+     "package": "al.tundu.games",
+     "versionCode": 10203,
+     "versionName": "1.2.3",
+     "file": "apk/abababababababababababababababababababababababababababababababab.apk",
+     "sha256": "abababababababababababababababababababababababababababababababab",
+     "size": 56789012,
+     "signer": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+     "minSdk": 28,
+     "rollout": 25,
+     "required": 0
+    },
+    "games": [
+     {
+      "id": "runner",
+      "tier": "free"
+     },
+     {
+      "id": "fly",
+      "tier": "pass",
+      "minApp": 10203
+     }
+    ],
+    "firmware": []
+   }
+  },
+  {
+   "name": "pass_tampered_payload",
+   "role": "pass",
+   "expect": "bad_signature",
+   "doc": {
+    "kid": "t1",
+    "payload": "eyJ0eXBlIjoidHVuZHUucGFzcyIsInYiOjEsImRldmljZSI6ImRfQUFBQUFBQUFBQUFBQUFBQUFBQUEiLCJwYXNzX3VudGlsIjo0MDAwMDAwMDAwLCJub3ciOjE3NjAwMDAwMDAsImJsb2NrZWQiOmZhbHNlfQ",
+    "sig": "MEYCIQDHw04jnutBjCAhqxElyxBTPizilmulbxe2Ezt5WEbRWgIhAJhcR6G2166Fy-SihIXsf0Dp5jGFR5MiAgB8a6w9He2m"
+   }
+  },
+  {
+   "name": "pass_tampered_signature",
+   "role": "pass",
+   "expect": "bad_signature",
+   "doc": {
+    "kid": "t1",
+    "payload": "eyJ0eXBlIjoidHVuZHUucGFzcyIsInYiOjEsImRldmljZSI6ImRfQUFBQUFBQUFBQUFBQUFBQUFBQUEiLCJwYXNzX3VudGlsIjoxODAwMDAwMDAwLCJub3ciOjE3NjAwMDAwMDAsImJsb2NrZWQiOmZhbHNlfQ",
+    "sig": "MEYCIQDHw04jnutBjCAhqxElyxBTPizilmulbxe2Ezt5WEbRWgIhAJhcR6G2166Fy-SihIXsf0Dp5jGFR5MiAgB8a6w9He2n"
+   }
+  },
+  {
+   "name": "channel_signed_with_pass_key",
+   "role": "release",
+   "expect": "unknown_key",
+   "doc": {
+    "kid": "t1",
+    "payload": "eyJ0eXBlIjoidHVuZHUuY2hhbm5lbCIsInYiOjEsImNoYW5uZWwiOiJzdGFibGUiLCJzZXJpYWwiOjMsImlzc3VlZCI6MTc2MDAwMDAwMCwiZXhwaXJlcyI6MTc3NTAwMDAwMCwiYXBwIjp7InBhY2thZ2UiOiJhbC50dW5kdS5nYW1lcyIsInZlcnNpb25Db2RlIjoxMDIwMywidmVyc2lvbk5hbWUiOiIxLjIuMyIsImZpbGUiOiJhcGsvYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYi5hcGsiLCJzaGEyNTYiOiJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiYWJhYmFiIiwic2l6ZSI6NTY3ODkwMTIsInNpZ25lciI6ImNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2RjZGNkY2QiLCJtaW5TZGsiOjI4LCJyb2xsb3V0IjoyNSwicmVxdWlyZWQiOjB9LCJnYW1lcyI6W3siaWQiOiJydW5uZXIiLCJ0aWVyIjoiZnJlZSJ9LHsiaWQiOiJmbHkiLCJ0aWVyIjoicGFzcyIsIm1pbkFwcCI6MTAyMDN9XSwiZmlybXdhcmUiOltdfQ",
+    "sig": "MEUCIAIEZ4vbPyDIvXJThk3YEFOJx_k3VhWuwhU-lxeiKlxwAiEAgcPmqId0P_8cRdhxtaXcGiOl1MH68kXKmJw5Kf8so44"
+   }
+  },
+  {
+   "name": "pass_unknown_kid",
+   "role": "pass",
+   "expect": "unknown_key",
+   "doc": {
+    "kid": "zz",
+    "payload": "eyJ0eXBlIjoidHVuZHUucGFzcyIsInYiOjEsImRldmljZSI6ImRfQUFBQUFBQUFBQUFBQUFBQUFBQUEiLCJwYXNzX3VudGlsIjoxODAwMDAwMDAwLCJub3ciOjE3NjAwMDAwMDAsImJsb2NrZWQiOmZhbHNlfQ",
+    "sig": "MEYCIQCQKtngw0xK61FXGRO35rq4Jg1Q5qFKDupaT2Kin36PWwIhANiX4eRRrxwCXoAwkGG07ftlDaATaKQ2eCBkmf0CivBZ"
+   }
+  },
+  {
+   "name": "pass_payload_as_channel",
+   "role": "release",
+   "expect": "wrong_type",
+   "doc": {
+    "kid": "tr1",
+    "payload": "eyJ0eXBlIjoidHVuZHUucGFzcyIsInYiOjEsImRldmljZSI6ImRfQUFBQUFBQUFBQUFBQUFBQUFBQUEiLCJwYXNzX3VudGlsIjoxODAwMDAwMDAwLCJub3ciOjE3NjAwMDAwMDAsImJsb2NrZWQiOmZhbHNlfQ",
+    "sig": "MEUCIQD0SVzP-acYl2LHmvbEPfVU2aPtA3Tzm_Fdf37pgVkryQIgJ6_IEx1ZZ___mIyC9OBCzqncrPG-g661oPX6LQggl1M"
+   }
+  }
+ ]
+}

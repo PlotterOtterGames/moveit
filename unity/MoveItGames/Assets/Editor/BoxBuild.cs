@@ -115,8 +115,57 @@ namespace MoveIt.EditorTools
             PlayerSettings.Android.renderOutsideSafeArea = true;
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
             if (PlayerSettings.bundleVersion is "0.1" or "1.0") PlayerSettings.bundleVersion = "0.1.0";
+            PlayerSettings.Android.bundleVersionCode = VersionCode(PlayerSettings.bundleVersion);
+            ApplySigning();
             AssetDatabase.SaveAssets();
             Debug.Log("[BoxBuild] Android settings configured for the TV box.");
+        }
+
+        /// <summary>
+        /// versionCode from the version name: "1.2.3" -> 10203. Boxes only install a higher versionCode (Android
+        /// refuses downgrades), so every published build needs a new version name (Project Settings > Player).
+        /// </summary>
+        public static int VersionCode(string version)
+        {
+            var parts = version.Split('.');
+            if (parts.Length != 3 || !int.TryParse(parts[0], out int major) || !int.TryParse(parts[1], out int minor) ||
+                !int.TryParse(parts[2], out int patch) || major < 0 || major > 20000 || minor is < 0 or > 99 || patch is < 0 or > 99)
+                throw new BuildFailedException($"[BoxBuild] Version \"{version}\" must be MAJOR.MINOR.PATCH with MINOR and PATCH 0-99");
+            return major * 10000 + minor * 100 + patch;
+        }
+
+        /// <summary>
+        /// Release signing from environment variables, so the keystore and its passwords never enter the repo:
+        /// TUNDU_KEYSTORE (path), TUNDU_KEYSTORE_PASS, TUNDU_KEY_ALIAS, TUNDU_KEY_PASS. Every update must be signed
+        /// with the same key, or boxes refuse it. Without them the APK is debug-signed: fine for MuMu, never publish it
+        /// (the release CLI refuses it).
+        /// </summary>
+        static bool ApplySigning()
+        {
+            string keystore = Environment.GetEnvironmentVariable("TUNDU_KEYSTORE");
+            if (string.IsNullOrEmpty(keystore) || !File.Exists(keystore))
+            {
+                PlayerSettings.Android.useCustomKeystore = false;
+                return false;
+            }
+            PlayerSettings.Android.useCustomKeystore = true;
+            PlayerSettings.Android.keystoreName = keystore;
+            PlayerSettings.Android.keystorePass = Environment.GetEnvironmentVariable("TUNDU_KEYSTORE_PASS") ?? "";
+            PlayerSettings.Android.keyaliasName = Environment.GetEnvironmentVariable("TUNDU_KEY_ALIAS") ?? "tundu";
+            PlayerSettings.Android.keyaliasPass = Environment.GetEnvironmentVariable("TUNDU_KEY_PASS") ?? PlayerSettings.Android.keystorePass;
+            return true;
+        }
+
+        /// <summary>The build to publish: refuses to run without the release keystore.</summary>
+        [MenuItem("MoveIt/Box/Build Release APK (signed)")]
+        public static void BuildReleaseApk()
+        {
+            if (!ApplySigning())
+            {
+                Debug.LogError("[BoxBuild] Release build needs TUNDU_KEYSTORE (+ TUNDU_KEYSTORE_PASS, TUNDU_KEY_ALIAS, TUNDU_KEY_PASS) set before Unity starts. See docs/cloud.md.");
+                return;
+            }
+            BuildApk();
         }
 
         [MenuItem("MoveIt/Box/Build Android APK")]
@@ -146,7 +195,11 @@ namespace MoveIt.EditorTools
             });
             var summary = report.summary;
             if (summary.result == BuildResult.Succeeded)
-                Debug.Log($"[BoxBuild] APK built: {apk} ({summary.totalSize / 1048576f:0.0} MB in {summary.totalTime.TotalMinutes:0.0} min)");
+            {
+                Debug.Log($"[BoxBuild] APK built: {apk} ({summary.totalSize / 1048576f:0.0} MB in {summary.totalTime.TotalMinutes:0.0} min), " +
+                          $"version {PlayerSettings.bundleVersion} ({PlayerSettings.Android.bundleVersionCode}), " +
+                          (PlayerSettings.Android.useCustomKeystore ? "release-signed" : "DEBUG-signed (not for publishing)"));
+            }
             else
                 Debug.LogError($"[BoxBuild] Android build {summary.result} with {summary.totalErrors} error(s). See the Console above.");
         }

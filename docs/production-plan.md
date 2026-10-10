@@ -17,7 +17,7 @@ since delivery takes 2–4 weeks and real speed numbers only come from the box.
 | P2 Brand | Name shortlist (checked for clashes) → user picks → logo (SVG), palette, kid-friendly font with ë/ç, regenerated icon, banner, boot animation, brand board page for review. **2026-10-08: name "Tundu" picked; logo, palette, fonts (Fredoka + Nunito), icon, banner, boot animation generated from `brand.json` + `tools/branding/logo.py`; waiting for the user's review** |
 | P3 Production UI | Replace IMGUI with **UI Toolkit** (one USS theme file = brand colors/fonts). Screens: first-run setup (language, camera placement with live silhouette, Wi-Fi), animated home with game cards, how-to-play cards, HUD, pause, results with stars/confetti, settings. Player mirror becomes a silhouette/avatar. Sounds and music. 10-foot TV sizing and overscan margins |
 | P4 Game polish | Kenney art already on D: (platformer kit → Runner world, Cube Pets → player characters, Input Prompts → remote icons), particles, sound, tutorials, difficulty tuning |
-| P5 Release engineering | Release keystore, versioning, OTA updates, local logs/crash capture (no tracking), 60 fps budget, QA checklist, git commits, scripted builds |
+| P5 Release engineering | Release keystore, versioning, OTA updates, local logs/crash capture (no tracking), 60 fps budget, QA checklist, git commits, scripted builds. **2026-10-10: cloud built (docs/cloud.md)**: signed OTA app/firmware updates with staged rollouts, crash reports via ApplicationExitInfo, versionCode scheme + release signing in BoxBuild, gift cards + Game Pass server (Cloudflare Worker + D1). Waiting for: Cloudflare setup and keys, a test on real boxes |
 
 ---
 

@@ -54,3 +54,12 @@ tools/compile-check/generated/
 unity/*/Assets/InitTestScene*
 unity/*/Assets/_Recovery/
 unity/*/Assets/_Recovery.meta
+
+# Tundu server (server/): dependencies and local state
+server/node_modules/
+server/.wrangler/
+server/.dev.vars
+server/.devbox.json
+# box cloud client tests (tools/cloud-java-tests): downloaded jars and compiled classes
+tools/cloud-java-tests/cache/
+tools/cloud-java-tests/build/

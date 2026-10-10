@@ -98,6 +98,15 @@ namespace MoveIt.Shell.Tests
             Assert.IsTrue(menu.SettingsOpen, "OK opens Settings");
             Assert.AreEqual(MainMenu.SettingsItem.Wifi, menu.SettingsFocus);
 
+            yield return Press(Key.DownArrow);
+            Assert.AreEqual(MainMenu.SettingsItem.GamePass, menu.SettingsFocus);
+            yield return Press(Key.Enter);
+            Assert.IsTrue(menu.GamePassOpen, "OK on Game Pass opens the code screen");
+            yield return Screenshot("gamepass.png");
+            yield return Press(Key.Escape);
+            Assert.IsFalse(menu.GamePassOpen, "Back closes the code screen");
+            Assert.IsTrue(menu.SettingsOpen, "...and returns to Settings");
+
             float before = AndroidDevice.Volume;
             yield return Press(Key.DownArrow);
             Assert.AreEqual(MainMenu.SettingsItem.Volume, menu.SettingsFocus);

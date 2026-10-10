@@ -1,0 +1,31 @@
+{
+  "name": "tundu-server",
+  "private": true,
+  "type": "module",
+  "description": "Tundu cloud: gift cards, Game Pass, device registry (Cloudflare Worker + D1) and the release/admin CLI",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json",
+    "dev": "wrangler dev",
+    "migrate:local": "wrangler d1 migrations apply tundu --local",
+    "migrate:remote": "wrangler d1 migrations apply tundu --remote",
+    "deploy": "wrangler deploy",
+    "vectors": "node test/make-vectors.ts",
+    "test:cli": "node --test cli/test/cli.test.ts",
+    "test:all": "npm run typecheck && npm test && npm run test:cli",
+    "dev:vars": "node test/dev-vars.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.2.7",
+    "@cloudflare/workers-types": "5.20260926.1",
+    "@types/node": "22.18.0",
+    "@vitest/runner": "4.1.11",
+    "@vitest/snapshot": "4.1.11",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11",
+    "wrangler": "4.140.0"
+  },
+  "engines": {
+    "node": ">=22.18"
+  }
+}

@@ -64,6 +64,8 @@ namespace UnityEngine.InputSystem
     public class Keyboard : InputDevice
     {
         public static Keyboard current => null;
+        /// <summary>Typed characters (the real Keyboard.onTextInput, an event of Action&lt;char&gt;).</summary>
+        public event System.Action<char> onTextInput { add { } remove { } }
         public KeyControl this[Key key] => null;
         public KeyControl anyKey => null;
         public KeyControl spaceKey => null;

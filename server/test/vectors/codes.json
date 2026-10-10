@@ -1,0 +1,114 @@
+{
+ "alphabet": "23456789ABCDEFGHJKLMNPQRSTUVWXYZ",
+ "valid": [
+  {
+   "input": "NFFWBJEP8YMCDZ4K",
+   "code": "NFFWBJEP8YMCDZ4K"
+  },
+  {
+   "input": "YVBC-4C2R-UP4L-U6CU",
+   "code": "YVBC4C2RUP4LU6CU"
+  },
+  {
+   "input": "6jce-ettw-p3tk-bbcb",
+   "code": "6JCEETTWP3TKBBCB"
+  },
+  {
+   "input": " YR7D R73A PV4T LFPT ",
+   "code": "YR7DR73APV4TLFPT"
+  },
+  {
+   "input": "https://tundu.al/kod#VGA9-57R4-7LGG-RTNK",
+   "code": "VGA957R47LGGRTNK"
+  },
+  {
+   "input": "XNCJ.42TM.LNXG.9RLR",
+   "code": "XNCJ42TMLNXG9RLR"
+  },
+  {
+   "input": "DRRV4UTUCHQPXLWM",
+   "code": "DRRV4UTUCHQPXLWM"
+  },
+  {
+   "input": "HV6Z-VE8N-U2QK-CYZT",
+   "code": "HV6ZVE8NU2QKCYZT"
+  },
+  {
+   "input": "pgs9-myvh-8qke-fk9u",
+   "code": "PGS9MYVH8QKEFK9U"
+  },
+  {
+   "input": " RZHK JGBL V656 BA4F ",
+   "code": "RZHKJGBLV656BA4F"
+  },
+  {
+   "input": "https://tundu.al/kod#UC7F-RNBM-UGLG-YY4F",
+   "code": "UC7FRNBMUGLGYY4F"
+  },
+  {
+   "input": "PZPX.S3AC.DEM6.WE78",
+   "code": "PZPXS3ACDEM6WE78"
+  },
+  {
+   "input": "ZG5NSDEXQBUVE9AM",
+   "code": "ZG5NSDEXQBUVE9AM"
+  },
+  {
+   "input": "6FB3-9MPF-N7RR-YX5D",
+   "code": "6FB39MPFN7RRYX5D"
+  },
+  {
+   "input": "nv5m-gngu-p3pf-j5zq",
+   "code": "NV5MGNGUP3PFJ5ZQ"
+  },
+  {
+   "input": " MS8P 5GJY X6MD 9B27 ",
+   "code": "MS8P5GJYX6MD9B27"
+  },
+  {
+   "input": "https://tundu.al/kod#KND3-9J4Z-73MA-7VB2",
+   "code": "KND39J4Z73MA7VB2"
+  },
+  {
+   "input": "LNEC.ZGGC.KBRT.XVWH",
+   "code": "LNECZGGCKBRTXVWH"
+  },
+  {
+   "input": "QFUQCMVP2LHEWXFW",
+   "code": "QFUQCMVP2LHEWXFW"
+  },
+  {
+   "input": "YMPJ-3VTA-ND9U-9G7V",
+   "code": "YMPJ3VTAND9U9G7V"
+  },
+  {
+   "input": "2222-2222-2222-2222",
+   "code": "2222222222222222"
+  },
+  {
+   "input": "ZZZZ-ZZZZ-ZZZZ-ZZZH",
+   "code": "ZZZZZZZZZZZZZZZH"
+  },
+  {
+   "input": "2345-6789-ABCD-EFGZ",
+   "code": "23456789ABCDEFGZ"
+  },
+  {
+   "input": "HJKL-MNPQ-RSTU-VWXZ",
+   "code": "HJKLMNPQRSTUVWXZ"
+  }
+ ],
+ "invalid": [
+  "",
+  "KP32YPFC4YUFM9N",
+  "KP32YPFC4YUFM9NP2",
+  "KP32YPFC4YUFM9NQ",
+  "OP32YPFC4YUFM9NP",
+  "0P32YPFC4YUFM9NP",
+  "IP32YPFC4YUFM9NP",
+  "1P32YPFC4YUFM9NP",
+  "KP32YPFC_YUFM9NP",
+  "ABCD-EFGH",
+  "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+ ]
+}

@@ -37,6 +37,7 @@ namespace MoveIt.Games
         public Color PrimaryColor => Parse(primary, new Color(1f, 0.79f, 0.24f));
         public Color SecondaryColor => Parse(secondary, new Color(1f, 0.35f, 0.31f));
         public Color AccentColor => Parse(accent, new Color(0.19f, 0.78f, 0.96f));
+        public Color LeafColor => Parse(leaf, new Color(0.44f, 0.84f, 0.42f));
         public Color BackgroundColor => Parse(background, new Color(0.08f, 0.1f, 0.22f));
         public Color SurfaceColor => Parse(surface, new Color(0.14f, 0.17f, 0.37f));
         public Color TextColor => Parse(text, Color.white);

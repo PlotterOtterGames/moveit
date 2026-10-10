@@ -89,10 +89,22 @@ Send the ODM `logo.bmp`, `bootanimation.zip`, the release APK and this list. Ask
     50–150 ms of picture processing. Our app logs `TV game mode (ALLM) supported: …` at start.
 13. **USB camera holds 30 fps in a dim room**: the camera must offer an auto-exposure range starting at 30
     (`[30, 30]` or `[30, 60]`); the app picks it and logs `Camera fps ranges: …` and the range it chose.
+14. **Signed with the ODM's own release keys, never AOSP test-keys** (`getprop ro.build.tags` = `release-keys`). With
+    test-keys anyone can sign "system" apps and updates; the malware boxes (T95, BADBOX) were test-key builds.
+15. **Production build, verified boot, locked bootloader, no root**: `ro.build.type` = `user`, `ro.debuggable` = `0`,
+    `ro.boot.verifiedbootstate` = `green`, `ro.boot.flash.locked` = `1`, no `su` anywhere.
+16. **A/B (seamless) system updates** that fall back to the old system if the new one doesn't boot, and for every
+    firmware release the **signed OTA images** (full, and incremental from the previous release) sent to us: we deliver
+    them through our own update channel (docs/cloud.md "Firmware"), their OTA updater is removed (item 4).
+17. **Device owner**: device-admin supported (`android.software.device_admin` in `pm list features`) and Tundu set as
+    device owner in the factory image (`al.tundu.games/al.moveit.cloud.AdminReceiver`), so app and firmware updates
+    install silently.
+18. **A clock battery (RTC)** if the board has the connector: the date survives unplugging (Game Pass and TLS need it).
 
-With item 3 (a system app signed with the firmware's platform key), MoveIt can later have its **own Wi-Fi screen**,
-**silent automatic updates**, and restart/power-off buttons. Ask the ODM whether they can sign our APK with their
-platform key, or whether they'll build it into each firmware release.
+With item 3 (a system app signed with the firmware's platform key), MoveIt can later have its **own Wi-Fi screen**
+and restart/power-off buttons. Ask the ODM whether they can sign our APK with their platform key, or whether they'll
+build it into each firmware release. Silent updates don't need the platform key: device owner (item 17, or
+`provision.ps1 -DeviceOwner` on pilot boxes) is enough (docs/cloud.md "Updates").
 
 **Signing key:** release APKs must be signed with *our* keystore (not Unity's debug key), and every update must use the
 same key, or boxes can't update. Create it once, back it up in two places, and never lose it.
@@ -117,3 +129,8 @@ box. Not built yet. Add it only if the pilot shows it's needed.
 - [ ] Settings → Wi-Fi opens and Back returns; volume works; language persists after reboot
 - [ ] `adb logcat MoveItMotion:V *:S`: is ALLM supported (box + our TV)? Which camera fps ranges, and does the camera
       stay at ~30 fps with the room lights dimmed?
+- [ ] Security properties (items 14-15): `getprop ro.build.tags ro.build.type ro.debuggable ro.boot.verifiedbootstate`;
+      watch the box's network traffic on guest Wi-Fi for unknown destinations (BADBOX check)
+- [ ] `pm list features` lists `android.software.device_admin`? `provision.ps1 -DeviceOwner` on a reset box, then a
+      `beta` update installs without a prompt (`adb logcat TunduCloud:V *:S`)
+- [ ] Unplug the box for a minute: is the date still right after boot (RTC), and how soon does the network fix it?

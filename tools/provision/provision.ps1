@@ -9,13 +9,18 @@
   .\provision.ps1                             # provision the box connected over USB
   .\provision.ps1 -Device 192.168.1.50:5555   # over the network (enable ADB debugging in the box's developer options)
   .\provision.ps1 -BootAnimation              # also replace the boot animation (needs a box whose adb allows root)
+  .\provision.ps1 -DeviceOwner                # make Tundu the device owner: silent app + firmware updates (see below)
   .\provision.ps1 -Undo                       # give the box back its normal Android launcher and apps
+
+  -DeviceOwner needs a freshly reset box with no Google/other accounts. It can only be undone by a factory reset
+  (Android's rule), so try it on a sample box first. See docs/cloud.md "Updates".
 #>
 param(
     [string]$Device = "",
     [string]$Apk = "",
     [switch]$Inspect,
     [switch]$BootAnimation,
+    [switch]$DeviceOwner,
     [switch]$Undo,
     [switch]$NoReboot
 )
@@ -178,6 +183,24 @@ if ($BootAnimation) {
         }
         if (-not $placed) {
             Write-Host "  This box does not allow it (no root/remount). Ask the ODM to put bootanimation.zip in the firmware." -ForegroundColor Yellow
+        }
+    }
+}
+
+# ---------- device owner (optional): silent updates ----------
+if ($DeviceOwner) {
+    Step "Making $($Brand.name) the device owner (silent app and firmware updates)"
+    $features = Shell "pm list features"
+    if (-not ($features -match "android.software.device_admin")) {
+        Write-Host "  This box has no device-admin support (android.software.device_admin): updates will ask for OK on the remote." -ForegroundColor Yellow
+    } else {
+        $admin = "$Package/al.moveit.cloud.AdminReceiver"
+        $result = Shell "dpm set-device-owner $admin"
+        Write-Host "  $result"
+        if ($result -match "Success") {
+            Write-Host "  Done. Only a factory reset removes it." -ForegroundColor Green
+        } else {
+            Write-Host "  Not set. Usual causes: an account on the box (remove it, or factory reset), or a second user." -ForegroundColor Yellow
         }
     }
 }

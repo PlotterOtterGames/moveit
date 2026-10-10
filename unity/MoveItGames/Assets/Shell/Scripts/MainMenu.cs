@@ -12,6 +12,9 @@ namespace MoveIt.Shell
     /// button returns here). A row of game tiles (six): a step to the left or right (or ← →) moves one tile, stepping back to
     /// the middle keeps it; raise both hands or press OK to play. ↓ reaches the Settings button. Settings is remote-only and shows just what a family
     /// needs. Android's own settings are hidden behind 7 presses on "Device" (like Android's developer-mode trick).
+    /// Game Pass: games in Game Pass show a lock while it isn't active; choosing one (or Settings → Game Pass) opens
+    /// the code screen (<see cref="GamePassPanel"/>). The signed catalog can hide a game (kill switch). App updates
+    /// install here only: right after the home screen appears, or after the menu sat idle (never during a game).
     /// </summary>
     public sealed class MainMenu : MonoBehaviour
     {
@@ -23,7 +26,7 @@ namespace MoveIt.Shell
             public Color Color;
         }
 
-        public enum SettingsItem { Wifi, Volume, Language, Camera, Version, Device, AndroidSettings }
+        public enum SettingsItem { Wifi, GamePass, Volume, Language, Camera, Version, Device, AndroidSettings }
 
         static readonly Entry[] Games =
         {
@@ -67,19 +70,32 @@ namespace MoveIt.Shell
 
         const int AdminTapsNeeded = 7;
         const string CameraTestScene = "MotionDebug";
+        /// <summary>An update waiting to install goes in after this long with no remote key and nobody in front of the camera.</summary>
+        const float IdleBeforeInstall = 600f;
 
         BodyInput _input;
         MotionDebugOverlay _mirror;
         int _previousLane;
         int _adminTaps;
+        readonly GamePassPanel _pass = new GamePassPanel();
+        readonly System.Collections.Generic.List<Entry> _shown = new System.Collections.Generic.List<Entry>(Games);
+        float _lastActivity;
+        bool _installing;
+        /// <summary>Until when (unscaled time) the "just started" install moment lasts; once per app start, not after each game.</summary>
+        static float _startupInstallUntil = -1f;
+        static bool _appStarted;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetStatics() => _appStarted = false;  // the editor keeps statics between Play sessions
 
         public int SelectedGame { get; private set; } = 1;
         public bool SettingsButtonFocused { get; private set; }
         public bool SettingsOpen { get; private set; }
         public SettingsItem SettingsFocus { get; private set; }
         public bool AdminUnlocked { get; private set; }
+        public bool GamePassOpen => _pass.Open;
 
-        int SettingsCount => AdminUnlocked ? 7 : 6;
+        int SettingsCount => AdminUnlocked ? 8 : 7;
 
         void Start()
         {
@@ -88,13 +104,62 @@ namespace MoveIt.Shell
             _previousLane = 0;
             _mirror = FindAnyObjectByType<MotionDebugOverlay>();
             GameAudio.PlayMusic("menu");
+            TunduCloud.SetBusy(false);
+            TunduCloud.MarkHealthy();
+            _lastActivity = Time.unscaledTime;
+            if (!_appStarted)
+            {
+                _appStarted = true;
+                _startupInstallUntil = Time.unscaledTime + 60f;
+            }
         }
 
         void Update()
         {
+            if (_installing) return;  // the app is about to restart as the new version
+            RefreshShownGames();
+            TrackActivity();
+            MaybeInstallUpdate();
+            if (_pass.Open)
+            {
+                _pass.Update();
+                return;
+            }
             GameNavigation.HandleCommonKeys();
             if (SettingsOpen) UpdateSettings();
             else UpdateHome();
+        }
+
+        // ---------- Game Pass and updates ----------
+
+        /// <summary>Games the catalog hides (kill switch, scheduled launch) are left out of the row.</summary>
+        void RefreshShownGames()
+        {
+            string selected = SelectedGame < _shown.Count ? _shown[SelectedGame].Scene : null;
+            _shown.Clear();
+            foreach (var g in Games)
+                if (TunduCloud.AccessFor(g.Scene) != Access.Hidden) _shown.Add(g);
+            int index = _shown.FindIndex(g => g.Scene == selected);
+            SelectedGame = Mathf.Clamp(index >= 0 ? index : SelectedGame, 0, Mathf.Max(0, _shown.Count - 1));
+        }
+
+        void TrackActivity()
+        {
+            bool remote = RemoteInput.Up || RemoteInput.Down || RemoteInput.Left || RemoteInput.Right || RemoteInput.Confirm || RemoteInput.Back;
+            bool someone = PlayerGate.State(_input) is GateState.Ready or GateState.Calibrating;
+            if (remote || someone) _lastActivity = Time.unscaledTime;
+        }
+
+        /// <summary>
+        /// In the first minute after the box starts (the family is just sitting down), or when nobody has used the box
+        /// for a while. Never after returning from a game, never during one.
+        /// </summary>
+        void MaybeInstallUpdate()
+        {
+            if (TunduCloud.Update.state != "ready" || _pass.Open || SettingsOpen) return;
+            bool startup = Time.unscaledTime < _startupInstallUntil;
+            bool idle = Time.unscaledTime - _lastActivity > IdleBeforeInstall;
+            if ((startup || idle) && TunduCloud.InstallNow()) _installing = true;
         }
 
         // ---------- home ----------
@@ -128,12 +193,21 @@ namespace MoveIt.Shell
                 OpenSettings();
                 return;
             }
-            if (ok || (_input != null && _input.ConfirmTriggered)) Launch(Games[SelectedGame].Scene);
+            if ((ok || (_input != null && _input.ConfirmTriggered)) && _shown.Count > 0)
+            {
+                var game = _shown[SelectedGame];
+                if (TunduCloud.AccessFor(game.Scene) == Access.Locked)
+                {
+                    GameAudio.Sfx("ui_select", vary: 0f);
+                    _pass.Show(game.Title());
+                }
+                else Launch(game.Scene);
+            }
         }
 
         void Select(int index)
         {
-            index = Mathf.Clamp(index, 0, Games.Length - 1);
+            index = Mathf.Clamp(index, 0, Mathf.Max(0, _shown.Count - 1));
             SettingsButtonFocused = false;
             if (index == SelectedGame) return;
             SelectedGame = index;
@@ -143,6 +217,7 @@ namespace MoveIt.Shell
         static void Launch(string scene)
         {
             GameAudio.Sfx("ui_select", vary: 0f);
+            TunduCloud.SetBusy(true);  // MainMenu.Start clears it when we're back
             if (Application.CanStreamedLevelBeLoaded(scene)) SceneManager.LoadScene(scene);
             else Debug.LogWarning($"[MainMenu] Scene '{scene}' is not in the build settings (run MoveIt > Build All Scenes).");
         }
@@ -208,8 +283,15 @@ namespace MoveIt.Shell
                 case SettingsItem.Wifi:
                     AndroidDevice.OpenWifiSettings();
                     break;
+                case SettingsItem.GamePass:
+                    _pass.Show(null);
+                    break;
                 case SettingsItem.Language:
                     Albanian = !Albanian;
+                    break;
+                case SettingsItem.Version:
+                    if (TunduCloud.Update.state == "ready" && TunduCloud.InstallNow()) _installing = true;
+                    else TunduCloud.CheckNow();
                     break;
                 case SettingsItem.Camera:
                     if (AndroidMotionService.NeedsPermission) AndroidMotionService.RequestPermission();
@@ -227,6 +309,7 @@ namespace MoveIt.Shell
         static string Label(SettingsItem item) => item switch
         {
             SettingsItem.Wifi => "Wi-Fi",
+            SettingsItem.GamePass => "Game Pass",
             SettingsItem.Volume => T("Volumi", "Volume"),
             SettingsItem.Language => T("Gjuha", "Language"),
             SettingsItem.Camera => T("Kamera", "Camera"),
@@ -244,9 +327,23 @@ namespace MoveIt.Shell
                 SettingsItem.Volume => $"‹  {Mathf.RoundToInt(AndroidDevice.Volume * 100f)}%  ›",
                 SettingsItem.Language => Albanian ? "‹  Shqip  ›" : "‹  English  ›",
                 SettingsItem.Camera => CameraValue(motion),
-                SettingsItem.Version => $"{Application.version}  ·  " + T("përditësimet automatike së shpejti", "automatic updates coming soon"),
+                SettingsItem.GamePass => GamePassPanel.StatusText() + "  ·  " + T("OK = fut kodin", "OK = enter a code"),
+                SettingsItem.Version => $"{Application.version}  ·  " + UpdateText(),
                 SettingsItem.Device => $"{AndroidDevice.Model}  ·  {AndroidDevice.OperatingSystem}",
                 _ => T("Vetëm për mbështetje teknike", "Technical support only"),
+            };
+        }
+
+        static string UpdateText()
+        {
+            var u = TunduCloud.Update;
+            return u.state switch
+            {
+                "downloading" => T($"po shkarkohet {u.version} ({Mathf.RoundToInt(u.progress * 100f)}%)", $"downloading {u.version} ({Mathf.RoundToInt(u.progress * 100f)}%)"),
+                "ready" => T($"{u.version} gati  ·  OK = instalo tani", $"{u.version} ready  ·  OK = install now"),
+                "installing" => T("po instalohet…", "installing…"),
+                "failed" => T("përditësimi nuk u krye, do provohet përsëri", "update failed, will retry"),
+                _ => T("i fundit  ·  OK = kontrollo", "up to date  ·  OK = check"),
             };
         }
 
@@ -277,6 +374,12 @@ namespace MoveIt.Shell
             DrawTopBar(w, brand);
             DrawHome(w, brand);
             if (SettingsOpen) DrawSettings(w, brand);
+            if (_pass.Open) _pass.Draw(w, brand);
+            if (_installing)
+            {
+                GameHud.Box(new Rect(0, 0, w, GameHud.Height), brand.BackgroundColor);
+                GameHud.Message(w, T("Po përditësohet Tundu…", "Updating Tundu…"), T("Mos e fik kutinë. Rifillon vetë pas pak.", "Don't switch the box off. It restarts by itself shortly."));
+            }
         }
 
         void DrawTopBar(float w, Brand brand)
@@ -295,13 +398,14 @@ namespace MoveIt.Shell
             GameHud.Text(new Rect(0, 150, w, 70), T("Zgjidh lojën", "Choose a game"), GameHud.Medium);
 
             const float tileH = 400f;
-            float gap = Games.Length > 5 ? 28f : 40f;
-            float tileW = Mathf.Min(520f, (w - 120f - gap * (Games.Length - 1)) / Games.Length);
-            float x0 = (w - (tileW * Games.Length + gap * (Games.Length - 1))) / 2f;
+            int n = Mathf.Max(1, _shown.Count);
+            float gap = n > 5 ? 28f : 40f;
+            float tileW = Mathf.Min(520f, (w - 120f - gap * (n - 1)) / n);
+            float x0 = (w - (tileW * n + gap * (n - 1))) / 2f;
             bool tilesFocused = !SettingsButtonFocused && !SettingsOpen;
-            for (int i = 0; i < Games.Length; i++)
+            for (int i = 0; i < _shown.Count; i++)
             {
-                var g = Games[i];
+                var g = _shown[i];
                 bool selected = i == SelectedGame;
                 float grow = selected && tilesFocused ? 20f : 0f;
                 var r = new Rect(x0 + i * (tileW + gap) - grow, 250 - grow, tileW + grow * 2, tileH + grow * 2);
@@ -314,6 +418,12 @@ namespace MoveIt.Shell
                 TileText.fontSize = tileW >= 300f ? 32 : 27;
                 GameHud.Text(new Rect(r.x, r.y + 40, r.width, 120), g.Title(), TileTitle);
                 GameHud.Text(new Rect(r.x + 22, r.y + 190, r.width - 44, 190), g.Description(), TileText);
+                if (TunduCloud.AccessFor(g.Scene) == Access.Locked)
+                {
+                    var badge = new Rect(r.x + 16, r.y + r.height - 64, r.width - 32, 48);
+                    GameHud.Box(badge, new Color(0f, 0f, 0f, 0.45f));
+                    GameHud.Text(badge, "GAME PASS", TileText, TextAnchor.MiddleCenter, brand.PrimaryColor);
+                }
             }
 
             var button = new Rect(w / 2f - 200f, 720f, 400f, 70f);
