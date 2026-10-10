@@ -126,8 +126,8 @@ The user writes informal English, wants clear recommendations rather than option
 - **Sample boxes NOT ordered yet** (`docs/sourcing.md` has the links: Tanix TX66 RK3566, H96 Max M9 RK3576,
   Spedal 931 120° webcam).
   Remind the user: delivery takes 2–4 weeks, and real speed numbers plus the Rockchip NPU path need them.
-- **Nothing is committed to git yet** (repo initialised, branch main, no commits). The user said "not yet" to a
-  first commit on 2026-10-07; offer it again, don't commit without asking.
+- **Git: on GitHub since 2026-10-10** (https://github.com/PlotterOtterGames/moveit, branch main, first commit
+  be51fc6, the user asked for it). Commit and push only when the user asks.
 
 ## Repository map (`D:\Projects\moveit`)
 | Path | What |
