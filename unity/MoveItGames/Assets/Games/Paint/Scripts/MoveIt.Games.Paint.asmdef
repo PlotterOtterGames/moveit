@@ -1,0 +1,18 @@
+{
+    "name": "MoveIt.Games.Paint",
+    "rootNamespace": "MoveIt.Games.Paint",
+    "references": [
+        "MoveIt.Motion",
+        "MoveIt.Games.Common",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

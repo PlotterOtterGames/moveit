@@ -1,0 +1,19 @@
+{
+    "name": "Tundu",
+    "company": "Tundu",
+    "androidPackage": "al.tundu.games",
+    "taglineSq": "Luaj me gjithë trupin!",
+    "taglineEn": "Play with your whole body!",
+    "primary": "#FFC93C",
+    "secondary": "#FF5A4E",
+    "accent": "#31C6F4",
+    "grape": "#7B61FF",
+    "leaf": "#6FD66A",
+    "background": "#141938",
+    "surface": "#232B5E",
+    "text": "#FFFFFF",
+    "textMuted": "#B8C0E6",
+    "players": ["#FFC93C", "#31C6F4", "#FF5A4E", "#6FD66A"],
+    "fontDisplay": "Fredoka",
+    "fontBody": "Nunito"
+}

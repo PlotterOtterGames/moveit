@@ -1,0 +1,46 @@
+# Python
+motion-service-py/.venv/
+__pycache__/
+*.pyc
+motion-service-py/sessions/
+
+# Unity (generated)
+unity/*/[Ll]ibrary/
+unity/*/[Tt]emp/
+unity/*/[Oo]bj/
+unity/*/[Bb]uild/
+unity/*/[Bb]uilds/
+unity/*/[Ll]ogs/
+unity/*/[Uu]ser[Ss]ettings/
+unity/*/[Mm]emoryCaptures/
+unity/*/*.csproj
+unity/*/*.sln
+unity/*/*.slnx
+unity/*/.vs/
+unity/*/.idea/
+unity/*/*.apk
+unity/*/*.aab
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.idea/
+.vscode/
+unity/*.log
+unity/captures/
+builds/
+tools/branding/out/
+tools/provision/logs/
+unity/MoveItGames/Assets/Plugins/Android/MoveItMotion.androidlib/src/main/assets/*.task
+
+# Blender art (art/): sources and scripts are committed; renders and backups are not
+art/**/previews/
+*.blend1
+
+# music previews rendered with tools/music/render.py --wav
+music/midi/*.wav
+
+# Pikturo colouring page previews (tools/paint/pages.py --preview)
+tools/paint/out/

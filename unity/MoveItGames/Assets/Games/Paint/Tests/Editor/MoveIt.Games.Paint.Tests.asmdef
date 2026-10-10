@@ -1,0 +1,26 @@
+{
+    "name": "MoveIt.Games.Paint.Tests",
+    "rootNamespace": "MoveIt.Games.Paint.Tests",
+    "references": [
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "MoveIt.Games.Paint",
+        "MoveIt.Games.Common",
+        "MoveIt.Motion"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

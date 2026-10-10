@@ -1,0 +1,36 @@
+// Android library module that Unity adds to the generated Gradle project (folders ending in .androidlib).
+apply plugin: 'com.android.library'
+
+android {
+    namespace 'al.moveit.motion'
+    compileSdk 36
+    // Same tools as Unity's own modules (Unity ships only these; other versions would need a separate download).
+    buildToolsVersion = "36.0.0"
+
+    defaultConfig {
+        minSdk 28
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main {
+            manifest.srcFile 'AndroidManifest.xml'
+            java.srcDirs = ['src/main/java']
+            // Pose models are copied here from motion-service-py/models by MoveIt > Box > Build Android APK.
+            assets.srcDirs = ['src/main/assets']
+        }
+    }
+}
+
+dependencies {
+    implementation 'com.google.mediapipe:tasks-vision:1.0.0'
+    implementation 'androidx.camera:camera-core:1.6.2'
+    implementation 'androidx.camera:camera-camera2:1.6.2'
+    implementation 'androidx.camera:camera-lifecycle:1.6.2'
+    // @OptIn for CameraX's Camera2 interop (camera frame-rate range).
+    implementation 'androidx.annotation:annotation-experimental:1.4.1'
+}

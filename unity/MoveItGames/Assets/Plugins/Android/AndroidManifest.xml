@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MoveIt main manifest. Unity merges this into the generated Android project.
+  The extra HOME intent filter lets the box use MoveIt as its home screen: tools/provision/provision.ps1 makes it the
+  default, so the box boots straight into MoveIt and the remote's Home button always comes back here.
+  Requires Player Settings > Application Entry Point = Activity (set by MoveIt > Box > Configure Android Settings).
+  preferMinimalPostProcessing (Android 11+): asks the TV over HDMI to switch to its game mode (ALLM). TVs otherwise add
+  50-150 ms of picture processing, more than our whole camera-to-game pipeline. Ignored where unsupported.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" xmlns:tools="http://schemas.android.com/tools">
+    <!-- TV boxes have no touchscreen and the camera is an external USB one: none of these may be required. -->
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <application>
+        <activity android:name="com.unity3d.player.UnityPlayerActivity"
+                  android:theme="@style/UnityThemeSelector"
+                  android:exported="true"
+                  android:launchMode="singleTask"
+                  android:stateNotNeeded="true"
+                  android:resizeableActivity="false"
+                  android:preferMinimalPostProcessing="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data android:name="unityplayer.UnityActivity" android:value="true" />
+        </activity>
+    </application>
+</manifest>

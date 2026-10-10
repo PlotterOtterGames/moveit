@@ -1,0 +1,17 @@
+{
+    "name": "MoveIt.Games.Common",
+    "rootNamespace": "MoveIt.Games",
+    "references": [
+        "MoveIt.Motion",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -1,0 +1,17 @@
+# Apps to hide on every MoveIt box. Only packages that exist on the box are touched, and `pm disable-user` is
+# reversible (provision.ps1 -Undo). Stock launchers are detected and hidden automatically; list everything else here.
+# For a new box model run `provision.ps1 -Inspect` first and add its vendor apps below.
+#
+# Never add: com.android.settings, com.android.systemui, com.android.packageinstaller, com.android.providers.*,
+# anything with "inputmethod" or "webview" in its name. The box needs them.
+
+# Google apps: uncertified boxes should not ship them, and they show Android-looking popups.
+com.android.vending
+com.google.android.gms.setup
+
+# Product decision: keep or hide? (MoveIt is a game console, not a streaming box.)
+# com.google.android.youtube.tv
+# com.netflix.ninja
+
+# Vendor OTA updaters: a vendor update could replace our setup. Fill in per model after -Inspect, e.g.:
+# com.rockchip.update.service

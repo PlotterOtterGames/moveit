@@ -1,0 +1,27 @@
+{
+    "name": "MoveIt.Editor",
+    "rootNamespace": "MoveIt.EditorTools",
+    "references": [
+        "MoveIt.Motion",
+        "MoveIt.Games.Common",
+        "MoveIt.Games.Runner",
+        "MoveIt.Games.Slash",
+        "MoveIt.Games.Bowling",
+        "MoveIt.Games.Paint",
+        "MoveIt.Games.Sword",
+        "MoveIt.Shell",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
