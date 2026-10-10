@@ -114,6 +114,16 @@ use against rack tampering). `cards void-batch` for a lost parcel. Gift card fra
 tampered with on the rack and codes read before purchase; activation-on-sale and scratch-off panels are the
 standard answers.
 
+**Selling only offline** (decided 2026-10-10): cards are sold in shops and in person, there is no online shop and no
+payment system, so the server never touches money or card data. Batches are how you keep track:
+- **One batch per delivery to a shop** (20-100 cards), labelled with the shop and date. Activate it when that delivery
+  is paid (or right away if the shop pays up front). `cards list` shows how many of each batch were redeemed, i.e.
+  how a shop is selling. A shop that closes or loses cards: `cards void-batch` (redeemed cards keep working).
+- **Cards you sell yourself** (e.g. with a box delivered cash on delivery): small batches you carry, activated when
+  you take them along.
+- **A card in every box** (e.g. one month) instead of granting days to the box: it survives a factory reset, and every
+  family learns how cards work on day one. One batch per box shipment, activated when the shipment leaves.
+
 **Redeeming.** Settings → Game Pass (or choosing a locked game) opens the code screen: an on-screen grid of the 32
 characters for the remote (a USB keyboard works too); the check character is verified as the 16th character is
 typed. The box then sends `{code, request}`; the server answers `ok` (+days), `already_yours`, `used`,
@@ -276,7 +286,7 @@ batches of more than a few dozen cards). Plus the domain.
 | `server/cli/` | Built. 14 tests (key files, manifests, rollout buckets, APK checks, publish flow, card CSV) |
 | Box Java (`MoveItCloud.androidlib`) | Built. **Compiles against Android API 36 with all warnings as errors; 33 JUnit tests** on the pure classes (shared vectors with the server: codes, signatures, role separation, rollout; trusted clock; manifest rules; state; resumable verified downloads). **Not run on a device yet**: PackageInstaller install, job scheduling, receivers, device owner policies, crash reports, firmware |
 | Unity C# | Built. Compile check OK (player + editor); 7 new EditMode tests (code vectors, game access) pass outside Unity. **Not seen in Unity yet**: the Game Pass screen and locks (IMGUI), the changed `HomeScreenTests`, `BoxBuild.cs` (editor code can't be compile-checked here) |
-| Not built | QR scanning with the box camera; a web page for `tundu.al/kod`; payments/online sales; alerts (check `stats` by hand for now) |
+| Not built | QR scanning with the box camera; a web page for `tundu.al/kod`; alerts (check `stats` by hand for now). No online sales or payments, by decision: cards are sold offline |
 
 Your next steps, in order: run the Unity tests and look at Settings → Game Pass in the editor; set up Cloudflare and the
 keys ("Setting up"); decide which games go into Game Pass, the prices and card durations; ask the accountant the

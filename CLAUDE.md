@@ -160,7 +160,8 @@ The user writes informal English, wants clear recommendations rather than option
   Not yet: the user's Cloudflare account, keys and keystore (**no production keys exist: `releases/keys.json` is
   empty, so builds trust no manifest or token yet**), a look in Unity (Game Pass screen, the changed
   `HomeScreenTests`; `BoxBuild.cs` can't be compile-checked in the cloud), a real silent update on a box, QR scanning
-  with the camera, the user's decisions (which games in Game Pass, prices, card durations), the accountant (fiscal
+  with the camera, the user's decisions (which games in Game Pass, prices, card durations; **cards are sold only
+  offline, in shops and in person: no payment system, user's decision 2026-10-10**), the accountant (fiscal
   receipts for cards, VAT on vouchers). `npm audit`: undici advisories in local dev tools only; upgrade wrangler ≥
   4.149 and @cloudflare/vitest-plugin ≥ 1.4.0 after 2026-10-22.
 - **Hardware sourcing (2026-10-08): `docs/sourcing.md`**: AliExpress links for the samples (checked from Albania,
