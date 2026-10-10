@@ -14,6 +14,8 @@ Scripts:
            raised as the switch: a circle, then (switch down) moves to a new spot and paints a line
     sword  Shpata! (sword right hand, shield left hand): hands up, waits for the knight, swings at its guard, then
            holds the shield overhead, left and right, each followed by a counterattack, then lets one blow through
+    fly    Fluturo!: hands up, countdown, then jabs straight at the camera (right, left), flies left and punches, flies
+           right and punches, ducks, jumps, a hook and a jab. Must give exactly 6 punches (the rest gives none)
 
 While the game asks for camera frames (Pikturo's camera mode), it also sends a drawn "camera picture" of the room
 and the player, exactly where the joints are (video.py), so the camera mode can be checked without a camera.
@@ -142,8 +144,27 @@ SWORD = [  # Shpata!: a swing at the knight's guard (bounces off), then three sh
     ("NO BLOCK (arms down while it attacks)", 2.5, IDLE),
     ("idle", 1.0, IDLE),
 ]
+FLY = [  # Fluturo!: jabs straight at the camera (only world joints show them), flying left/right, a duck and a jump
+    ("idle (calibration)", 2.5, IDLE),
+    *START,
+    ("countdown", 3.4, IDLE),
+    ("PUNCH RIGHT (straight at the TV)", 1.1, dict(IDLE, arm="jab_right")),
+    ("PUNCH LEFT", 1.1, dict(IDLE, arm="jab_left")),
+    ("step LEFT (fly left)", 1.3, dict(IDLE, x=0.40)),
+    ("PUNCH RIGHT (flying left)", 1.1, dict(IDLE, x=0.40, arm="jab_right")),
+    ("back to the middle", 1.2, IDLE),
+    ("step RIGHT (fly right)", 1.3, dict(IDLE, x=-0.40)),
+    ("PUNCH LEFT (flying right)", 1.1, dict(IDLE, x=-0.40, arm="jab_left")),
+    ("back to the middle", 1.2, IDLE),
+    ("DUCK (fly low)", 1.3, dict(IDLE, crouch=0.8)),
+    ("stand", 1.0, IDLE),
+    ("JUMP (fly up)", 1.4, dict(IDLE, hop=(0.12, 0.40))),
+    ("HOOK RIGHT", 1.1, dict(IDLE, arm="hook_right")),
+    ("PUNCH RIGHT", 1.1, dict(IDLE, arm="jab_right")),
+    ("idle", 4.0, IDLE),
+]
 SCRIPTS = {"basic": BASIC, "bowl": BOWL, "slash": SLASH, "idle": IDLE_FIDGET, "dropout": DROPOUT, "jumps": JUMPS,
-           "runner": RUNNER, "paint": PAINT, "sword": SWORD}
+           "runner": RUNNER, "paint": PAINT, "sword": SWORD, "fly": FLY}
 TRANSITION_S = 0.25
 JUMP_HEIGHT_M = 0.35
 JUMP_TIME_S = 0.55
@@ -336,6 +357,18 @@ def sword_cut(start, end, wind=0.35, swing=0.2, hold=0.2):
                               (wind + 0.12 + swing, end, None), (wind + 0.32 + swing + hold, end, None), (1.3, None, None)])
 
 
+def punch(side, to_wrist, to_elbow, extend=0.15):
+    """A punch: the fist comes up to the chin (guard), shoots out to `to_wrist` in `extend` seconds, comes back to the
+    guard, then the arm drops to rest. Metres, x > 0 = the player's left, z < 0 = toward the camera."""
+    sx = STAND[f"{side}_shoulder"][0]
+    inward = -1 if sx > 0 else 1                       # toward the body's middle
+    guard_w = (sx + inward * 0.05, 1.36, -0.25)        # fist by the chin, elbow down
+    guard_e = (sx - inward * 0.05, 1.15, -0.10)
+    return arm_keys(side, [(0, None, None), (0.25, guard_w, guard_e), (0.4, guard_w, guard_e),
+                           (0.4 + extend, to_wrist, to_elbow), (0.55 + extend, to_wrist, to_elbow),
+                           (0.8 + extend, guard_w, guard_e), (1.05, None, None)])
+
+
 def shield_hold(wrist, elbow, hold=1.2):
     """A shield block: the left hand raises the shield into place, holds it there, lowers it."""
     return arm_keys("left", [(0, None, None), (0.35, wrist, elbow), (0.35 + hold, wrist, elbow), (1.8, None, None)])
@@ -349,6 +382,10 @@ ARM_MOTIONS = {"bowl": bowl_arm, "swipe": swipe_arm, "scratch": scratch_arm, "cr
                "cut_down": sword_cut((-0.2, 2.0, -0.15), (-0.15, 1.0, -0.5)),
                "cut_up": sword_cut((-0.15, 1.0, -0.5), (-0.2, 2.0, -0.15)),
                "shield_over": shield_hold((0.0, 1.95, -0.3), (0.22, 1.75, -0.2)),
+               # Fluturo! (arm length 0.6 m: a straight arm is shoulder + 0.6 m)
+               "jab_right": punch("right", (-0.17, 1.44, -0.60), (-0.18, 1.43, -0.30)),
+               "jab_left": punch("left", (0.17, 1.44, -0.60), (0.18, 1.43, -0.30)),
+               "hook_right": punch("right", (-0.70, 1.48, -0.30), (-0.45, 1.45, -0.15), extend=0.18),
                "shield_left": shield_hold((0.45, 1.5, -0.35), (0.36, 1.2, -0.25)),
                "shield_right": shield_hold((-0.32, 1.48, -0.38), (0.02, 1.28, -0.3)),
                # hold on the colour column (right edge), long enough for a dwell selection, then back down

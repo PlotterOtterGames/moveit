@@ -9,6 +9,7 @@
         "MoveIt.Games.Bowling",
         "MoveIt.Games.Paint",
         "MoveIt.Games.Sword",
+        "MoveIt.Games.Fly",
         "MoveIt.Shell",
         "Unity.RenderPipelines.Core.Runtime",
         "Unity.RenderPipelines.Universal.Runtime"

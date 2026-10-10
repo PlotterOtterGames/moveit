@@ -1,6 +1,6 @@
 # Tundu (formerly "MoveIt"): handoff for the next session
 
-Read this first. It is the state of the project as of **2026-10-08**, written so a new session can continue
+Read this first. It is the state of the project as of **2026-10-10**, written so a new session can continue
 without the old conversation.
 
 ## The product
@@ -111,6 +111,28 @@ The user writes informal English, wants clear recommendations rather than option
   `Parries`). Keyboard: arrows swing, space shield, H swaps hands (remote ↑ on the box). Music `sword.ogg` ("Little
   Knights") + 7 `sword_*` sounds. Not yet: the user's review (Albanian in `SwordStrings`, the look), a try with the
   real camera (thresholds from the scripted player only), Blender knights, an APK build.
+- **Fluturo! (6th game, 2026-10-10, user: "a flying superhero game ... control while flying and punching"; they didn't
+  know the win/lose mechanic, so it was designed in a cloud session).** The hero flies forward over a toy city (seen
+  from behind and above); the hero follows the body in its window, no lanes (`FlyRun.Steer`: a step of 0.85 torso
+  lengths = the edge, duck = low, a jump lifts it for 0.7 s). Robots fly in, hover in front (their eye reddens), then
+  charge at where the hero is: punch them (any fist, any direction, within reach: a gold ring shows what a punch would
+  hit) or move away while they charge; a robot that reaches the hero = a heart. Stars and hearts drift past (fly
+  through). After each flight (35/39/43 s) the giant robot throws fireballs at the hero: punch them back to hurt it
+  (4/5/6 hits), or dodge. **Win** = the third boss beaten (about 3 minutes); **lose** = 5 hearts gone; hearts refill
+  after each boss, up to 2 heart pickups per level. Balance from simulated players (`FlyRunTests.Balance`): perfect
+  20/20 wins, "child" (0.45 s reactions, 65 % of punches in time, dodges half) 17/20, "struggling" 5/20, standing still
+  loses in ~25 s. **Punches**: `MoveSDK/Runtime/PunchDetector` (a bent arm straightening fast: shoulder-wrist distance /
+  arm length from <= 0.74 to >= 0.86 within 0.45 s with the fist moving away >= 2.6 torso lengths/s, measured over
+  0.15 s; in 3D with world joints so jabs straight at the TV count; or a straight-arm swing toward the TV that stops
+  there; never pointing down). Evidence in `PunchDetectorTests` (simulated 3D arms, a perspective camera, noise, the
+  BodyTracker filters, adult and child): all 10 punch kinds seen as the fist arrives (-50..+120 ms), no false punch
+  from steering, ducking, jumping, arm raises, dropping/raising the fists; a 0.9 s reach toward the TV counts 2 of 24
+  times (physically just a slow punch). Without world joints only sideways punches work (both services send them).
+  Code: `Games/Fly` (`FlyRun` rules without a scene, `FlyGame`, `Hero`, `RobotView` (robots and the boss), `FlyWorld`
+  (city and clouds baked into one mesh per colour), `FlyArt`, `FlyStrings`). Keyboard: arrows fly, space punches. Music
+  `fly.ogg` ("Sky Patrol") + 12 `fly_*` sounds. Not yet: everything visual was written in the cloud without Unity
+  (compile-checked, not seen): **the user must run Build All Scenes, then play it and the PlayMode test**; the Albanian
+  in `FlyStrings`; a try with the real camera; an APK build and the box's frame rate.
 - **Camera preview stream (protocol v1.1 addition, docs/protocol.md):** JPEG frames over UDP 127.0.0.1:5006, only
   while a game asks (`CameraFeed.Request()`): PC `video.py` (control port 5007), fake player draws a room + the
   scripted player, Android `VideoStreamer.java` via JNI `setVideo` (encodes on its own thread, never delays the
@@ -132,22 +154,24 @@ The user writes informal English, wants clear recommendations rather than option
 ## Repository map (`D:\Projects\moveit`)
 | Path | What |
 |---|---|
-| `motion-service-py/` | PC camera service: `main.py` (OpenCV + MediaPipe 1.0.1, `--model auto`, sends protocol v1.1), `video.py` (camera preview stream on request), `fake_sender.py` (scripted test player: `basic`, `bowl`, `slash`, `idle`, `dropout`, `jumps`, `runner`, `paint`, `sword`; draws a fake camera picture when asked), `replay.py`, `models/*.task`. Venv in `.venv` (Python 3.12) |
+| `motion-service-py/` | PC camera service: `main.py` (OpenCV + MediaPipe 1.0.1, `--model auto`, sends protocol v1.1), `video.py` (camera preview stream on request), `fake_sender.py` (scripted test player: `basic`, `bowl`, `slash`, `idle`, `dropout`, `jumps`, `runner`, `paint`, `sword`, `fly`; draws a fake camera picture when asked), `replay.py`, `models/*.task`. Venv in `.venv` (Python 3.12) |
 | `docs/protocol.md` | **Motion Protocol v1.1**: UDP JSON to 127.0.0.1:5005; 17 COCO joints `k` (+ optional world joints `wk`, `cam`, `model`) |
 | `unity/MoveItGames/` | Unity **6000.3.9f1** project (URP), **active platform: Android**. Editor at `D:\Unity\6000.3.9f1` |
-| `Assets/MoveSDK/Runtime` | Motion SDK: `CameraFeed` (camera picture for AR modes, on request), `MotionSystem` (UDP receiver, feeds every packet in order), `BodyTracker` (smooth + fast low-lag tracks with body-relative One Euro filters, velocity, world joints, 1.5 s dropout continuity), `BodyGestures` (lanes with look-ahead, jump at take-off incl. from a knee dip, crouch at onset, hands up), `BodyHands` (latency-predicted hand cursors), `UnderhandThrowDetector` (bowling, world depth + backswing), `BodyInput` (body + keyboard merged), `Android/AndroidMotionService.cs` (starts the Java service, camera permission, status) |
+| `Assets/MoveSDK/Runtime` | Motion SDK: `CameraFeed` (camera picture for AR modes, on request), `MotionSystem` (UDP receiver, feeds every packet in order), `BodyTracker` (smooth + fast low-lag tracks with body-relative One Euro filters, velocity, world joints, 1.5 s dropout continuity), `BodyGestures` (lanes with look-ahead, jump at take-off incl. from a knee dip, crouch at onset, hands up), `BodyHands` (latency-predicted hand cursors), `UnderhandThrowDetector` (bowling, world depth + backswing), `PunchDetector` (punches in any direction, 3D with world joints, tested on simulated arms), `BodyInput` (body + keyboard merged), `Android/AndroidMotionService.cs` (starts the Java service, camera permission, status) |
 | `Assets/Plugins/Android/MoveItMotion.androidlib` | **Java camera AI plugin**: CameraX 1.6.2 + MediaPipe tasks-vision 1.0.0, **synchronous VIDEO mode** on the CameraX analysis thread, GPU→CPU fallback, auto full→lite, sends protocol packets to localhost, on-demand camera snapshot. Models copied in at build time (gitignored) |
 | `Assets/Plugins/Android/AndroidManifest.xml` | Registers the app as the box's **HOME launcher** (`singleTask`); entry point = Activity; asks the TV for game mode (`preferMinimalPostProcessing`) |
 | `Assets/Games/Common` | Shared game code: `GameHud` (IMGUI helpers, temporary), `CommonStrings` (Albanian/English, persisted), `PlayerGate`, `RemoteInput` (TV remote mapping), `AndroidDevice` (volume, Wi-Fi screen), `Brand` (reads `Assets/Resources/brand.json`), `RecognitionLab` (camera test screen), `DevCapture`, `BoxRuntime` (60 fps, no sleep) |
 | `Assets/Games/Runner`, `Slash`, `Bowling` | The 3 gray-box games: Vrapo! (runner), Fruta! (slash), Bowling (1–4 players, `BowlingScore` with tests) |
 | `Assets/Games/Paint` | Pikturo!: `PaintGame` (modes, toolbars, hands, photos), `PaintCanvas` (premultiplied RenderTexture, wet paint, undo, bucket), `PaintBrush` (tools along smoothed strokes), `PaintPen` (pen rule), `PaintArt` (brush atlas and icons drawn in code), shader `Tundu/Brush`. Pages in `Assets/Resources/Paint/Pages` (alpha-only import: `Editor/PaintPageImport.cs`) |
 | `tools/logic-tests/` | .NET 8 + NUnit 3 project that links the engine-free game rules and their EditMode tests from the Unity project and compiles them against `UnityShim/` (cloud sessions: `dotnet test tools/logic-tests`) |
+| `tools/compile-check/` | `check.py`: compiles every asmdef except MoveIt.Editor as its own .NET project (same sources, defines, references) against Unity's UnityEngine reference assemblies (NuGet `UnityEngine.Modules` 2021.3) and `Stubs/` (Input System, test runner), for the Android player and the editor. Names Unity 6 added are listed in `UNITY6_ONLY` |
 | `tools/motion/cursor_sim.py` | Hand-cursor and Pikturo-pen simulator (mirrors OneEuroFilter, BodyTracker, BodyHands, the game loop; realistic noise and timing): stutter, shake, lag, swipe speed, when the brush goes down. Run it before changing cursor or pen numbers |
+| `Assets/Games/Fly` | Fluturo!: `FlyRun` (all rules: flight, robots, stars, hearts, the boss, levels, win/lose; no scene, tested with simulated players), `FlyGame` (body/keys to steering and punches, draws the run, HUD), `Hero` and `RobotView` (built from primitives), `FlyWorld` (scrolling toy city + clouds), `FlyArt` (ring, star mesh, heart texture), `FlyStrings` |
 | `Assets/Games/Sword` | Shpata!: `SwordGame` (duel: knight AI, blocks, counterattacks, markers, HUD), `SwordMoves` (swing/hit/shield/parry rules on the screen, tested), `GhostAvatar` (see-through player + sword + shield), `Knight` (toy knight, animated by state), `SwordArt` (shield-spot ring, alert, heart drawn in code). Shader `Games/Common/Shaders/TunduGhost` |
 | `tools/paint/pages.py` | Colouring pages as code (OpenCV, figures outlined by morphology): dino, house, fish, butterfly, rocket, cake. `--preview` writes checks with the toolbar areas to `tools/paint/out/` |
 | `docs/sourcing.md` | Where to buy every part (links), batch suppliers, Albanian import and CE, the ordering process |
-| `Assets/Shell/Scripts/MainMenu.cs` | Box home screen (4 game tiles; a step left/right or ← → moves one tile) + Settings (Wi-Fi, volume, language, camera, version, device; hidden Android settings: 7× OK on "Device") |
-| `Assets/Editor/MoveItSceneBuilder.cs` | **Scenes are generated by code**: menu *MoveIt → Build All Scenes* (Menu, Runner, Slash, Bowling, Paint, MotionDebug). Re-running overwrites them |
+| `Assets/Shell/Scripts/MainMenu.cs` | Box home screen (6 game tiles; a step left/right or ← → moves one tile) + Settings (Wi-Fi, volume, language, camera, version, device; hidden Android settings: 7× OK on "Device") |
+| `Assets/Editor/MoveItSceneBuilder.cs` | **Scenes are generated by code**: menu *MoveIt → Build All Scenes* (Menu, Runner, Slash, Bowling, Paint, Sword, Fly, MotionDebug). Re-running overwrites them |
 | `Assets/Editor/BoxBuild.cs` | *MoveIt → Box → Build Android APK* → `builds/android/<brand name>.apk` (~54 MB). Applies branding, IL2CPP ARM64, min API 28, TV banner and icon, copies models, sets GRADLE_USER_HOME=D:\.gradle in-process, caps Gradle heap at 2 GB |
 | `Assets/Resources/brand.json` | **The brand's single source**: name, app id, taglines, palette (primary/secondary/accent/grape/leaf/background/surface/text/textMuted, 4 player colors), fonts. Read by `Brand.cs`, `BoxBuild.cs`, the scripts in `tools/` |
 | `tools/branding/` | `logo.py` (the logo as geometry → SVG + anti-aliased PNG), `make_branding.py` (logo files in `brand/logo/`, icon/banner/logo/mark in `Assets/Branding/`, boot animation + boot logo BMP + GIF preview in `out/`), `brand_board.py` (the review page). Run with the motion-service venv |
@@ -170,7 +194,11 @@ The user writes informal English, wants clear recommendations rather than option
   `SwordGameTests`: the duel with the scripted player: a swing off the guard, shield blocks from all three sides each
   followed by a counterattack that lands, an unblocked blow costs a heart, `sword_*.png`),
   EditMode 29 (`BowlingScoreTests` 10, `PaintCanvasTests` 11, `HandCursorTests` 3, `SwordMovesTests` 5). On 2026-10-09
-  all passed (2026-10-10: 11/11 PlayMode, 29/29 EditMode; `IdleFidgeting_TriggersNothing` still fails now and then). `SwordGameTests` uses port 5013. Run them once at the start of
+  all passed (2026-10-10: 11/11 PlayMode, 29/29 EditMode; `IdleFidgeting_TriggersNothing` still fails now and then).
+  Added in the cloud on 2026-10-10, not yet run in Unity: EditMode `PunchDetectorTests` 5 (+ 2 explicit diagnostics),
+  `FlyRunTests` 17 (both pass under dotnet), PlayMode `FlyGameTests` (fake_sender --script fly, port 5014: exactly 6
+  punches with the right hands, each smashes a robot, the body steers, the boss comes; screenshots `fly_*.png`).
+  `SwordGameTests` uses port 5013. Run them once at the start of
   a session. `PaintGameTests` use ports 5012 (motion) and 5016/5017 (video), so a running `main.py` doesn't interfere.
   Without the editor open: `Unity.exe -projectPath … -runTests -testPlatform EditMode|PlayMode -testResults <xml>`
   (scenes: `-batchmode -executeMethod MoveIt.EditorTools.MoveItSceneBuilder.BuildAll -quit`). EditMode works with
@@ -195,13 +223,16 @@ The user writes informal English, wants clear recommendations rather than option
   Drive the app with `adb shell input keyevent 20/22/66/4` (down/right/enter/back), leaving ~1.5 s between keys.
 - **Cloud sessions (claude.ai/code, since 2026-10-10):** a Linux container with a fresh clone, none of the laptop
   (no D:, Unity, Blender, MuMu, camera). `.claude/hooks/session-start.sh` (cloud only) installs .NET 8 and the venv
-  (`motion-service-py/.venv/bin/python`, + Pillow) and builds the logic tests. Runs here: everything in `tools/`
-  except Blender, `fake_sender.py` (to a UDP listener), and **`dotnet test tools/logic-tests`**: the game rules
-  that need no engine (`BowlingScore`, `SwordMoves`, `HandInterpolator`, `HandPresence`, `OneEuroFilter`, `Body`,
-  `Joint`) and their EditMode tests (18 of 29; `PaintCanvasTests` need the GPU), compiled as C# 9 against
-  `tools/logic-tests/UnityShim` (Vector2/3, Mathf, Time with Unity's exact formulas). Adding a file: link it in the
-  csproj; a missing UnityEngine member goes into the shim with Unity's behaviour. Everything else in C# (MonoBehaviours,
-  scenes, shaders) and the Java is written blind: say so, the user compiles and tests on the laptop. Re-rendered OGGs
+  (`motion-service-py/.venv/bin/python`, + Pillow), builds the logic tests and runs the compile check. Runs here:
+  everything in `tools/` except Blender, `fake_sender.py` (to a UDP listener), **`dotnet test tools/logic-tests`**: the
+  game rules that need no engine (`BowlingScore`, `SwordMoves`, `FlyRun`, `PunchDetector`, `HandInterpolator`,
+  `HandPresence`, `OneEuroFilter`, `Body`, `Joint`) and their EditMode tests (40 tests; `PaintCanvasTests` need the
+  GPU), compiled as C# 9 against `tools/logic-tests/UnityShim` (Vector2/3, Mathf, Time with Unity's exact formulas),
+  and **`python3 tools/compile-check/check.py`**: all the game C# (MonoBehaviours, PlayMode tests) against Unity's
+  reference assemblies. Put engine-free rules in their own class (like `FlyRun`, `SwordMoves`) so they can be tested
+  here; adding a file to the logic tests: link it in the csproj, a missing UnityEngine member goes into the shim with
+  Unity's behaviour. Not checkable here: the editor scripts (scene builder, BoxBuild), shaders, scenes, how it looks and
+  feels, and the Java: say so, the user checks on the laptop. Re-rendered OGGs
   differ by a few bytes (another encoder build) but sound the same: only commit audio that really changed. The
   network blocks `dl.google.com` (Android Maven) and Unity downloads. Work goes to a `claude/...` branch; the user
   pulls, checks in Unity and merges.

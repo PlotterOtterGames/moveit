@@ -151,6 +151,38 @@ def make():
                             *[(0.05 + 0.07 * i, note(S.marimba, p), 0.45) for i, p in enumerate((C5 + 12, E5 + 12, G5 + 12, C6 + 12))],
                             (0.33, note(S.glockenspiel, C6 + 12), 0.35))
     sfx["sword_alert"] = mix(0.5, (0, note(S.xylophone, E5 + 12), 0.7), (0.09, note(S.xylophone, A5 + 12), 0.8))
+    # Fluturo!
+    sfx["fly_punch"] = mix(0.25, (0, env(S.noise(int(SR * 0.11), 1500, 7000, seed=50), 0.015, 0.07), 0.6),
+                           (0.05, S._tone_drum(170, 90, 0.04, 0.12), 0.35))
+    pow_ = S._tone_drum(210, 70, 0.08, 0.3)
+    sfx["fly_smash"] = mix(0.8, (0, pow_, 1.0), (0, ring(640, 0.25, 0.6), 0.45),
+                           (0, env(S.noise(int(SR * 0.18), 600, 6000, seed=51), 0.002, 0.15), 0.45),
+                           (0.05, note(S.marimba, C6, vel=0.8), 0.3), (0.09, note(S.glockenspiel, G5 + 12), 0.3))
+    beep = lambda p: env(sweep(S.mtof(p), S.mtof(p), 0.09, harmonics=((1, 1), (3, 0.3))), 0.004, 0.03)
+    sfx["fly_charge"] = mix(0.45, (0, beep(C6 + 7), 0.5), (0.12, beep(C6 + 7), 0.5),
+                            (0.24, env(sweep(700, 1600, 0.18, shape=0.6, harmonics=((1, 1), (2, 0.2))), 0.01, 0.06), 0.35))
+    sfx["fly_hurt"] = mix(0.9, (0, S._tone_drum(150, 60, 0.1, 0.4), 0.9), (0.02, oof, 0.5),
+                          (0.35, tweet, 0.22), (0.47, tweet, 0.2), (0.62, tweet, 0.17))
+    n = int(SR * 0.5)
+    t = np.arange(n) / SR
+    sfx["fly_whoosh"] = S.noise(n, 400, 5000, seed=52) * np.sin(np.pi * t / 0.5) ** 2 * 0.7
+    sfx["fly_star"] = mix(0.45, (0, note(S.glockenspiel, C6 + 12), 0.6), (0, note(S.marimba, C6, vel=0.6), 0.35))
+    sfx["fly_heart"] = mix(0.9, *[(0.06 * i, note(S.glockenspiel, p), 0.45) for i, p in enumerate((C6, E5 + 12, G5 + 12, C6 + 12))],
+                           (0, note(S.marimba, C5, vel=0.7), 0.4))
+    sfx["fly_boss"] = mix(1.8, (0, S._tone_drum(70, 40, 0.5, 1.2), 0.9), (0.3, S._tone_drum(66, 38, 0.5, 1.2), 0.9),
+                          (0.6, S._tone_drum(58, 32, 0.8, 1.2), 1.0),
+                          (0.6, env(sweep(90, 260, 1.0, shape=1.5, harmonics=((1, 1), (2, 0.5), (3, 0.25))), 0.2, 0.4), 0.35),
+                          *[(0.6 + 0.02 * i, note(S.xylophone, p, vel=0.7), 0.3) for i, p in enumerate((C5 - 12, 66 - 12, C5))])
+    sfx["fly_throw"] = mix(0.7, (0, env(S.noise(int(SR * 0.5), 200, 2500, seed=53), 0.04, 0.35), 0.6),
+                           (0, env(sweep(180, 90, 0.4, harmonics=((1, 1), (2, 0.4))), 0.01, 0.25), 0.4))
+    sfx["fly_return"] = mix(0.6, (0, ring(1400, 0.2, 0.5), 0.5), (0, env(S.noise(int(SR * 0.3), 1500, 9000, seed=54), 0.01, 0.25), 0.4),
+                            (0.03, note(S.glockenspiel, G5 + 24), 0.35))
+    sfx["fly_bosshit"] = mix(0.9, (0, S._tone_drum(120, 45, 0.15, 0.6), 1.0), (0, ring(420, 0.4, 0.8), 0.5),
+                             (0, env(S.noise(int(SR * 0.3), 300, 5000, seed=55), 0.002, 0.25), 0.5))
+    sfx["fly_bossdown"] = mix(2.0, (0, S._tone_drum(80, 30, 0.6, 1.4), 1.0),
+                              (0, env(S.noise(int(SR * 1.4), 40, 1800, seed=56), 0.005, 1.1), 0.8),
+                              *[(0.35 + 0.08 * i, note(S.marimba, p), 0.5) for i, p in enumerate((C5, E5, G5, C6, E5 + 12, G5 + 12))],
+                              (0.9, note(S.glockenspiel, C6 + 12), 0.4))
     return sfx
 
 

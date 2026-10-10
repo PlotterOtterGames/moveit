@@ -400,6 +400,39 @@ def sword():
     return s
 
 
+def fly():
+    """Fluturo! 'Sky Patrol': a bright, heroic theme for flying over the city, whistle and flute over pizzicato and a
+    warm pad, bouncing bass, driving drums with a tambourine."""
+    s = Song("fly", "Sky Patrol", 132,
+             "C | Am7 | F | G | C | Em7 | F | G7sus4 | Am7 | F | C | G | F | G | Am7 G | C", seed=31)
+    lead = s.track("Whistle", 0, WHISTLE, 104, 58, 55)
+    flute = s.track("Flute", 1, FLUTE, 80, 80, 60)
+    glock = s.track("Glockenspiel", 2, GLOCK, 58, 90, 70)
+    pad = s.track("Pad", 3, PAD, 62, 64, 70)
+    pizz = s.track("Pizzicato", 4, PIZZ, 80, 44, 30)
+    bass = s.track("Bass", 5, FINGER_BASS, 100, 64, 20)
+    kit = s.track("Drums", 9, 0, 94, 64, 30)
+    a = M("C5:2 G5:2 C6:3 B5 | A5:2 E5:2 A5:2 C6:2 | F5:2 A5 C6 F6:3 E6 | D6:4 B5:2 G5:2 | "
+          "E6:2 D6 C6 G5:2 C6:2 | B5:2 G5 E5 B5:2 D6:2 | C6:2 A5 F5 A5:2 C6:2 | D6:4 r:2 G5 A5")
+    b = M("C6:3 B5 A5:2 E5:2 | F5:2 A5:2 C6:2 F6:2 | E6:3 D6 C6:2 G5:2 | B5:2 D6:2 G6:4 | "
+          "A6:3 G6 F6:2 C6:2 | D6:2 G6:2 B5:2 D6:2 | C6:2 E6:2 D6:2 B5:2 | C6:4 r:4")
+    end = s.melody(lead, a, velocity=100, legato=0.86)
+    s.melody(flute, b, velocity=96, legato=0.86, start=end)                     # the flute takes the second half
+    s.melody(glock, b, octave_shift=1, velocity=60, legato=0.5, start=end)      # sparkling on top
+    s.melody(lead, b, octave_shift=-1, velocity=70, legato=0.86, start=end)     # the whistle harmonises below
+    s.comp(pad, [(0, 4)], low=pitch("E3"), high=pitch("C5"), velocity=56, length=0.98, size=3)
+    s.comp(pizz, [(0.5, 0.25), (1.5, 0.25), (2.5, 0.25), (3.5, 0.25)], low=pitch("G3"), high=pitch("E5"), velocity=66, size=3)
+    s.bass(bass, "bounce", low=pitch("E1"), velocity=94)
+    s.drums(kit, {
+        KICK:  "x.....x.x.......",
+        SNARE: "....x.......x..." + "....x.......x.xx",
+        HAT:   "x.x.x.x.x.x.x.x.",
+        TAMB:  "..o...o...o...o.",
+        CRASH: "x..............." + "................" * 7,
+    })
+    return s
+
+
 def jingle_win():
     """New record: a quick rising fanfare that lands on a sparkling chord."""
     s = Song("jingle_win", "Bravo!", 140, "C | Cmaj9", seed=11)
@@ -436,7 +469,7 @@ def jingle_gameover():
     return s
 
 
-SONGS = {f.__name__: f for f in (menu, runner, slash, bowling, paint, sword, jingle_win, jingle_gameover)}
+SONGS = {f.__name__: f for f in (menu, runner, slash, bowling, paint, sword, fly, jingle_win, jingle_gameover)}
 
 
 def main():

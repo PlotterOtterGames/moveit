@@ -1,0 +1,24 @@
+{
+    "name": "MoveIt.Games.Fly.PlayTests",
+    "rootNamespace": "MoveIt.Games.Fly.Tests",
+    "references": [
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "MoveIt.Games.Fly",
+        "MoveIt.Games.Common",
+        "MoveIt.Motion"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

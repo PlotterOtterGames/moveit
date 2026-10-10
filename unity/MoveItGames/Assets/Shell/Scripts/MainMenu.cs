@@ -9,7 +9,7 @@ namespace MoveIt.Shell
 {
     /// <summary>
     /// The box's home screen (the app is registered as Android's HOME, so the box boots here and the remote's Home
-    /// button returns here). A row of game tiles: a step to the left or right (or ← →) moves one tile, stepping back to
+    /// button returns here). A row of game tiles (six): a step to the left or right (or ← →) moves one tile, stepping back to
     /// the middle keeps it; raise both hands or press OK to play. ↓ reaches the Settings button. Settings is remote-only and shows just what a family
     /// needs. Android's own settings are hidden behind 7 presses on "Device" (like Android's developer-mode trick).
     /// </summary>
@@ -56,6 +56,12 @@ namespace MoveIt.Shell
                 Scene = "Sword", Color = new Color(0.27f, 0.7f, 0.36f),
                 Title = () => T("Shpata!", "Swords!"),
                 Description = () => T("Godit kalorësit me shpatë dhe mbrohu nga goditjet e tyre", "Hit the knights with your sword and block their blows"),
+            },
+            new Entry
+            {
+                Scene = "Fly", Color = new Color(0.12f, 0.62f, 0.85f),
+                Title = () => T("Fluturo!", "Fly!"),
+                Description = () => T("Fluturo si superhero mbi qytet dhe godit robotët me grusht", "Fly like a superhero over the city and punch the robots"),
             },
         };
 
@@ -258,8 +264,9 @@ namespace MoveIt.Shell
 
         // ---------- drawing ----------
 
-        GUIStyle _tileTitle;
+        GUIStyle _tileTitle, _tileText;
         GUIStyle TileTitle => _tileTitle ??= new GUIStyle(GameHud.Big) { fontSize = 76, wordWrap = false };
+        GUIStyle TileText => _tileText ??= new GUIStyle(GameHud.Small);
 
         void OnGUI()
         {
@@ -287,7 +294,8 @@ namespace MoveIt.Shell
         {
             GameHud.Text(new Rect(0, 150, w, 70), T("Zgjidh lojën", "Choose a game"), GameHud.Medium);
 
-            const float tileH = 400f, gap = 40f;
+            const float tileH = 400f;
+            float gap = Games.Length > 5 ? 28f : 40f;
             float tileW = Mathf.Min(520f, (w - 120f - gap * (Games.Length - 1)) / Games.Length);
             float x0 = (w - (tileW * Games.Length + gap * (Games.Length - 1))) / 2f;
             bool tilesFocused = !SettingsButtonFocused && !SettingsOpen;
@@ -301,9 +309,11 @@ namespace MoveIt.Shell
                 var c = g.Color;
                 c.a = selected ? 1f : 0.55f;
                 GameHud.Box(r, c);
-                TileTitle.fontSize = tileW >= 440f ? 76 : 60;   // five tiles on a 16:9 TV are narrower
+                // five or six tiles on a 16:9 TV are narrower: smaller type
+                TileTitle.fontSize = tileW >= 440f ? 76 : tileW >= 300f ? 60 : 50;
+                TileText.fontSize = tileW >= 300f ? 32 : 27;
                 GameHud.Text(new Rect(r.x, r.y + 40, r.width, 120), g.Title(), TileTitle);
-                GameHud.Text(new Rect(r.x + 30, r.y + 200, r.width - 60, 160), g.Description(), GameHud.Small);
+                GameHud.Text(new Rect(r.x + 22, r.y + 190, r.width - 44, 190), g.Description(), TileText);
             }
 
             var button = new Rect(w / 2f - 200f, 720f, 400f, 70f);

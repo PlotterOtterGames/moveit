@@ -1,6 +1,7 @@
 using System.Linq;
 using MoveIt.Games;
 using MoveIt.Games.Bowling;
+using MoveIt.Games.Fly;
 using MoveIt.Games.Paint;
 using MoveIt.Games.Runner;
 using MoveIt.Games.Slash;
@@ -31,6 +32,8 @@ namespace MoveIt.EditorTools
         const string PaintMaterialsDir = "Assets/Games/Paint/Materials";
         const string SwordScenePath = "Assets/Games/Sword/Sword.unity";
         const string SwordMaterialsDir = "Assets/Games/Sword/Materials";
+        const string FlyScenePath = "Assets/Games/Fly/Fly.unity";
+        const string FlyMaterialsDir = "Assets/Games/Fly/Materials";
         const string RunnerMaterialsDir = "Assets/Games/Runner/Materials";
         const string RunnerArtDir = "Assets/Games/Runner/Art";
         const string DinoModelPath = RunnerArtDir + "/Dino.fbx";
@@ -51,6 +54,7 @@ namespace MoveIt.EditorTools
             BuildBowlingScene();
             BuildPaintScene();
             BuildSwordScene();
+            BuildFlyScene();
             EditorBuildSettings.scenes = new[]
             {
                 new EditorBuildSettingsScene(MenuScenePath, true),
@@ -59,13 +63,14 @@ namespace MoveIt.EditorTools
                 new EditorBuildSettingsScene(BowlingScenePath, true),
                 new EditorBuildSettingsScene(PaintScenePath, true),
                 new EditorBuildSettingsScene(SwordScenePath, true),
+                new EditorBuildSettingsScene(FlyScenePath, true),
                 new EditorBuildSettingsScene(MotionDebugScenePath, true),
             };
             PlayerSettings.runInBackground = true;  // keep receiving motion data when another window has focus
             BoxBuild.ApplyBranding();
             AssetDatabase.SaveAssets();
             EditorSceneManager.OpenScene(MenuScenePath);
-            Debug.Log("[MoveIt] Built Menu, Runner, Slash, Bowling, Paint, Sword and MotionDebug scenes.");
+            Debug.Log("[MoveIt] Built Menu, Runner, Slash, Bowling, Paint, Sword, Fly and MotionDebug scenes.");
         }
 
         [MenuItem("MoveIt/Build Menu Scene")]
@@ -327,6 +332,79 @@ namespace MoveIt.EditorTools
             Set(game, "markerMaterial", FxMat("Marker", null, Color.white, folder: SwordMaterialsDir, onTop: true));
 
             EditorSceneManager.SaveScene(scene, SwordScenePath);
+        }
+
+        /// <summary>
+        /// Fluturo!: flying over a toy city under a bright sky (<see cref="FlyWorld"/> builds the city in code), the camera
+        /// behind and above the hero (<see cref="FlyGame"/> moves it). No shadows: everything is in the air, and it's
+        /// cheaper on the box.
+        /// </summary>
+        [MenuItem("MoveIt/Build Fly Scene")]
+        public static void BuildFlyScene()
+        {
+            EnsureFolder(FlyMaterialsDir);
+            var horizon = Hex("#D2EEF6");
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            RenderSettings.skybox = SkyMat(horizon, FlyMaterialsDir);
+            RenderSettings.fog = true;
+            RenderSettings.fogMode = FogMode.Linear;
+            RenderSettings.fogColor = horizon;
+            RenderSettings.fogStartDistance = 60f;
+            RenderSettings.fogEndDistance = 165f;
+            RenderSettings.ambientMode = AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(0.62f, 0.66f, 0.74f);
+            CreateLight(Quaternion.Euler(50f, -30f, 0f), 1.2f, shadows: false);
+            Object.FindAnyObjectByType<Light>().color = new Color(1f, 0.96f, 0.88f);
+
+            var cam = CreateCamera(horizon);
+            cam.clearFlags = CameraClearFlags.Skybox;
+            cam.nearClipPlane = 0.1f;
+            cam.farClipPlane = 200f;
+            cam.fieldOfView = 60f;
+            cam.transform.position = new Vector3(0f, FlyWorld.FlyHeight + 1.6f, -5f);
+            cam.transform.LookAt(new Vector3(0f, FlyWorld.FlyHeight + 0.2f, 8f));
+            cam.GetUniversalAdditionalCameraData().renderPostProcessing = true;
+            var post = new GameObject("Post Processing").AddComponent<Volume>();
+            post.isGlobal = true;
+            post.sharedProfile = PostProfile("Assets/Games/Fly/FlyPost.asset");
+
+            CreateMotionRig(fullScreenOverlay: false);
+
+            var world = new GameObject("City").AddComponent<FlyWorld>();
+            Set(world, "cityMaterial", FlyToon("City", curve: true));
+            Set(world, "cloudMaterial", FlyToon("Cloud", rim: 0.35f));
+
+            var game = new GameObject("Fly").AddComponent<FlyGame>();
+            Set(game, "cam", cam);
+            Set(game, "world", world);
+            Set(game, "toonMaterial", FlyToon("Toon", rim: 0.2f));
+            Set(game, "sparkMaterial", FxMat("Spark", "fx_star.png", Color.white, folder: FlyMaterialsDir));
+            Set(game, "glowMaterial", FxMat("Glow", "fx_dot.png", Color.white, additive: true, folder: FlyMaterialsDir));
+            Set(game, "markerMaterial", FxMat("Marker", null, Color.white, folder: FlyMaterialsDir, onTop: true));
+
+            EditorSceneManager.SaveScene(scene, FlyScenePath);
+        }
+
+        /// <summary>Tundu/Toon, white (the game colours each part): flat, or bending with the world (the city).</summary>
+        static Material FlyToon(string name, float rim = 0f, bool curve = false)
+        {
+            string path = $"{FlyMaterialsDir}/{name}.mat";
+            var shader = Shader.Find("Tundu/Toon");
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = shader;
+            mat.SetColor("_BaseColor", Color.white);
+            mat.SetTexture("_BaseMap", null);
+            mat.SetFloat("_Curve", curve ? 1f : 0f);
+            mat.SetFloat("_Ambient", curve ? 0.3f : 0.4f);
+            mat.SetColor("_RimColor", new Color(1f, 1f, 1f, rim));
+            mat.enableInstancing = true;
+            EditorUtility.SetDirty(mat);
+            return mat;
         }
 
         /// <summary>Tundu/Toon in a plain colour for Shpata! (flat: the courtyard doesn't bend like the runner's world).</summary>
