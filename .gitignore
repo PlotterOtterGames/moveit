@@ -44,3 +44,12 @@ music/midi/*.wav
 
 # Pikturo colouring page previews (tools/paint/pages.py --preview)
 tools/paint/out/
+
+# C# logic tests (tools/logic-tests, built with dotnet)
+tools/logic-tests/bin/
+tools/logic-tests/obj/
+
+# Unity leftovers: test-runner scenes of an interrupted run, crash-recovery scene backups
+unity/*/Assets/InitTestScene*
+unity/*/Assets/_Recovery/
+unity/*/Assets/_Recovery.meta

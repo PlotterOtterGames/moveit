@@ -141,6 +141,7 @@ The user writes informal English, wants clear recommendations rather than option
 | `Assets/Games/Common` | Shared game code: `GameHud` (IMGUI helpers, temporary), `CommonStrings` (Albanian/English, persisted), `PlayerGate`, `RemoteInput` (TV remote mapping), `AndroidDevice` (volume, Wi-Fi screen), `Brand` (reads `Assets/Resources/brand.json`), `RecognitionLab` (camera test screen), `DevCapture`, `BoxRuntime` (60 fps, no sleep) |
 | `Assets/Games/Runner`, `Slash`, `Bowling` | The 3 gray-box games: Vrapo! (runner), Fruta! (slash), Bowling (1–4 players, `BowlingScore` with tests) |
 | `Assets/Games/Paint` | Pikturo!: `PaintGame` (modes, toolbars, hands, photos), `PaintCanvas` (premultiplied RenderTexture, wet paint, undo, bucket), `PaintBrush` (tools along smoothed strokes), `PaintPen` (pen rule), `PaintArt` (brush atlas and icons drawn in code), shader `Tundu/Brush`. Pages in `Assets/Resources/Paint/Pages` (alpha-only import: `Editor/PaintPageImport.cs`) |
+| `tools/logic-tests/` | .NET 8 + NUnit 3 project that links the engine-free game rules and their EditMode tests from the Unity project and compiles them against `UnityShim/` (cloud sessions: `dotnet test tools/logic-tests`) |
 | `tools/motion/cursor_sim.py` | Hand-cursor and Pikturo-pen simulator (mirrors OneEuroFilter, BodyTracker, BodyHands, the game loop; realistic noise and timing): stutter, shake, lag, swipe speed, when the brush goes down. Run it before changing cursor or pen numbers |
 | `Assets/Games/Sword` | Shpata!: `SwordGame` (duel: knight AI, blocks, counterattacks, markers, HUD), `SwordMoves` (swing/hit/shield/parry rules on the screen, tested), `GhostAvatar` (see-through player + sword + shield), `Knight` (toy knight, animated by state), `SwordArt` (shield-spot ring, alert, heart drawn in code). Shader `Games/Common/Shaders/TunduGhost` |
 | `tools/paint/pages.py` | Colouring pages as code (OpenCV, figures outlined by morphology): dino, house, fish, butterfly, rocket, cake. `--preview` writes checks with the toolbar areas to `tools/paint/out/` |
@@ -192,6 +193,18 @@ The user writes informal English, wants clear recommendations rather than option
   `adb -s 127.0.0.1:16384 logcat MoveItMotion:V *:S` (a stats line every 5 s). adb is at
   `D:\Unity\6000.3.9f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe`.
   Drive the app with `adb shell input keyevent 20/22/66/4` (down/right/enter/back), leaving ~1.5 s between keys.
+- **Cloud sessions (claude.ai/code, since 2026-10-10):** a Linux container with a fresh clone, none of the laptop
+  (no D:, Unity, Blender, MuMu, camera). `.claude/hooks/session-start.sh` (cloud only) installs .NET 8 and the venv
+  (`motion-service-py/.venv/bin/python`, + Pillow) and builds the logic tests. Runs here: everything in `tools/`
+  except Blender, `fake_sender.py` (to a UDP listener), and **`dotnet test tools/logic-tests`**: the game rules
+  that need no engine (`BowlingScore`, `SwordMoves`, `HandInterpolator`, `HandPresence`, `OneEuroFilter`, `Body`,
+  `Joint`) and their EditMode tests (18 of 29; `PaintCanvasTests` need the GPU), compiled as C# 9 against
+  `tools/logic-tests/UnityShim` (Vector2/3, Mathf, Time with Unity's exact formulas). Adding a file: link it in the
+  csproj; a missing UnityEngine member goes into the shim with Unity's behaviour. Everything else in C# (MonoBehaviours,
+  scenes, shaders) and the Java is written blind: say so, the user compiles and tests on the laptop. Re-rendered OGGs
+  differ by a few bytes (another encoder build) but sound the same: only commit audio that really changed. The
+  network blocks `dl.google.com` (Android Maven) and Unity downloads. Work goes to a `claude/...` branch; the user
+  pulls, checks in Unity and merges.
 
 ## Gotchas (learned the hard way)
 - **unityMCP pins itself to the user's other project "apa-roll" after restarts.** First call

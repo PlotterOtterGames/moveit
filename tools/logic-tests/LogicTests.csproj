@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!--
+    Compiles the game-rule C# that doesn't need the Unity engine, plus its EditMode tests, with plain .NET 8 and
+    NUnit, so the rules can be built and tested without the Unity editor (cloud sessions, CI).
+    The sources stay in the Unity project; they are only linked here. UnityShim/ stands in for the few
+    UnityEngine types they use (Vector2, Vector3, Mathf), written to behave like Unity's.
+    Run: dotnet test tools/logic-tests
+    To add a file: link it below. If it needs another UnityEngine member, add it to the shim with Unity's exact
+    behaviour (clamping, epsilons), or the tests here and in Unity can disagree.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <!-- Unity 6 compiles C# 9: keep newer syntax out of the game code. -->
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <!-- "field never assigned/used": only a subset of the game code is linked, the rest uses those fields. -->
+    <NoWarn>$(NoWarn);CS0649;CS0169;CS0414</NoWarn>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <DefineConstants>$(DefineConstants);UNITY_INCLUDE_TESTS;MOVEIT_LOGIC_TESTS</DefineConstants>
+    <UnityAssets>../../unity/MoveItGames/Assets</UnityAssets>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="UnityShim/*.cs" />
+  </ItemGroup>
+
+  <ItemGroup Label="Game rules (linked from the Unity project)">
+    <Compile Include="$(UnityAssets)/Games/Bowling/Scripts/BowlingScore.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Sword/Scripts/SwordMoves.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/MoveSDK/Runtime/Body.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/MoveSDK/Runtime/HandInterpolator.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/MoveSDK/Runtime/HandPresence.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/MoveSDK/Runtime/Joint.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/MoveSDK/Runtime/OneEuroFilter.cs" Link="Rules/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup Label="EditMode tests (linked from the Unity project)">
+    <Compile Include="$(UnityAssets)/Games/Bowling/Tests/Editor/BowlingScoreTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Sword/Tests/Editor/SwordMovesTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/MoveSDK/Tests/Editor/HandCursorTests.cs" Link="Tests/%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- NUnit 3, like Unity's test framework (NUnit 4 moved Assert.AreEqual & co. to ClassicAssert). -->
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.6.0" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
+  </ItemGroup>
+</Project>
