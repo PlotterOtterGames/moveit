@@ -6,7 +6,7 @@ import mediapipe as mp
 from mediapipe.tasks import python as mp_python
 from mediapipe.tasks.python import vision
 
-from skeleton import MEDIAPIPE_TO_COCO17, Person
+from skeleton import MEDIAPIPE_HAND_POINTS, MEDIAPIPE_TO_COCO17, Person
 
 MODELS_DIR = Path(__file__).parent / "models"
 
@@ -48,14 +48,16 @@ class PoseEstimator:
         people = []
         world_all = result.pose_world_landmarks or []
         for n, landmarks in enumerate(result.pose_landmarks):
-            joints = []
-            for idx in MEDIAPIPE_TO_COCO17:
+            def point(idx):
                 lm = landmarks[idx]
-                joints.append((lm.x, lm.y, lm.z, lm.visibility if lm.visibility is not None else 0.0))
+                return lm.x, lm.y, lm.z, lm.visibility if lm.visibility is not None else 0.0
+
+            joints = [point(idx) for idx in MEDIAPIPE_TO_COCO17]
+            hands = [point(idx) for idx in MEDIAPIPE_HAND_POINTS]
             world = None
             if n < len(world_all):
                 world = [(world_all[n][idx].x, world_all[n][idx].y, world_all[n][idx].z) for idx in MEDIAPIPE_TO_COCO17]
-            people.append(Person(joints, world=world))
+            people.append(Person(joints, world=world, hands=hands))
         people.sort(key=lambda p: p.score, reverse=True)
         return people
 

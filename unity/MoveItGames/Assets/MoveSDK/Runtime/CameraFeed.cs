@@ -1,6 +1,7 @@
 using System;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Threading;
 using UnityEngine;
 
@@ -9,8 +10,10 @@ namespace MoveIt.Motion
     /// <summary>
     /// The camera picture, for games that show the player (Pikturo's camera mode): receives the camera preview stream
     /// (docs/protocol.md, "Camera preview stream") as JPEG frames on 127.0.0.1 and keeps the newest in
-    /// <see cref="Texture"/>. The motion service only sends frames while a game holds a <see cref="Request"/>; the
-    /// picture stays on this device and is never stored.
+    /// <see cref="Texture"/>. On the box the motion service hands the frames over inside the process instead (raw
+    /// pixels from libtundupose: no JPEG encode in Java and no decode on the main thread); the JPEG stream stays the
+    /// fallback there. The motion service only sends frames while a game holds a <see cref="Request"/>; the picture
+    /// stays on this device and is never stored.
     ///
     /// The image is the raw camera view (not mirrored), the same space as the joints in the motion packets:
     /// texture u = 1 - viewX / aspect, v = viewY for a <see cref="Body"/> joint in view space.
@@ -41,7 +44,7 @@ namespace MoveIt.Motion
         /// <summary>Capture time of the shown frame, Unix ms (same clock as the motion packets).</summary>
         public long CaptureTime { get; private set; }
         public float Fps { get; private set; }
-        /// <summary>Time the last JPEG took to decode on the main thread, ms.</summary>
+        /// <summary>Time the last frame took on the main thread (JPEG decode, or the copy of the box's raw pixels), ms.</summary>
         public float DecodeMs { get; private set; }
         public long FramesReceived { get; private set; }
 
@@ -101,6 +104,7 @@ namespace MoveIt.Motion
             _socket?.Close();
             _thread?.Join(200);
             _control?.Close();
+            if (_pinned.IsAllocated) _pinned.Free();
             if (Texture != null) Destroy(Texture);
             if (_instance == this) _instance = null;
         }
@@ -139,6 +143,7 @@ namespace MoveIt.Motion
                 _nextKeepalive = Time.unscaledTime + KeepaliveSeconds;
                 Ask(true);
             }
+            if (UpdateRaw()) return;
 
             byte[] jpeg = null;
             long time = 0;
@@ -158,14 +163,78 @@ namespace MoveIt.Motion
                 Texture = new Texture2D(2, 2, TextureFormat.RGB24, false) { name = "Camera Feed", wrapMode = TextureWrapMode.Clamp };
             float start = Time.realtimeSinceStartup;
             if (!Texture.LoadImage(jpeg, true)) return;
+            Shown(time, start);
+        }
+
+        void Shown(long captureTime, float start)
+        {
             DecodeMs = (Time.realtimeSinceStartup - start) * 1000f;
             Width = Texture.width;
             Height = Texture.height;
-            CaptureTime = time;
+            CaptureTime = captureTime;
             float now = Time.unscaledTime;
             if (FramesReceived > 0 && now > _lastFrameTime) Fps = Mathf.Lerp(Fps <= 0f ? 30f : Fps, 1f / (now - _lastFrameTime), 0.1f);
             _lastFrameTime = now;
             FramesReceived++;
+        }
+
+        // The box: raw frames handed over inside the process (Plugins/Android/MoveItMotion.androidlib,
+        // src/main/cpp/frame_share.cpp), RGBA rows bottom-up, the newest one only.
+        byte[] _pixels;
+        GCHandle _pinned;
+        long _rawFrame;
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+        static bool _rawUnavailable;
+        [DllImport("tundupose")] static extern long tundu_frame_info(out int width, out int height, out long time);
+        [DllImport("tundupose")] static extern long tundu_frame_copy(IntPtr dst, int capacity, out int width, out int height, out long time);
+#else
+        static bool _rawUnavailable = true;
+        static long tundu_frame_info(out int width, out int height, out long time) => throw new DllNotFoundException("tundupose");
+        static long tundu_frame_copy(IntPtr dst, int capacity, out int width, out int height, out long time) => throw new DllNotFoundException("tundupose");
+#endif
+
+        /// <summary>Shows the box's newest raw frame, if there's a new one. False where there's no such library.</summary>
+        bool UpdateRaw()
+        {
+            if (_rawUnavailable) return false;
+            try
+            {
+                long number = tundu_frame_info(out int width, out int height, out _);
+                if (number == 0 || number == _rawFrame || width <= 0 || height <= 0) return false;
+                float start = Time.realtimeSinceStartup;
+                int size = width * height * 4;
+                if (_pixels == null || _pixels.Length < size)
+                {
+                    if (_pinned.IsAllocated) _pinned.Free();
+                    _pixels = new byte[size];
+                    _pinned = GCHandle.Alloc(_pixels, GCHandleType.Pinned);
+                }
+                number = tundu_frame_copy(_pinned.AddrOfPinnedObject(), _pixels.Length, out width, out height, out long time);
+                if (number == 0) return false;
+                _rawFrame = number;
+                if (Texture != null && !Texture.isReadable)  // left by a JPEG frame (LoadImage marks it non-readable)
+                {
+                    Destroy(Texture);
+                    Texture = null;
+                }
+                if (Texture == null)
+                    Texture = new Texture2D(width, height, TextureFormat.RGBA32, false) { name = "Camera Feed", wrapMode = TextureWrapMode.Clamp };
+                else if (Texture.width != width || Texture.height != height || Texture.format != TextureFormat.RGBA32)
+                    Texture.Reinitialize(width, height, TextureFormat.RGBA32, false);
+                Texture.LoadRawTextureData(_pinned.AddrOfPinnedObject(), width * height * 4);
+                Texture.Apply(false);
+                Shown(time, start);
+                return true;
+            }
+            catch (Exception e) when (e is DllNotFoundException || e is EntryPointNotFoundException)
+            {
+                _rawUnavailable = true;
+#if UNITY_ANDROID && !UNITY_EDITOR
+                Debug.Log($"[CameraFeed] No raw frames in this build, using the JPEG stream: {e.Message}");
+#endif
+                return false;
+            }
         }
 
         /// <summary>Tells the motion service we (still) want frames: the Android library directly, the PC service by UDP.</summary>

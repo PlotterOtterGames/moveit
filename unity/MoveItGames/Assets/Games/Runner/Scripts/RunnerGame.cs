@@ -117,9 +117,13 @@ namespace MoveIt.Games.Runner
 
         int Score => Mathf.FloorToInt(_distance) + _coins * 10;
 
+        /// <summary>Lanes switch at 0.55 torso lengths and players step further; jumps need room above the head, ducks the knees seen.</summary>
+        static readonly PlayArea Area = new PlayArea(BodyPart.Knees, side: 0.8f, above: 0.3f);
+
         void Start()
         {
             _input = BodyInput.Instance != null ? BodyInput.Instance : FindAnyObjectByType<BodyInput>();
+            PlayerGate.Use(_input, Area);
             _best = PlayerPrefs.GetInt(BestKey, 0);
             player.LaneWidth = laneWidth;
             Shader.SetGlobalFloat("_TunduCurve", worldCurve);
@@ -612,6 +616,7 @@ namespace MoveIt.Games.Runner
                     DrawPopups();
                     var hint = CurrentHint();
                     if (hint != null) GameHud.Message(w, hint, null, new Color(1f, 0.9f, 0.2f));
+                    PlayerGate.DrawEdgeWarning(w, _input);
                     break;
 
                 case State.GameOver:
@@ -620,7 +625,7 @@ namespace MoveIt.Games.Runner
                         $"{CommonStrings.Score}: {Score}" + (_newBest ? $"   {CommonStrings.NewBest}" : ""));
                     if (_stateTime > 1.2f)
                         GameHud.Text(new Rect(0, 540, w, 80),
-                            PlayerGate.State(_input) == GateState.NoService ? CommonStrings.PressEnter : CommonStrings.PlayAgain, GameHud.Small);
+                            PlayerGate.PlayAgainText(_input), GameHud.Small);
                     break;
             }
         }

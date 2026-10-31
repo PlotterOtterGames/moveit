@@ -89,14 +89,35 @@ def make():
     sfx["crash"] = mix(1.1, (0, S.drum(77, 1.0), 0.7), (0, S._tone_drum(150, 55, 0.12, 0.4), 0.9),
                        (0.02, note(S.marimba, 55, vel=1.0), 0.5),
                        (0.35, tweet, 0.25), (0.47, tweet, 0.22), (0.66, tweet, 0.2), (0.78, tweet, 0.17))
-    # Fruta!
-    swish = env(S.noise(int(SR * 0.12), 2000, 9000, seed=7), 0.01, 0.08)
-    splat = env(S.noise(int(SR * 0.14), 150, 1300, seed=8), 0.002, 0.11)
-    sfx["slice"] = mix(0.35, (0, swish, 0.6), (0.05, splat, 0.7),
-                       (0.05, env(sweep(320, 140, 0.08, harmonics=((1, 1),)), 0.002, 0.05), 0.35))
-    sfx["splat"] = mix(0.3, (0, splat, 0.8), (0, env(sweep(260, 120, 0.1, harmonics=((1, 1),)), 0.002, 0.06), 0.4))
-    sfx["bomb"] = mix(1.2, (0, S._tone_drum(90, 34, 0.35, 1.1), 1.0),
-                      (0, env(S.noise(int(SR * 1.1), 30, 450, seed=9), 0.005, 0.8), 0.7))
+    # Vishu!
+    pop = env(sweep(380, 1100, 0.07, shape=0.5, harmonics=((1, 1), (2, 0.2))), 0.002, 0.04)
+    shimmer = env(S.noise(int(SR * 0.35), 3000, 11000, seed=60), 0.02, 0.3)
+    sfx["dress_poof"] = mix(0.9, (0, pop, 0.6), (0, shimmer, 0.25),
+                            *[(0.03 + 0.045 * i, note(S.glockenspiel, p), 0.4) for i, p in enumerate((C6, E5 + 12, G5 + 12, C6 + 12))],
+                            (0.0, note(S.marimba, G5, vel=0.6), 0.3))
+    sfx["dress_color"] = mix(0.6, (0, env(S.noise(int(SR * 0.2), 4000, 12000, seed=61), 0.01, 0.17), 0.25),
+                             (0.0, note(S.celesta, E5 + 12), 0.5), (0.06, note(S.celesta, A5 + 12), 0.55))
+    sfx["dress_remove"] = mix(0.5, (0, env(sweep(900, 360, 0.16, shape=0.8, harmonics=((1, 1), (2, 0.2))), 0.003, 0.08), 0.5),
+                              (0.02, env(S.noise(int(SR * 0.18), 600, 4000, seed=62), 0.01, 0.15), 0.25))
+    sfx["dress_magic"] = mix(1.2, (0, env(S.noise(int(SR * 0.9), 5000, 12000, seed=63), 0.05, 0.7), 0.2),
+                             *[(0.05 * i, note(S.celesta, p), 0.35 - 0.02 * i) for i, p in
+                               enumerate((C6 + 12, G5 + 12, E5 + 12, C6, G5 + 12, C6 + 12, E5 + 24))])
+    roll = env(S.noise(int(SR * 0.45), 2500, 9000, seed=64) * (0.6 + 0.4 * np.sin(2 * np.pi * 22 * np.arange(int(SR * 0.45)) / SR)), 0.05, 0.05)
+    sfx["dress_surprise"] = mix(1.3, (0, roll, 0.45),
+                                *[(0.42 + 0.06 * i, note(S.marimba, p), 0.45) for i, p in enumerate((C5, E5, G5, C6))],
+                                (0.66, note(S.glockenspiel, C6 + 12), 0.45), (0.66, env(S.noise(int(SR * 0.5), 5000, 12000, seed=65), 0.01, 0.45), 0.2))
+    sfx["dress_show"] = mix(1.6, *[(0.0, note(S.marimba, p, vel=0.9), 0.4) for p in (F5 - 12, A5 - 12, C5, F5)],
+                            *[(0.18 + 0.07 * i, note(S.glockenspiel, p), 0.4) for i, p in enumerate((F5 + 12, A5 + 12, C6 + 12))],
+                            (0.0, S.drum(49, 0.9), 0.35))
+    n = int(SR * 0.9)
+    t = np.arange(n) / SR
+    sfx["dress_curtain"] = S.noise(n, 300, 4000, seed=66) * np.sin(np.pi * t / 0.9) ** 1.5 * 0.7
+    click = env(S.noise(int(SR * 0.02), 1500, 9000, seed=67), 0.001, 0.015)
+    sfx["dress_pose"] = mix(1.2, (0, click, 0.8), (0.06, click, 0.6),
+                            *[(0.1 + 0.07 * i, note(S.vibraphone, p), 0.45) for i, p in enumerate((C5 + 12, E5 + 12, G5 + 12))],
+                            (0.31, note(S.glockenspiel, C6 + 12), 0.5))
+    sfx["dress_star"] = mix(0.7, (0, note(S.glockenspiel, G5 + 12), 0.6), (0, note(S.celesta, G5 + 12), 0.35))
+    sfx["dress_tick"] = mix(0.2, (0, S.drum(76, 0.8), 0.7))
     # Bowling
     n = int(SR * 1.6)
     t = np.arange(n) / SR
@@ -183,6 +204,64 @@ def make():
                               (0, env(S.noise(int(SR * 1.4), 40, 1800, seed=56), 0.005, 1.1), 0.8),
                               *[(0.35 + 0.08 * i, note(S.marimba, p), 0.5) for i, p in enumerate((C5, E5, G5, C6, E5 + 12, G5 + 12))],
                               (0.9, note(S.glockenspiel, C6 + 12), 0.4))
+    # Tenis!
+    pok = S._tone_drum(330, 190, 0.035, 0.12)
+    strings = env(S.noise(int(SR * 0.04), 1200, 6000, seed=70), 0.001, 0.035)
+    sfx["tennis_hit"] = mix(0.35, (0, pok, 0.9), (0, strings, 0.35), (0.005, note(S.marimba, G5, vel=0.6), 0.18))
+    whoosh = env(S.noise(int(SR * 0.2), 900, 7000, seed=71), 0.01, 0.17)
+    sfx["tennis_power"] = mix(0.8, (0, S._tone_drum(260, 120, 0.06, 0.2), 1.0), (0, strings, 0.5), (0, whoosh, 0.45),
+                              (0, ring(1500, 0.12, 0.3), 0.2), (0.04, note(S.glockenspiel, C6 + 12), 0.3),
+                              (0.08, note(S.glockenspiel, G5 + 12), 0.25))
+    sfx["tennis_bounce"] = mix(0.25, (0, S._tone_drum(170, 95, 0.045, 0.18), 0.9),
+                               (0, env(S.noise(int(SR * 0.03), 300, 2500, seed=72), 0.001, 0.025), 0.25))
+    n = int(SR * 0.5)
+    t = np.arange(n) / SR
+    rattle = S.noise(n, 250, 2500, seed=73) * np.exp(-t / 0.15) * (0.6 + 0.4 * np.sin(2 * np.pi * 28 * t))
+    sfx["tennis_net"] = mix(0.6, (0, rattle, 0.6), (0, S._tone_drum(140, 80, 0.06, 0.2), 0.6))
+    sfx["tennis_swish"] = env(np.concatenate([S.noise(int(SR * 0.05), 700, 3000, seed=74),
+                                              S.noise(int(SR * 0.1), 1500, 6000, seed=75)]), 0.03, 0.08) * 0.5
+    n = int(SR * 0.3)
+    t = np.arange(n) / SR
+    sfx["tennis_toss"] = mix(0.4, (0, S.noise(n, 600, 3000, seed=76) * np.sin(np.pi * t / 0.3) ** 2, 0.35),
+                             (0.0, note(S.pizzicato, C6, vel=0.5), 0.3))
+    # applause: many short claps scattered over a second and a half, a cheer under them, a happy triad
+    rng = np.random.default_rng(77)
+    claps = []
+    for k in range(70):
+        c = env(S.noise(int(SR * 0.012), 900, 5000, seed=100 + k), 0.0005, 0.009)
+        claps.append((float(rng.uniform(0, 1.5) ** 1.3), c, float(rng.uniform(0.3, 0.8))))
+    n = int(SR * 1.6)
+    t = np.arange(n) / SR
+    cheer = S.noise(n, 500, 3500, seed=78) * np.clip(t / 0.15, 0, 1) * np.exp(-t / 0.7)
+    sfx["tennis_cheer"] = mix(1.8, *claps, (0, cheer, 0.35),
+                              *[(0.02 + 0.05 * i, note(S.marimba, p, vel=0.7), 0.3) for i, p in enumerate((C5, E5, G5, C6))])
+    n = int(SR * 0.9)
+    t = np.arange(n) / SR
+    aww = S.noise(n, 300, 1800, seed=79) * np.sin(np.pi * t / 0.9) * (1.0 - 0.5 * t)
+    sfx["tennis_aww"] = mix(1.0, (0, aww, 0.4), (0.05, note(S.marimba, E5, vel=0.6), 0.35), (0.3, note(S.marimba, C5, vel=0.6), 0.35))
+    sfx["tennis_call"] = mix(0.9, (0, note(S.vibraphone, C6), 0.6), (0.16, note(S.vibraphone, G5), 0.6))
+    # Sporte! (the bump, the finish and clear jingles, a miss, the referee's whistle)
+    sfx["sport_bump"] = mix(0.8, (0, S._tone_drum(130, 55, 0.12, 0.4), 1.0), (0, env(S.noise(int(SR * 0.25), 200, 2500, seed=80), 0.002, 0.2), 0.5),
+                          (0.02, oof, 0.35), (0.3, tweet, 0.2), (0.42, tweet, 0.17))
+    sfx["sport_finish"] = mix(1.8, *[(0.0 + 0.09 * i, note(S.marimba, p), 0.5) for i, p in enumerate((C5, E5, G5, C6, E5 + 12, G5 + 12))],
+                            (0.55, note(S.glockenspiel, C6 + 12), 0.45), (0.55, S.drum(49, 0.9), 0.4),
+                            *[(0.55, note(S.vibraphone, p), 0.35) for p in (C5, E5, G5, B5)])
+    sfx["sport_clear"] = mix(0.5, (0, note(S.marimba, G5 + 12, vel=0.7), 0.6), (0.05, note(S.glockenspiel, C6 + 12), 0.35))
+    sfx["sport_miss"] = mix(0.6, (0, env(sweep(700, 300, 0.4, shape=1.2, harmonics=((1, 1), (2, 0.2))), 0.01, 0.2), 0.4))
+    tone = env(sweep(2100, 2100, 0.5, harmonics=((1, 1), (2, 0.3))) * (0.7 + 0.3 * np.sign(np.sin(2 * np.pi * 30 * np.arange(int(SR * 0.5)) / SR))), 0.01, 0.1)
+    sfx["sport_whistle"] = mix(0.7, (0, tone, 0.5))
+    bang = env(S.noise(int(SR * 0.25), 300, 9000, seed=91), 0.0005, 0.2)
+    sfx["sport_gun"] = mix(0.9, (0, bang, 1.0), (0, S._tone_drum(120, 50, 0.08, 0.3), 0.7),
+                           (0.05, env(S.noise(int(SR * 0.6), 200, 2000, seed=92), 0.05, 0.5), 0.25))
+    sfx["sport_thud"] = mix(0.5, (0, S._tone_drum(110, 50, 0.08, 0.3), 1.0), (0, env(S.noise(int(SR * 0.2), 150, 1800, seed=93), 0.002, 0.18), 0.5))
+    sfx["sport_glove"] = mix(0.35, (0, S._tone_drum(240, 140, 0.03, 0.12), 0.9), (0, env(S.noise(int(SR * 0.05), 600, 4000, seed=94), 0.001, 0.04), 0.6))
+    sfx["sport_kick"] = mix(0.4, (0, S._tone_drum(150, 80, 0.05, 0.16), 1.0), (0, env(S.noise(int(SR * 0.05), 400, 3500, seed=96), 0.001, 0.04), 0.5))
+    n = int(SR * 0.8)
+    t = np.arange(n) / SR
+    swish = S.noise(n, 400, 4000, seed=97) * np.exp(-t / 0.25) * (0.7 + 0.3 * np.sin(2 * np.pi * 18 * t))
+    sfx["sport_net"] = mix(1.0, (0, swish, 0.7), (0, S._tone_drum(130, 70, 0.06, 0.2), 0.5))
+    sfx["sport_volley"] = mix(0.35, (0, S._tone_drum(210, 120, 0.04, 0.14), 0.9), (0, env(S.noise(int(SR * 0.04), 800, 5000, seed=98), 0.001, 0.03), 0.5),
+                              (0.005, note(S.marimba, C6, vel=0.6), 0.2))
     return sfx
 
 

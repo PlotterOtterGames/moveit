@@ -17,6 +17,9 @@ J = {name: i for i, name in enumerate(JOINT_NAMES)}
 # MediaPipe Pose (33 landmarks) index for each COCO-17 joint.
 MEDIAPIPE_TO_COCO17 = [0, 2, 5, 7, 8, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]
 
+# The pose model's hand points (protocol v1.1 "hk"): left pinky, index, thumb, then the right hand's.
+MEDIAPIPE_HAND_POINTS = [17, 19, 21, 18, 20, 22]
+
 BONES = [
     (J["left_shoulder"], J["right_shoulder"]),
     (J["left_shoulder"], J["left_elbow"]), (J["left_elbow"], J["left_wrist"]),
@@ -34,11 +37,13 @@ TORSO = [J["left_shoulder"], J["right_shoulder"], J["left_hip"], J["right_hip"]]
 
 class Person:
     """One detected person: 17 joints as (x, y, z, visibility) in raw normalized camera coords, plus optional
-    world joints (x, y, z) in metres, origin at the hips, MediaPipe axes (x image-right, y down, z toward camera = -)."""
+    world joints (x, y, z) in metres, origin at the hips, MediaPipe axes (x image-right, y down, z toward camera = -),
+    and optional hand points (MEDIAPIPE_HAND_POINTS, like the joints)."""
 
-    __slots__ = ("joints", "world", "score")
+    __slots__ = ("joints", "world", "hands", "score")
 
-    def __init__(self, joints, score=None, world=None):
+    def __init__(self, joints, score=None, world=None, hands=None):
         self.joints = joints
         self.world = world
+        self.hands = hands
         self.score = score if score is not None else sum(joints[i][3] for i in TORSO) / len(TORSO)

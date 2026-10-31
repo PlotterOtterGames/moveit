@@ -348,7 +348,7 @@ figcaption.cap { color: var(--mist); font-size: 15px; margin-top: 12px; max-widt
       <div class="top">{{WHITE_SMALL}}<span class="hint">Ngri duart lart p&euml;r t&euml; luajtur</span></div>
       <div class="cards">
         <div class="card focus"><div class="art" style="background:var(--sun)">Vrapo!</div><b>Vrapo!</b><span>Kërce, ulu, ndërro korsi</span><span class="play">Luaj</span></div>
-        <div class="card"><div class="art" style="background:var(--coral)">Fruta!</div><b>Fruta!</b><span>Copëto frutat me duar</span></div>
+        <div class="card"><div class="art" style="background:var(--coral)">Vishu!</div><b>Vishu!</b><span>Vishu me rroba magjike</span></div>
         <div class="card"><div class="art" style="background:var(--sky)">Bowling</div><b>Bowling</b><span>1&ndash;4 lojtarë</span></div>
       </div>
     </div>

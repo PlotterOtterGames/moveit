@@ -92,9 +92,13 @@ namespace MoveIt.Games.Bowling
 
         void OnDisable() => Time.fixedDeltaTime = _savedFixedDeltaTime;
 
+        /// <summary>A step aims the ball (1.33 torso lengths reach the gutter); the arm swings down past the knees.</summary>
+        static readonly PlayArea Area = new PlayArea(BodyPart.Knees, side: 0.8f);
+
         void Start()
         {
             _input = BodyInput.Instance != null ? BodyInput.Instance : FindAnyObjectByType<BodyInput>();
+            PlayerGate.Use(_input, Area);
             BuildLane();
             BuildPins();
             BuildBall();
@@ -473,7 +477,8 @@ namespace MoveIt.Games.Bowling
                     GameHud.Text(new Rect(0, 160, w, 120), BowlingStrings.HowManyPlayers, GameHud.Big);
                     GameHud.Text(new Rect(0, 320, w, 200), $"‹  {_playerCount}  ›", GameHud.Big, TextAnchor.MiddleCenter, new Color(1f, 0.85f, 0.2f));
                     GameHud.Text(new Rect(0, 560, w, 60),
-                        PlayerGate.State(_input) == GateState.Ready ? BowlingStrings.PlayersHint : BowlingStrings.PlayersKeyboardHint, GameHud.Small);
+                        PlayerGate.PlacementHint(_input)
+                        ?? (PlayerGate.State(_input) == GateState.Ready ? BowlingStrings.PlayersHint : BowlingStrings.PlayersKeyboardHint), GameHud.Small);
                     break;
 
                 case State.Aiming:
@@ -482,6 +487,8 @@ namespace MoveIt.Games.Bowling
                         GameHud.Message(w, BowlingStrings.Turn(_player + 1));
                     else if (!_keyboardAim && PlayerGate.ShouldPause(_input))
                         PlayerGate.DrawPaused(w, _input);
+                    else if (!_keyboardAim)
+                        PlayerGate.DrawEdgeWarning(w, _input, 800f);
                     GameHud.Text(new Rect(0, 960, w, 60),
                         _keyboardAim ? BowlingStrings.KeyboardHelp : BowlingStrings.AimHint, GameHud.Small);
                     if (_charging)
@@ -507,7 +514,7 @@ namespace MoveIt.Games.Bowling
                     GameHud.Message(w, WinnerText(), CommonStrings.GameOver);
                     if (_stateTime > 2f)
                         GameHud.Text(new Rect(0, 540, w, 80),
-                            PlayerGate.State(_input) == GateState.NoService ? CommonStrings.PressEnter : CommonStrings.PlayAgain, GameHud.Small);
+                            PlayerGate.PlayAgainText(_input), GameHud.Small);
                     break;
             }
         }

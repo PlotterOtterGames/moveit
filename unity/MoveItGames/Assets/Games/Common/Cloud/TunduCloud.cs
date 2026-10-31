@@ -285,7 +285,8 @@ namespace MoveIt.Games
 
         // ---------- editor / PC simulation ----------
 
-        const string SimKey = "dev.cloud.pass_until";
+        /// <summary>Editor/PC only: where the simulated Game Pass end is kept (PlayerPrefs; tests restore it).</summary>
+        public const string SimulatedPassKey = "dev.cloud.pass_until";
         static RedeemResult _simRedeem = new RedeemResult();
         static float _simDoneAt;
 
@@ -293,7 +294,7 @@ namespace MoveIt.Games
 
         static PassState SimulatedPass()
         {
-            long until = long.TryParse(PlayerPrefs.GetString(SimKey, "0"), out long u) ? u : 0;
+            long until = long.TryParse(PlayerPrefs.GetString(SimulatedPassKey, "0"), out long u) ? u : 0;
             return new PassState { active = until > UnixNow, until = until, now = UnixNow, device = "d_EDITOR" };
         }
 
@@ -308,7 +309,7 @@ namespace MoveIt.Games
                 return;
             }
             long until = Math.Max(SimulatedPass().until, UnixNow) + 30L * 86400;
-            PlayerPrefs.SetString(SimKey, until.ToString());
+            PlayerPrefs.SetString(SimulatedPassKey, until.ToString());
             PlayerPrefs.Save();
         }
 

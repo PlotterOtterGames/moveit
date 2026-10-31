@@ -34,6 +34,8 @@ def _person(i, p):
     person = {"id": i, "score": round(p.score, 3), "k": [round(c, 4) for joint in p.joints for c in joint]}
     if p.world:
         person["wk"] = [round(c, 4) for joint in p.world for c in joint]
+    if getattr(p, "hands", None):
+        person["hk"] = [round(c, 4) for point in p.hands for c in point]
     return person
 
 

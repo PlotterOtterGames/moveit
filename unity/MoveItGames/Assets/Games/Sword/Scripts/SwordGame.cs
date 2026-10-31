@@ -111,9 +111,13 @@ namespace MoveIt.Games.Sword
 
         // ---------------------------------------------------------------- lifecycle
 
+        /// <summary>The player stands in the middle and fights with the arms: the waist seen, a little room to lean and step.</summary>
+        static readonly PlayArea Area = new PlayArea(BodyPart.Hips, side: 0.3f);
+
         void Start()
         {
             _input = BodyInput.Instance != null ? BodyInput.Instance : FindAnyObjectByType<BodyInput>();
+            PlayerGate.Use(_input, Area);
             // the see-through figure is the mirror here: hide the small skeleton one, give it back to the next scene
             _mirror = MotionSystem.Instance != null ? MotionSystem.Instance.GetComponent<MotionDebugOverlay>() : null;
             if (_mirror != null)
@@ -742,13 +746,14 @@ namespace MoveIt.Games.Sword
                         };
                         if (hint != null) GameHud.Text(new Rect(0, 170, w, 70), hint, GameHud.Medium, TextAnchor.MiddleCenter, Sun);
                     }
+                    if (!_paused && !UsingKeys) PlayerGate.DrawEdgeWarning(w, _input);
                     break;
                 case Phase.Results:
                     GameHud.Message(w, CommonStrings.GameOver,
                         $"{CommonStrings.Score}: {Score}    {SwordStrings.KnightsBeaten}: {KnightsBeaten}" + (_newBest ? $"    {CommonStrings.NewBest}" : ""));
                     if (_phaseTime > 1.5f)
                         GameHud.Text(new Rect(0, 540, w, 80),
-                            PlayerGate.State(_input) == GateState.NoService ? CommonStrings.PressEnter : CommonStrings.PlayAgain, GameHud.Small);
+                            PlayerGate.PlayAgainText(_input), GameHud.Small);
                     break;
             }
 

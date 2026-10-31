@@ -102,7 +102,39 @@ namespace MoveIt.Shell.Tests
             Assert.AreEqual(MainMenu.SettingsItem.GamePass, menu.SettingsFocus);
             yield return Press(Key.Enter);
             Assert.IsTrue(menu.GamePassOpen, "OK on Game Pass opens the code screen");
+            var pass = menu.GamePass;
+            Assert.AreEqual(0, pass.Focus, "the keypad starts on its first key");
+            for (int i = 0; i < 4; i++) yield return Press(Key.DownArrow);
+            Assert.AreEqual(32, pass.Focus, "↓ from the first column reaches Delete, drawn under it");
+            yield return Press(Key.RightArrow);
+            Assert.AreEqual(33, pass.Focus, "→ from Delete reaches OK");
+            yield return Press(Key.UpArrow);
+            Assert.AreEqual(26, pass.Focus, "↑ from OK reaches U, drawn above it");
+
+            // A USB keyboard types the code; the 16th character sends it (the editor simulates the server: +30 days).
+            string savedPass = PlayerPrefs.GetString(TunduCloud.SimulatedPassKey, "");
+            foreach (char c in "tund-utes-tkar-te2") InputSystem.QueueTextEvent(_keyboard, c);
+            yield return null;
+            yield return null;
+            Assert.AreEqual("TUNDUTESTKARTE2", pass.Code, "typed letters count (upper-cased), dashes are skipped");
             yield return Screenshot("gamepass.png");
+            // a typo in the last character: caught by the check character at once, nothing is sent
+            InputSystem.QueueTextEvent(_keyboard, 'S');
+            yield return null;
+            yield return null;
+            Assert.AreEqual(16, pass.Code.Length, "a wrong code stays on screen to be corrected");
+            yield return Screenshot("gamepass_typo.png");
+            yield return Press(Key.Backspace);
+            Assert.AreEqual("TUNDUTESTKARTE2", pass.Code, "Backspace deletes the last character");
+            InputSystem.QueueTextEvent(_keyboard, 'R');
+            float until = Time.realtimeSinceStartup + 3f;
+            do yield return null; while (pass.Code.Length > 0 && Time.realtimeSinceStartup < until);
+            Assert.AreEqual("", pass.Code, "a valid code is accepted and the field clears");
+            Assert.IsTrue(TunduCloud.Pass.active, "the simulated Game Pass is active");
+            yield return Screenshot("gamepass_ok.png");
+            if (savedPass.Length > 0) PlayerPrefs.SetString(TunduCloud.SimulatedPassKey, savedPass);
+            else PlayerPrefs.DeleteKey(TunduCloud.SimulatedPassKey);
+
             yield return Press(Key.Escape);
             Assert.IsFalse(menu.GamePassOpen, "Back closes the code screen");
             Assert.IsTrue(menu.SettingsOpen, "...and returns to Settings");

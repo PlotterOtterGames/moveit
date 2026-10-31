@@ -1,0 +1,280 @@
+{
+ "regions": [
+  "skin",
+  "shirt",
+  "shirt_accent",
+  "shorts",
+  "shorts_accent",
+  "socks",
+  "socks_accent",
+  "shoes",
+  "soles",
+  "hair",
+  "eyes",
+  "eye_shine",
+  "mouth",
+  "mouth_open",
+  "eyes_closed",
+  "blush",
+  "gloves",
+  "gloves_accent",
+  "headband",
+  "tongue"
+ ],
+ "pieces": {
+  "Body": "body",
+  "Face": "face",
+  "Shirt": "shirt",
+  "Sleeves": "sleeves",
+  "Shorts": "shorts",
+  "RunShorts": "shorts",
+  "SocksLong": "socks",
+  "SocksShort": "socks",
+  "Shoes": "feet",
+  "BareFeet": "feet",
+  "Hands": "hands",
+  "Gloves": "hands",
+  "Headband": "headband",
+  "Hair_Crop": "hair",
+  "Hair_Buzz": "hair",
+  "Hair_Spiky": "hair",
+  "Hair_Afro": "hair",
+  "Hair_Ponytail": "hair",
+  "Hair_Bun": "hair",
+  "Hair_Bob": "hair",
+  "Hair_Pigtails": "hair"
+ },
+ "clips": {
+  "Stand": {
+   "frames": 30,
+   "seconds": 1.0,
+   "loop": true,
+   "contact": null,
+   "speed": null
+  },
+  "Idle": {
+   "frames": 60,
+   "seconds": 2.0,
+   "loop": true,
+   "contact": null,
+   "speed": null
+  },
+  "Ready": {
+   "frames": 24,
+   "seconds": 0.8,
+   "loop": true,
+   "contact": null,
+   "speed": null
+  },
+  "Walk": {
+   "frames": 36,
+   "seconds": 1.2,
+   "loop": true,
+   "contact": null,
+   "speed": 0.645
+  },
+  "Run": {
+   "frames": 20,
+   "seconds": 0.6666666666666666,
+   "loop": true,
+   "contact": null,
+   "speed": 2.344
+  },
+  "Sprint": {
+   "frames": 16,
+   "seconds": 0.5333333333333333,
+   "loop": true,
+   "contact": null,
+   "speed": 4.602
+  },
+  "ShuffleL": {
+   "frames": 20,
+   "seconds": 0.6666666666666666,
+   "loop": true,
+   "contact": null,
+   "speed": 0.6
+  },
+  "ShuffleR": {
+   "frames": 20,
+   "seconds": 0.6666666666666666,
+   "loop": true,
+   "contact": null,
+   "speed": 0.6
+  },
+  "Cheer": {
+   "frames": 30,
+   "seconds": 1.0,
+   "loop": true,
+   "contact": null,
+   "speed": null
+  },
+  "FistPump": {
+   "frames": 30,
+   "seconds": 1.0,
+   "loop": false,
+   "contact": null,
+   "speed": null
+  },
+  "Sad": {
+   "frames": 48,
+   "seconds": 1.6,
+   "loop": true,
+   "contact": null,
+   "speed": null
+  },
+  "HandsOnHead": {
+   "frames": 48,
+   "seconds": 1.6,
+   "loop": true,
+   "contact": null,
+   "speed": null
+  },
+  "Clap": {
+   "frames": 16,
+   "seconds": 0.5333333333333333,
+   "loop": true,
+   "contact": null,
+   "speed": null
+  },
+  "Wave": {
+   "frames": 30,
+   "seconds": 1.0,
+   "loop": true,
+   "contact": null,
+   "speed": null
+  },
+  "HighFive": {
+   "frames": 20,
+   "seconds": 0.6666666666666666,
+   "loop": false,
+   "contact": 0.2667,
+   "speed": null
+  },
+  "Airplane": {
+   "frames": 20,
+   "seconds": 0.6666666666666666,
+   "loop": true,
+   "contact": null,
+   "speed": 2.25
+  },
+  "KickR": {
+   "frames": 24,
+   "seconds": 0.8,
+   "loop": false,
+   "contact": 0.3,
+   "speed": null
+  },
+  "KickL": {
+   "frames": 24,
+   "seconds": 0.8,
+   "loop": false,
+   "contact": 0.3,
+   "speed": null
+  },
+  "PassR": {
+   "frames": 20,
+   "seconds": 0.6666666666666666,
+   "loop": false,
+   "contact": 0.25,
+   "speed": null
+  },
+  "PassL": {
+   "frames": 20,
+   "seconds": 0.6666666666666666,
+   "loop": false,
+   "contact": 0.25,
+   "speed": null
+  },
+  "KeeperReady": {
+   "frames": 24,
+   "seconds": 0.8,
+   "loop": true,
+   "contact": null,
+   "speed": null
+  },
+  "DiveL": {
+   "frames": 30,
+   "seconds": 1.0,
+   "loop": false,
+   "contact": 0.4,
+   "speed": null
+  },
+  "DiveR": {
+   "frames": 30,
+   "seconds": 1.0,
+   "loop": false,
+   "contact": 0.4,
+   "speed": null
+  },
+  "JumpCatch": {
+   "frames": 24,
+   "seconds": 0.8,
+   "loop": false,
+   "contact": 0.3667,
+   "speed": null
+  },
+  "Marks": {
+   "frames": 40,
+   "seconds": 1.3333333333333333,
+   "loop": true,
+   "contact": null,
+   "speed": null
+  },
+  "SetPosition": {
+   "frames": 40,
+   "seconds": 1.3333333333333333,
+   "loop": true,
+   "contact": null,
+   "speed": null
+  },
+  "Dip": {
+   "frames": 14,
+   "seconds": 0.4666666666666667,
+   "loop": false,
+   "contact": 0.1667,
+   "speed": null
+  },
+  "Bump": {
+   "frames": 20,
+   "seconds": 0.6666666666666666,
+   "loop": false,
+   "contact": 0.2667,
+   "speed": null
+  },
+  "Set": {
+   "frames": 20,
+   "seconds": 0.6666666666666666,
+   "loop": false,
+   "contact": 0.3,
+   "speed": null
+  },
+  "Spike": {
+   "frames": 30,
+   "seconds": 1.0,
+   "loop": false,
+   "contact": 0.4667,
+   "speed": null
+  },
+  "Serve": {
+   "frames": 40,
+   "seconds": 1.3333333333333333,
+   "loop": false,
+   "contact": 0.8,
+   "speed": null
+  },
+  "Dig": {
+   "frames": 30,
+   "seconds": 1.0,
+   "loop": false,
+   "contact": 0.4,
+   "speed": null
+  },
+  "Block": {
+   "frames": 24,
+   "seconds": 0.8,
+   "loop": false,
+   "contact": 0.4,
+   "speed": null
+  }
+ }
+}

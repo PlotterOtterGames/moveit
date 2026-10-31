@@ -10,18 +10,26 @@ shakers, congas and brushes; major-7th chords; short seamless loops. Original tu
 |---|---|
 | `menu.ogg` | Home screen |
 | `runner.ogg` | Vrapo! (the dino run) |
-| `slash.ogg` | Fruta! |
+| `dress.ogg` | Vishu! ("Sparkle Boutique", the dressing room) |
+| `runway.ogg` | Vishu!'s fashion show ("Runway Glow", the catwalk) |
 | `bowling.ogg` | Bowling |
 | `paint.ogg` | Pikturo! (painting) |
 | `sword.ogg` | Shpata! ("Little Knights", a toy-soldier march) |
+| `fly.ogg` | Fluturo! ("Sky Patrol") |
+| `tennis.ogg` | Tenis! ("Center Court", a sunny, bouncy court tune) |
 | `jingle_win.ogg` | New record, strike or spare (plays once) |
 | `jingle_gameover.ogg` | Crash / end of a round (plays once) |
 
 Sound effects are in `Assets/Resources/Sfx/` (`jump`, `land`, `whoosh`, `slide`, `egg_0`…`egg_7` (eggs in a row
-climb a scale), `crash`, `count`, `go`, `ui_move`, `ui_select`, `ui_back`, `slice`, `splat`, `bomb`, `roll`,
+climb a scale), `crash`, `count`, `go`, `ui_move`, `ui_select`, `ui_back`, `roll`,
 `pins`, `ready`; Pikturo!: `paint_pick`, `paint_down`, `paint_brush` (a loop, louder the faster the brush moves),
 `paint_stamp`, `paint_fill`, `paint_undo`, `paint_clear`, `paint_photo`; Shpata!: `sword_swish`, `sword_hit`,
-`sword_clang` (wrong way, off the shield), `sword_block`, `sword_hurt`, `sword_poof` (a knight beaten), `sword_alert`).
+`sword_clang` (wrong way, off the shield), `sword_block`, `sword_hurt`, `sword_poof` (a knight beaten), `sword_alert`;
+Vishu!: `dress_poof` (something put on), `dress_color` (a new colour), `dress_remove`, `dress_magic`, `dress_surprise`,
+`dress_show` (a fashion show starts), `dress_curtain`, `dress_pose` (a pose counted), `dress_star` (a judge's star),
+`dress_tick` (the last seconds of dressing time); Tenis!: `tennis_hit` (the racket's pok), `tennis_power` (a power
+serve, a smash, a very fast ball), `tennis_bounce`, `tennis_net`, `tennis_swish` (a swing at the air), `tennis_toss`,
+`tennis_cheer` (applause when the player wins a point), `tennis_aww`, `tennis_call` (the umpire's chime)).
 
 ## Three ways to change the music
 

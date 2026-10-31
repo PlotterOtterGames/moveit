@@ -18,12 +18,18 @@ namespace MoveIt.Shell
         const int Columns = 8;
         const int Keys = 34; // 32 characters + Delete + OK
         const int DeleteKey = 32, OkKey = 33;
+        // The last row holds Delete (drawn over columns 0-1) and OK (columns 2-3).
+        const int Rows = 5, LastRow = Rows - 1, OkColumn = 2;
 
         public bool Open { get; private set; }
         public string Code { get; private set; } = "";
         public int Focus { get; private set; }
 
         string _forGame;
+        GUIStyle _code;
+        GUIStyle CodeStyle => _code ??= new GUIStyle(GameHud.Big) { fontSize = 72, wordWrap = false };
+        GUIStyle _messageStyle;
+        GUIStyle MessageStyle => _messageStyle ??= new GUIStyle(GameHud.Medium) { fontSize = 38, wordWrap = true };
         string _message = "";
         bool _messageGood;
         bool _working;
@@ -68,12 +74,11 @@ namespace MoveIt.Shell
                 return;
             }
             if (RemoteInput.Backspace) Delete();
-            int row = Focus / Columns, col = Focus % Columns;
-            int rows = (Keys + Columns - 1) / Columns;
+            int row = RowOf(Focus), col = ColumnOf(Focus);
             if (RemoteInput.Left) Move(Focus == 0 ? Keys - 1 : Focus - 1);
             if (RemoteInput.Right) Move(Focus == Keys - 1 ? 0 : Focus + 1);
-            if (RemoteInput.Up) Move(Mathf.Min(Keys - 1, ((row + rows - 1) % rows) * Columns + col));
-            if (RemoteInput.Down) Move(Mathf.Min(Keys - 1, ((row + 1) % rows) * Columns + col));
+            if (RemoteInput.Up) Move(KeyAt((row + Rows - 1) % Rows, col));
+            if (RemoteInput.Down) Move(KeyAt((row + 1) % Rows, col));
             if (RemoteInput.Confirm)
             {
                 if (Focus == DeleteKey) Delete();
@@ -81,6 +86,11 @@ namespace MoveIt.Shell
                 else Type(GiftCode.Alphabet[Focus]);
             }
         }
+
+        // ↑ ↓ go to the key drawn above or below: from columns 0-1 to Delete, from the others to OK, and back.
+        static int RowOf(int key) => key >= DeleteKey ? LastRow : key / Columns;
+        static int ColumnOf(int key) => key == DeleteKey ? 0 : key == OkKey ? OkColumn : key % Columns;
+        static int KeyAt(int row, int col) => row < LastRow ? row * Columns + col : col < OkColumn ? DeleteKey : OkKey;
 
         void Move(int to)
         {
@@ -152,7 +162,8 @@ namespace MoveIt.Shell
             "locked" => T("Shumë kode të gabuara: provo përsëri nesër", "Too many wrong codes: try again tomorrow"),
             "slow_down" => T("Prit një minutë dhe provo përsëri", "Wait a minute and try again"),
             "blocked" => T("Kjo kuti është bllokuar: kontakto Tundu", "This box is blocked: contact Tundu"),
-            "network" => T("Nuk ka internet: kontrollo Wi-Fi dhe provo përsëri", "No internet: check Wi-Fi and try again"),
+            // no_identity: the box couldn't register with the cloud yet (it has never been online)
+            "network" or "no_identity" => T("Nuk ka internet: kontrollo Wi-Fi dhe provo përsëri", "No internet: check Wi-Fi and try again"),
             _ => T("Nuk u arrit: provo përsëri", "That didn't work: try again"),
         };
 
@@ -179,11 +190,22 @@ namespace MoveIt.Shell
                 StatusText() + "  ·  " + T("Fut kodin nga karta Tundu", "Enter the code from a Tundu card"),
                 GameHud.Small, TextAnchor.MiddleLeft, new Color(1f, 1f, 1f, 0.8f));
 
-            // The code typed so far, in groups of four, with the remaining places shown as dots.
-            string shown = GiftCode.Format(Code.PadRight(GiftCode.Length, '·'));
+            // The code in 16 fixed places, in groups of four like on the card: typed characters bright, the next
+            // place underlined in the brand colour (characters don't shift while typing).
             var codeBox = new Rect(x + 150, y + 170, panelW - 300, 110);
             GameHud.Box(codeBox, new Color(1f, 1f, 1f, 0.08f));
-            GameHud.Text(codeBox, shown, GameHud.Big, TextAnchor.MiddleCenter, brand.PrimaryColor);
+            const float slotW = 50f, slotGap = 6f, groupGap = 36f;
+            float codeW = GiftCode.Length * slotW + (GiftCode.Length - 4) * slotGap + 3 * groupGap;
+            float sx = codeBox.x + (codeBox.width - codeW) / 2f;
+            for (int i = 0; i < GiftCode.Length; i++)
+            {
+                if (i > 0) sx += i % 4 == 0 ? groupGap : slotGap;
+                var slot = new Rect(sx, codeBox.y + 8, slotW, codeBox.height - 16);
+                bool next = i == Code.Length && !_working;
+                GameHud.Box(new Rect(slot.x, slot.yMax - 8, slot.width, next ? 6f : 3f), next ? brand.PrimaryColor : new Color(1f, 1f, 1f, 0.3f));
+                if (i < Code.Length) GameHud.Text(slot, Code[i].ToString(), CodeStyle, TextAnchor.MiddleCenter, brand.PrimaryColor);
+                sx += slotW;
+            }
 
             const float keyW = 130f, keyH = 78f, gap = 12f;
             float gridW = Columns * keyW + (Columns - 1) * gap;
@@ -200,13 +222,15 @@ namespace MoveIt.Shell
                 GameHud.Text(r, label, GameHud.Medium, TextAnchor.MiddleCenter, focused ? brand.BackgroundColor : Color.white, shadow: !focused);
             }
 
+            // below the keypad (its last row ends at y + 760); the longest messages (~50 characters) fit one line
             if (!string.IsNullOrEmpty(_message))
             {
-                GameHud.Text(new Rect(x + 50, y + panelH - 175, panelW - 100, 60), _message, GameHud.Medium, TextAnchor.MiddleCenter,
+                GameHud.Text(new Rect(x + 40, y + 764, panelW - 80, 84), _message, MessageStyle, TextAnchor.MiddleCenter,
                     _messageGood ? brand.LeafColor : brand.SecondaryColor);
             }
-            GameHud.Text(new Rect(x + 50, y + panelH - 105, panelW - 100, 45),
-                T("Shigjetat lëviz   OK shkruaj   MBRAPA mbyll", "Arrows move   OK types   BACK closes") + $"      ID: {TunduCloud.DeviceId}",
+            string id = TunduCloud.DeviceId;   // empty until the box has registered with the cloud
+            GameHud.Text(new Rect(x + 50, y + 850, panelW - 100, 40),
+                T("Shigjetat lëviz   OK shkruaj   MBRAPA mbyll", "Arrows move   OK types   BACK closes") + (id.Length > 0 ? $"      ID: {id}" : ""),
                 GameHud.Small, TextAnchor.MiddleCenter, new Color(1f, 1f, 1f, 0.6f));
         }
     }

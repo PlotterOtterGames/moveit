@@ -280,33 +280,72 @@ def menu():
     return s
 
 
-def slash():
-    """Fruta! 'Fruit Frenzy': quick and playful, xylophone, pizzicato and bongos."""
-    s = Song("slash", "Fruit Frenzy", 148,
-             "G | Em | C | D7 | G | Em | Am7 D7 | G | C | D | Bm7 | Em | Am7 | D7 | G Em | Am7 D7", seed=7)
-    lead = s.track("Xylophone", 0, XYLOPHONE, 108, 58, 40)
-    marim = s.track("Marimba", 1, MARIMBA, 84, 80, 40)
-    pizz = s.track("Pizzicato", 2, PIZZ, 86, 42, 30)
-    bass = s.track("Bass", 3, PIZZ, 100, 64, 15)
-    kit = s.track("Drums", 9, 0, 92, 64, 25)
-    a = M("D5 G5 B5 G5 A5 B5 D6:2 B5 G5 E5 G5 B5:2 E5:2 C5 E5 G5 C6 B5 A5 G5:2 F#5 A5 C6 A5 F#5:2 D5:2 "
-          "D5 G5 B5 D6 E6 D6 B5:2 G5 E5 B4 E5 G5:2 B5:2 C6 B5 A5 E5 F#5 A5 C6 A5 G5:3 D5 G5:2 r:2")
-    b = M("E6:2 C6 G5 E5:2 G5:2 F#6:2 D6 A5 F#5:2 A5:2 D6 B5 F#5 B5 D6:2 A5:2 G5 E5 B4 E5 G5 B5 E6:2 "
-          "E6 C6 A5 C6 E6:2 D6:2 C6 A5 F#5 D5 F#5 A5 C6:2 B5:2 D6:2 E6:2 B5:2 C6 A5 E5 A5 F#5 A5 D6:2")
-    end = s.melody(lead, a, velocity=100, legato=0.6)
-    s.melody(lead, b, velocity=104, legato=0.6, start=end)
-    s.arpeggio(marim, pitch("G3"), pitch("D5"), step=0.5, velocity=58, pattern=(0, 2, 1, 3))
-    s.comp(pizz, [(0.5, 0.25), (1.5, 0.25), (2.5, 0.25), (3.5, 0.25)], low=pitch("G3"), high=pitch("D5"),
-           velocity=66, size=3)
-    s.bass(bass, "pump", low=pitch("E2"), velocity=88)
+def dress():
+    """Vishu! 'Sparkle Boutique': the dressing room, a breezy, sparkly pop-bossa: celesta and glockenspiel over electric
+    piano and vibes, a bouncing bass, claps and shakers."""
+    s = Song("dress", "Sparkle Boutique", 112,
+             "Fmaj7 | Em7 A7 | Dm7 | G7 | Gm7 | C7 | Fmaj7 Am7 | Bbmaj7 C7 |"
+             "Fmaj7 | Am7 D7 | Gm7 | C7 | Am7 Dm7 | Gm7 C7 | F6 | Gm7 C7", swing=0.2, seed=41)
+    lead = s.track("Celesta", 0, CELESTA, 110, 60, 60)
+    glock = s.track("Glockenspiel", 1, GLOCK, 64, 82, 70)
+    vib = s.track("Vibraphone", 2, VIBES, 72, 44, 60)
+    ep = s.track("Electric piano", 3, EPIANO, 70, 52, 45)
+    bass = s.track("Bass", 4, FINGER_BASS, 98, 64, 20)
+    pad = s.track("Pad", 5, PAD, 44, 64, 80)
+    kit = s.track("Drums", 9, 0, 88, 64, 30)
+    a = M("A5:2 C6:1 A5:1 G5:2 F5:2 | E5:1 G5:1 B5:2 C#6:1 A5:1 E5:2 | F5:2 A5:1 C6:1 D6:3 r:1 | B5:1 A5:1 G5:1 F5:1 D5:2 B4:2 |"
+          "Bb5:2 D6:1 Bb5:1 A5:2 G5:2 | E5:1 G5:1 Bb5:2 A5:1 G5:1 E5:2 | F5:1 A5:1 C6:1 E6:1 E6:1 C6:1 A5:2 | D6:2 C6:1 Bb5:1 G5:2 r:2")
+    b = M("C6:3 A5:1 F5:2 A5:2 | C6:2 E6:2 D6:1 C6:1 A5:1 F#5:1 | G5:2 Bb5:1 D6:1 F6:3 E6:1 | D6:1 C6:1 Bb5:1 G5:1 E5:2 G5:2 |"
+          "A5:2 C6:1 E6:1 D6:2 A5:2 | Bb5:1 A5:1 G5:1 F5:1 E5:2 G5:2 | F5:1 A5:1 C6:1 D6:1 F6:3 r:1 | r:2 C6:1 Bb5:1 A5:1 G5:1 E5:1 C5:1")
+    end = s.melody(lead, a, velocity=96, legato=0.85)
+    s.melody(lead, b, velocity=100, legato=0.85, start=end)
+    s.melody(glock, b, octave_shift=1, velocity=58, legato=0.5, start=end)          # sparkle on the second half
+    for bar in (7, 15):                                                            # a twinkling run into each half
+        s.melody(glock, M("r:4 C6:0.5 E6:0.5 G6:0.5 C7:0.5 E7:2"), velocity=60, start=bar * BAR)
+    s.comp(vib, [(0, 1.5), (1.5, 0.5), (2.5, 1.0)], low=pitch("F3"), high=pitch("D5"), velocity=56)
+    s.comp(ep, [(0.5, 0.25), (1.5, 0.25), (2.5, 0.25), (3.5, 0.25)], low=pitch("E3"), high=pitch("C5"), velocity=52, size=3)
+    s.comp(pad, [(0, 4)], low=pitch("A3"), high=pitch("F5"), velocity=44, length=0.98)
+    s.bass(bass, "bounce", low=pitch("E1"), velocity=90)
     s.drums(kit, {
-        KICK:     "x.......x.......",
+        KICK:     "x.......x.x.....",
         CLAP:     "....x.......x...",
-        BONGO_HI: "..x...xx..x...x.",
-        BONGO_LO: "x.....x.......x.",
-        HAT:      "o.o.o.o.o.o.o.o.",
-        WOOD_HI:  "................" * 7 + "........x.x.x.x.",
+        SHAKER:   "oxoxoxoxoxoxoxox",
+        HAT:      "..o...o...o...o.",
+        TRIANGLE: "x..............." + "................" * 7,
+        TAMB:     "................" * 8 + "..x...x...x...x." * 8,
+    })
+    return s
+
+
+def runway():
+    """Vishu! 'Runway Glow': the fashion show's catwalk, a bright disco strut: flute and vibes over pizzicato stabs and a
+    warm pad, an octave-jumping bass, four on the floor with claps and open hats."""
+    s = Song("runway", "Runway Glow", 120,
+             "Am7 | Dm7 | G7 | Cmaj7 | Fmaj7 | Dm7 E7 | Am7 | E7 |"
+             "Am7 | Dm7 | G7 | Cmaj7 | Fmaj7 | Dm7 E7 | Am7 Dm7 | Em7 E7", seed=43)
+    lead = s.track("Flute", 0, FLUTE, 104, 58, 55)
+    vib = s.track("Vibraphone", 1, VIBES, 74, 80, 60)
+    pizz = s.track("Pizzicato", 2, PIZZ, 82, 44, 30)
+    pad = s.track("Pad", 3, PAD, 54, 64, 75)
+    bass = s.track("Bass", 4, FINGER_BASS, 104, 64, 15)
+    kit = s.track("Drums", 9, 0, 98, 64, 25)
+    a = M("A5:1 r:1 C6:1 E6:2 D6:1 C6:2 | D6:1 r:1 F6:1 A6:2 G6:1 F6:2 | G6:2 F6:1 D6:1 B5:2 G5:2 | C6:1 E6:1 G6:2 E6:4 |"
+          "F6:1 r:1 E6:1 C6:2 A5:1 C6:2 | D6:2 F6:2 E6:1 D6:1 G#5:2 | A5:3 C6:1 E6:2 A6:2 | G#6:2 F6:1 E6:1 D6:1 B5:1 G#5:2")
+    b = M("E6:1 E6:1 r:1 E6:1 D6:1 C6:1 A5:2 | F6:1 F6:1 r:1 F6:1 E6:1 D6:1 A5:2 | B5:1 D6:1 G6:2 F6:1 D6:1 B5:2 | C6:2 G5:1 C6:1 E6:4 |"
+          "A6:2 G6:1 F6:1 E6:2 C6:2 | D6:2 F6:1 A6:1 G#6:2 E6:2 | A6:2 E6:1 C6:1 D6:2 F6:2 | E6:2 r:2 B5:1 D6:1 E6:2")
+    end = s.melody(lead, a, octave_shift=-1, velocity=100, legato=0.8)
+    s.melody(lead, b, octave_shift=-1, velocity=104, legato=0.8, start=end)
+    s.melody(vib, b, octave_shift=-1, velocity=60, legato=0.6, start=end)           # the vibes join for the second half
+    s.comp(pizz, [(0.5, 0.25), (1.5, 0.25), (2.5, 0.25), (3.5, 0.25)], low=pitch("G3"), high=pitch("E5"), velocity=70, size=3)
+    s.comp(pad, [(0, 4)], low=pitch("E3"), high=pitch("C5"), velocity=52, length=0.98, size=3)
+    s.bass(bass, "bounce", low=pitch("E1"), velocity=96)
+    s.drums(kit, {
+        KICK:     "x...x...x...x...",
+        CLAP:     "....x.......x...",
+        OPEN_HAT: "..x...x...x...x.",
+        HAT:      "x.o.x.o.x.o.x.o.",
         TAMB:     "................" * 8 + "....x.......x..." * 8,
+        CRASH:    "x..............." + "................" * 7,
     })
     return s
 
@@ -433,6 +472,175 @@ def fly():
     return s
 
 
+def tennis():
+    """Tenis! 'Center Court': a sunny, bouncy court tune, marimba and vibes over nylon guitar and pizzicato, a bouncing
+    bass, light drums with a shaker and claps (a ball going back and forth)."""
+    s = Song("tennis", "Center Court", 124,
+             "Fmaj7 | Dm7 | Gm7 | C7 | Fmaj7 | Am7 D7 | Gm7 | C7sus4 C7 | Bbmaj7 | Am7 | Gm7 | C7 | Fmaj7 | Dm7 | Gm7 C7 | F6",
+             swing=0.15, seed=41)
+    lead = s.track("Marimba", 0, MARIMBA, 110, 56, 50)
+    vib = s.track("Vibraphone", 1, VIBES, 78, 80, 65)
+    guitar = s.track("Nylon guitar", 2, NYLON, 70, 42, 40)
+    pizz = s.track("Pizzicato", 3, PIZZ, 76, 70, 30)
+    bass = s.track("Bass", 4, FINGER_BASS, 98, 64, 20)
+    kit = s.track("Drums", 9, 0, 88, 64, 30)
+    a = M("C5 F5 A5:2 G5 F5 E5:2 | D5:2 F5 A5 C6:3 A5 | Bb5:2 A5 G5 F5:2 D5:2 | E5:3 G5 C6:4 | "
+          "A5 C6 F6:2 E6 C6 A5:2 | G5:2 E5:2 F#5:2 A5:2 | Bb5 D6 G6:2 F6 D6 Bb5:2 | A5:2 G5:2 E5:2 r:2")
+    b = M("D6:2 C6 Bb5 A5:2 F5:2 | G5:2 A5 C6 E6:3 C6 | D6:2 Bb5 G5 A5:2 Bb5:2 | C6:3 Bb5 G5:2 E5:2 | "
+          "F5 A5 C6:2 A5 C6 F6:2 | E6:2 D6 C6 A5:2 D6:2 | C6:2 Bb5:2 G5:2 E5:2 | F5:4 r:4")
+    end = s.melody(lead, a, velocity=100, legato=0.8)
+    s.melody(lead, b, velocity=104, legato=0.8, start=end)
+    s.melody(vib, b, octave_shift=-1, velocity=62, legato=0.9, start=end)     # the vibes join in the second half
+    s.comp(guitar, [(0, 0.5), (1.5, 0.5), (2.5, 0.5), (3.5, 0.5)], low=pitch("E3"), high=pitch("D5"), velocity=58, size=4)
+    s.comp(pizz, [(1, 0.25), (3, 0.25)], low=pitch("A3"), high=pitch("F5"), velocity=64, size=3)
+    s.bass(bass, "bounce", low=pitch("E1"), velocity=92)
+    s.drums(kit, {
+        KICK:   "x.......x.....x.",
+        CLAP:   "....x.......x...",
+        SHAKER: "o.o.o.o.o.o.o.o.",
+        RIM:    "..o.....o...o.o." + "..o.....o.......",     # pok... pok: the ball back and forth
+        CRASH:  "x..............." + "................" * 7,
+        TRIANGLE: "................" * 7 + "............x...",
+    })
+    return s
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def sports():
+    """Sporte! 'Victory Lap': the choice of sport, a bright sporty march: whistle and marimba over pizzicato and nylon
+    guitar, a pumping bass, a snare with a tambourine."""
+    s = Song("sports", "Victory Lap", 120,
+             "C | F | G | C | Am7 | Dm7 | G7 | C | F | G | Em7 | Am7 | Dm7 | G7 | C | G7sus4 G7", seed=63)
+    lead = s.track("Whistle", 0, WHISTLE, 102, 58, 50)
+    mar = s.track("Marimba", 1, MARIMBA, 86, 80, 45)
+    pizz = s.track("Pizzicato", 2, PIZZ, 80, 44, 30)
+    gtr = s.track("Nylon guitar", 3, NYLON, 64, 70, 35)
+    bass = s.track("Bass", 4, FINGER_BASS, 98, 64, 15)
+    kit = s.track("Drums", 9, 0, 92, 64, 25)
+    a = M("E5:2 G5:1 C6:1 E6:2 C6:2 | F5:1 A5:1 C6:2 F6:2 C6:2 | D6:2 B5:1 G5:1 B5:2 D6:2 | C6:4 r:2 G5:1 C6:1 |"
+          "E6:2 C6:1 A5:1 G6:2 E6:2 | F6:2 D6:1 A5:1 C6:2 A5:2 | B5:2 D6:1 F6:1 G6:2 F6:2 | E6:4 r:4")
+    b = M("A5:1 C6:1 F6:2 E6:1 C6:1 A5:2 | B5:1 D6:1 G6:2 F6:1 D6:1 B5:2 | G5:2 B5:1 E6:1 D6:2 B5:2 | A5:2 C6:1 E6:1 G6:2 E6:2 |"
+          "F6:2 D6:2 A5:2 F5:2 | G5:2 B5:2 D6:2 F6:2 | E6:3 D6:1 C6:2 G5:2 | D6:2 r:2 G5:1 B5:1 D6:1 F6:1")
+    end = s.melody(lead, a, octave_shift=-1, velocity=100, legato=0.85)
+    s.melody(lead, b, octave_shift=-1, velocity=104, legato=0.85, start=end)
+    s.melody(mar, b, octave_shift=-1, velocity=70, legato=0.7, start=end)
+    s.comp(pizz, [(0.5, 0.25), (1.5, 0.25), (2.5, 0.25), (3.5, 0.25)], low=pitch("G3"), high=pitch("E5"), velocity=66, size=3)
+    s.comp(gtr, [(0, 0.5), (1, 0.5), (2, 0.5), (3, 0.5)], low=pitch("E3"), high=pitch("C5"), velocity=52)
+    s.bass(bass, "pump", low=pitch("E1"), velocity=92)
+    s.drums(kit, {
+        KICK:  "x.......x.......",
+        SNARE: "....x.......x..." + "....x.......x.xx",
+        TAMB:  "..o...o...o...o.",
+        HAT:   "x.x.x.x.x.x.x.x.",
+        CRASH: "x..............." + "................" * 7,
+    })
+    return s
+
+
+def track():
+    """Sporte! 'Starting Blocks': athletics, fast and driving: xylophone over pizzicato and electric piano, a bouncing
+    bass, quick hats and claps (feet on the track)."""
+    s = Song("track", "Starting Blocks", 152,
+             "Bb | Gm7 | Eb | F7 | Bb | Dm7 | Eb | F7 | Gm7 | Eb | Cm7 | F7 | Bb Gm7 | Cm7 F7 | Bb | F7sus4 F7", seed=65)
+    lead = s.track("Xylophone", 0, XYLOPHONE, 104, 58, 40)
+    mar = s.track("Marimba", 1, MARIMBA, 76, 80, 45)
+    ep = s.track("Electric piano", 2, EPIANO, 66, 44, 35)
+    pizz = s.track("Pizzicato", 3, PIZZ, 72, 70, 25)
+    bass = s.track("Bass", 4, FINGER_BASS, 102, 64, 15)
+    kit = s.track("Drums", 9, 0, 96, 64, 20)
+    a = M("F5:1 Bb5:1 D6:2 C6:1 Bb5:1 F5:2 | G5:1 Bb5:1 D6:2 F6:2 D6:2 | Eb6:2 G5:1 Bb5:1 Eb6:2 G6:2 | F6:3 Eb6:1 C6:2 A5:2 |"
+          "Bb5:1 D6:1 F6:2 D6:1 Bb5:1 F5:2 | A5:2 D6:1 F6:1 A6:2 F6:2 | G6:2 Eb6:1 Bb5:1 G5:2 Bb5:2 | A5:4 r:2 F5:1 A5:1")
+    b = M("Bb5:2 D6:1 G6:1 F6:2 D6:2 | Eb6:2 G6:1 Bb6:1 G6:2 Eb6:2 | C6:2 Eb6:1 G6:1 Bb6:2 G6:2 | A6:2 F6:1 C6:1 Eb6:2 C6:2 |"
+          "D6:1 F6:1 Bb6:2 G6:2 D6:2 | Eb6:2 C6:2 A5:2 F5:2 | Bb5:3 C6:1 D6:2 F6:2 | Eb6:2 r:2 F5:1 A5:1 C6:1 Eb6:1")
+    end = s.melody(lead, a, velocity=102, legato=0.7)
+    s.melody(lead, b, velocity=106, legato=0.7, start=end)
+    s.melody(mar, b, octave_shift=-1, velocity=62, legato=0.7, start=end)
+    s.comp(ep, [(0.5, 0.25), (1.5, 0.25), (2.5, 0.25), (3.5, 0.25)], low=pitch("F3"), high=pitch("D5"), velocity=56, size=3)
+    s.comp(pizz, [(0, 0.25), (2, 0.25)], low=pitch("Bb3"), high=pitch("F5"), velocity=60, size=3)
+    s.bass(bass, "bounce", low=pitch("E1"), velocity=98)
+    s.drums(kit, {
+        KICK:     "x...x...x...x...",
+        CLAP:     "....x.......x...",
+        HAT:      "xxxxxxxxxxxxxxxx",
+        OPEN_HAT: "..............x.",
+        CRASH:    "x..............." + "................" * 7,
+    })
+    return s
+
+
+
+
+def football():
+    """Sporte! 'Stadium Chant': football, a cheerful terrace chant: whistle over marimba and pizzicato, a pumping
+    bass, claps on the off-beats and tom fills like a crowd drum."""
+    s = Song("football", "Stadium Chant", 124,
+             "D | G | A | D | Bm | G | Em7 A7 | D | G | D | A | Bm | G A | F#m7 Bm7 | Em7 A7 | D", seed=69)
+    lead = s.track("Whistle", 0, WHISTLE, 104, 58, 55)
+    mar = s.track("Marimba", 1, MARIMBA, 80, 80, 45)
+    pizz = s.track("Pizzicato", 2, PIZZ, 76, 44, 30)
+    bass = s.track("Bass", 3, FINGER_BASS, 98, 64, 15)
+    kit = s.track("Drums", 9, 0, 96, 64, 30)
+    a = M("D5:2 F#5:1 A5:1 D6:2 A5:2 | B5:2 G5:1 D5:1 B5:2 D6:2 | C#6:2 E6:1 C#6:1 A5:2 E5:2 | F#5:3 A5:1 D6:4 |"
+          "B5:2 D6:1 F#6:1 D6:2 B5:2 | G5:1 B5:1 D6:2 G6:2 D6:2 | E6:2 G6:1 B5:1 C#6:2 E6:2 | D6:4 r:2 A5:1 D6:1")
+    b = M("B5:2 D6:1 G6:1 F#6:1 D6:1 B5:2 | A5:2 F#5:1 D5:1 F#5:2 A5:2 | C#6:2 A5:1 E5:1 G5:2 A5:2 | B5:2 F#5:1 D5:1 F#5:2 B5:2 |"
+          "D6:2 B5:2 C#6:2 E6:2 | F#6:2 C#6:2 D6:2 F#6:2 | G6:2 E6:2 E6:1 C#6:1 A5:2 | D6:4 r:2 A5:1 C#6:1")
+    end = s.melody(lead, a, velocity=100, legato=0.85)
+    s.melody(lead, b, velocity=104, legato=0.85, start=end)
+    s.melody(mar, a, octave_shift=-1, velocity=60, legato=0.7)
+    s.comp(pizz, [(0.5, 0.25), (1.5, 0.25), (2.5, 0.25), (3.5, 0.25)], low=pitch("A3"), high=pitch("F#5"), velocity=68, size=3)
+    s.bass(bass, "pump", low=pitch("E1"), velocity=94)
+    s.drums(kit, {
+        KICK:     "x.......x.......",
+        CLAP:     "..x...x...x...x.",
+        CONGA_LO: "x.....x...x....." + "x.....x...x.x.x.",
+        TAMB:     "x...x...x...x...",
+        CRASH:    "x..............." + "................" * 7,
+    })
+    return s
+
+
+def volley():
+    """Sporte! 'Beach Bounce': beach volleyball, an island bossa: steel drum and marimba over nylon guitar, a bossa
+    bass, shakers, congas and claves."""
+    s = Song("volley", "Beach Bounce", 116,
+             "Fmaj7 | Gm7 C7 | Am7 | Dm7 | Bbmaj7 | C7 | Fmaj7 | Gm7 C7 | Bbmaj7 | Am7 | Gm7 | C7 | Fmaj7 Dm7 | Gm7 C7 | F6 | C7sus4 C7",
+             swing=0.2, seed=71)
+    lead = s.track("Steel drum", 0, STEEL_DRUM, 106, 58, 50)
+    mar = s.track("Marimba", 1, MARIMBA, 78, 80, 45)
+    gtr = s.track("Nylon guitar", 2, NYLON, 70, 42, 40)
+    bass = s.track("Upright bass", 3, UPRIGHT, 98, 64, 20)
+    kit = s.track("Drums", 9, 0, 86, 64, 30)
+    a = M("A5:2 C6:1 E6:1 F6:2 E6:2 | D6:2 Bb5:1 G5:1 E6:2 C6:2 | C6:2 A5:1 E5:1 G5:2 C6:2 | D6:2 F6:1 A6:1 C6:2 A5:2 |"
+          "D6:2 F6:1 A6:1 Bb6:2 A6:2 | G6:2 E6:1 C6:1 Bb5:2 G5:2 | A5:2 F5:1 C6:1 E6:2 C6:2 | Bb5:2 G5:2 E5:4")
+    b = M("F5:1 A5:1 D6:2 F6:2 A6:2 | G6:2 E6:1 C6:1 A5:2 E6:2 | F6:2 D6:1 Bb5:1 G5:2 Bb5:2 | C6:2 E6:2 G6:2 Bb6:2 |"
+          "A6:2 F6:1 C6:1 D6:2 F6:2 | G6:2 D6:2 E6:2 C6:2 | F6:3 D6:1 C6:2 A5:2 | G5:2 r:2 C5:1 E5:1 G5:1 Bb5:1")
+    end = s.melody(lead, a, velocity=102, legato=0.8)
+    s.melody(lead, b, velocity=104, legato=0.8, start=end)
+    s.melody(mar, b, octave_shift=-1, velocity=62, legato=0.7, start=end)
+    s.comp(gtr, [(0, 0.5), (0.75, 0.25), (1.5, 0.5), (2.5, 0.5), (3.25, 0.5)], low=pitch("E3"), high=pitch("A4"), velocity=62)
+    s.bass(bass, "bossa", low=pitch("E1"), velocity=92)
+    s.drums(kit, {
+        KICK:     "x.......x.......",
+        CLAVES:   "x..x..x...x.x...",
+        SHAKER:   "oxoxoxoxoxoxoxox",
+        CONGA_HI: "...x..x....x..x.",
+        CONGA_LO: "x.......x.......",
+        TRIANGLE: "x..............." + "................" * 7,
+    })
+    return s
+
+
 def jingle_win():
     """New record: a quick rising fanfare that lands on a sparkling chord."""
     s = Song("jingle_win", "Bravo!", 140, "C | Cmaj9", seed=11)
@@ -469,7 +677,8 @@ def jingle_gameover():
     return s
 
 
-SONGS = {f.__name__: f for f in (menu, runner, slash, bowling, paint, sword, fly, jingle_win, jingle_gameover)}
+SONGS = {f.__name__: f for f in (menu, runner, dress, runway, bowling, paint, sword, fly, tennis, sports, track, football, volley,
+                                  jingle_win, jingle_gameover)}
 
 
 def main():

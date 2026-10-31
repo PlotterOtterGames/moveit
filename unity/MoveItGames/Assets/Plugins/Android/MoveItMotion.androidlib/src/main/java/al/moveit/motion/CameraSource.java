@@ -32,7 +32,9 @@ import java.util.concurrent.Executor;
  *
  * Frame rate: cameras slow down to ~15 fps in a dim room to expose longer, which adds ~33 ms of delay and blurs
  * fast moves. We ask auto-exposure for a range that never goes below ~30 fps (a slightly darker, noisier image
- * tracks far better than a blurred one). If the camera refuses it, it runs with its default range.
+ * tracks far better than a blurred one). If the camera refuses it, it runs with its default range. USB cameras on
+ * the TV boxes offer no such range (Android's external camera HAL only lists [f/2, f]): there {@link CameraTuner}
+ * switches the camera's own exposure priority off and brightens it in the dark.
  */
 final class CameraSource {
     interface Callback {
@@ -44,6 +46,12 @@ final class CameraSource {
     private static final int LENS_FACING_EXTERNAL = 2;  // CameraSelector.LENS_FACING_EXTERNAL (marked experimental)
 
     private ProcessCameraProvider provider;
+    private volatile String cameraId = "";
+
+    /** The bound camera's Camera2 id ("109" for the X98K Pro's USB camera), "" before it starts. */
+    String cameraId() {
+        return cameraId;
+    }
 
     /** Must be called on the main thread. */
     void start(Activity activity, LifecycleOwner owner, Executor analysisExecutor, ImageAnalysis.Analyzer analyzer,
@@ -66,7 +74,8 @@ final class CameraSource {
                     fps = null;
                     bind(owner, info, null, analysisExecutor, analyzer);
                 }
-                Log.i(TAG, "Camera " + describe(info) + ", fps range " + (fps != null ? fps : "default"));
+                cameraId = idOf(info);
+                Log.i(TAG, "Camera " + describe(info) + " " + cameraId + ", fps range " + (fps != null ? fps : "default"));
                 callback.onStarted(describe(info));
             } catch (Throwable e) {
                 Log.e(TAG, "Camera start failed", e);
@@ -121,6 +130,15 @@ final class CameraSource {
             if (best == null || low > best.getLower() || (low == best.getLower() && high > best.getUpper())) best = r;
         }
         return best;
+    }
+
+    @OptIn(markerClass = ExperimentalCamera2Interop.class)
+    private static String idOf(CameraInfo info) {
+        try {
+            return Camera2CameraInfo.from(info).getCameraId();
+        } catch (Throwable e) {
+            return "";
+        }
     }
 
     private static CameraInfo pick(List<CameraInfo> infos) {

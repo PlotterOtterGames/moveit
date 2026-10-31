@@ -58,6 +58,11 @@ final class VideoStreamer {
         return SystemClock.elapsedRealtime() < wantedUntil;
     }
 
+    /** The width the game asked for. */
+    int width() {
+        return width;
+    }
+
     /** On the camera thread, with the frame the pose AI sees. Returns at once. */
     void offer(Bitmap frame, long captureWallMs, long frameNumber) {
         if (!streaming() || !busy.compareAndSet(false, true)) return;

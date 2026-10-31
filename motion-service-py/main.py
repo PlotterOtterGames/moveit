@@ -12,6 +12,7 @@ While the game asks for it (Pikturo's camera mode), small JPEG camera frames als
 """
 
 import argparse
+import threading
 import time
 from pathlib import Path
 
@@ -58,7 +59,7 @@ def side_color(*joints):
     return MID_COLOR
 
 
-def draw_preview(frame, people, fps, inference_ms, latency_ms):
+def draw_preview(frame, people, fps, inference_ms, latency_ms, camera_fps=0.0):
     """Draw mirrored camera image + skeletons, so it behaves like a mirror (same as the game)."""
     img = cv2.flip(frame, 1)
     h, w = img.shape[:2]
@@ -72,7 +73,7 @@ def draw_preview(frame, people, fps, inference_ms, latency_ms):
                 cv2.circle(img, (x, y), 6, side_color(i), -1, cv2.LINE_AA)
 
     lines = [
-        f"pipeline {fps:5.1f} fps   inference {inference_ms:5.1f} ms   capture->send {latency_ms:5.1f} ms",
+        f"poses {fps:5.1f} fps (camera {camera_fps:4.1f})   inference {inference_ms:5.1f} ms   capture->send {latency_ms:5.1f} ms",
         f"people: {len(people)}" + (f"   score {people[0].score:.2f}" if people else "   (step back until your whole body is visible)"),
         "q / Esc = quit",
     ]
@@ -81,6 +82,44 @@ def draw_preview(frame, people, fps, inference_ms, latency_ms):
         cv2.putText(img, text, (12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 0), 4, cv2.LINE_AA)
         cv2.putText(img, text, (12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1, cv2.LINE_AA)
     return img
+
+
+class PreviewWindow:
+    """The preview window on its own thread. cv2.imshow + cv2.waitKey(1) take ~10 ms on Windows (measured 2026-10-19:
+    median 11.5 ms), and inside the camera loop they made it skip every other frame of a 60 fps camera: the game got
+    ~30 poses a second with gaps of 33 and 50 ms (motion-service-py/sessions/punches.jsonl). Here the loop never waits
+    for the window; the window shows the newest frame whenever it is ready."""
+
+    TITLE = "MoveIt motion service"
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._ready = threading.Event()
+        self._item = None
+        self.closed = False
+        self._thread = threading.Thread(target=self._loop, name="Preview", daemon=True)
+        self._thread.start()
+
+    def show(self, frame, people, fps, inference_ms, latency_ms, camera_fps):
+        with self._lock:
+            self._item = (frame, people, fps, inference_ms, latency_ms, camera_fps)
+        self._ready.set()
+
+    def _loop(self):
+        while not self.closed:
+            if self._ready.wait(0.05):
+                self._ready.clear()
+                with self._lock:
+                    item, self._item = self._item, None
+                if item is not None:
+                    cv2.imshow(self.TITLE, draw_preview(*item))
+            if (cv2.waitKey(1) & 0xFF) in (27, ord("q")):   # also keeps the window responsive between frames
+                self.closed = True
+        cv2.destroyAllWindows()
+
+    def close(self):
+        self.closed = True
+        self._thread.join(timeout=1)
 
 
 def main():
@@ -94,6 +133,7 @@ def main():
     video = VideoStreamer(args.video_control_port) if args.video_control_port else None
     print(f"Sending Motion Protocol v1.1 to udp://{args.host}:{args.port}  (model: {args.model} -> {model})")
 
+    preview = PreviewWindow() if args.preview else None
     record_file = None
     if args.record:
         args.record.parent.mkdir(parents=True, exist_ok=True)
@@ -119,11 +159,14 @@ def main():
                     print(grabber.error or "Camera stopped.")
                     break
                 continue
-            last_seq, frame, capture_ms = got
+            last_seq, frame, capture_ms, capture_mono_ms = got
 
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             t0 = time.perf_counter()
-            people = estimator.detect(rgb, int(time.monotonic() * 1000))
+            # MediaPipe smooths the landmarks itself in VIDEO mode (One Euro, its dt from these timestamps): give it
+            # the capture time, not the moment inference starts (that varies with the loop, the frame didn't), on the
+            # monotonic clock (a wall clock set back would look like frames 1 ms apart).
+            people = estimator.detect(rgb, capture_mono_ms)
             inference_ms = (time.perf_counter() - t0) * 1000
             fps = fps_meter.tick()
 
@@ -157,16 +200,16 @@ def main():
             latency_sum += latency_ms
             detected_frames += 1 if people else 0
 
-            if args.preview:
-                cv2.imshow("MoveIt motion service", draw_preview(frame, people, fps, inference_ms, latency_ms))
-                key = cv2.waitKey(1) & 0xFF
-                if key in (27, ord("q")):
+            if preview:
+                if preview.closed:
                     break
+                preview.show(frame, people, fps, inference_ms, latency_ms, grabber.measured_fps)
 
             now = time.perf_counter()
             if args.stats_every and now - last_stats >= args.stats_every:
                 print(
-                    f"[{model}] fps {fps:5.1f} | inference {inference_sum / stats_frames:5.1f} ms | "
+                    f"[{model}] poses {fps:5.1f} fps (camera {grabber.measured_fps:4.1f}) | "
+                    f"inference {inference_sum / stats_frames:5.1f} ms | "
                     f"capture->send {latency_sum / stats_frames:5.1f} ms | "
                     f"person detected in {100 * detected_frames / stats_frames:3.0f}% of frames",
                     flush=True,
@@ -180,6 +223,8 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        if preview:
+            preview.close()
         grabber.stop()
         estimator.close()
         sender.close()
@@ -187,7 +232,6 @@ def main():
             video.close()
         if record_file:
             record_file.close()
-        cv2.destroyAllWindows()
         print(f"Stopped after {frame_no} frames.")
 
 

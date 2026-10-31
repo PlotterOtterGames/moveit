@@ -16,10 +16,12 @@ namespace MoveIt.Games.Paint
     /// is the right one by default (the "Dora" button swaps it, remembered). Toolbars are pressed by holding either
     /// hand on a button: brushes on the left, colours on the right, actions on top.
     ///
-    /// The brush cursor is drawn between real camera samples, about one camera frame in the past
-    /// (<see cref="HandInterpolator"/>): it never slides past the point where the hand stopped, so lines and corners
-    /// come out where they were meant. The switch state travels with each sample, so a stroke starts and ends exactly
-    /// where the brush was when the switch went up and down.
+    /// The brush cursor is drawn about one camera frame in the past, on a parabola fitted through the last quarter
+    /// second of raw camera samples (<see cref="HandInterpolator.FitWindow"/>): it never slides past the point where
+    /// the hand stopped, so lines and corners come out where they were meant, and the path has no corner at every
+    /// sample. Then a string stabilizer like drawing programs' (<see cref="CursorRope"/>): a hand held still paints
+    /// nothing new. The switch state travels with each sample, so a stroke starts and ends exactly where the brush was
+    /// when the switch went up and down.
     ///
     /// Mechanics from the classic painting games: colour palette, brush sizes, marker / rainbow / spray / neon /
     /// glitter brushes, stamps (Mario Paint, Kid Pix), eraser, paint bucket, undo, clear, left-right symmetry,
@@ -60,10 +62,13 @@ namespace MoveIt.Games.Paint
             public bool FillDone;
             public int Owner;
             /// <summary>
-            /// The brush cursor: between real camera samples, ~one camera frame behind, never past a stop. In
-            /// tools/motion/cursor_sim.py: overshoot at stops 8 px (was 55–68), 3.5 px/frame stutter, ~125 ms lag.
+            /// The brush cursor: a parabola through the last 0.25 s of raw samples, one camera frame behind, never past
+            /// the newest sample. tools/motion/cursor_sim.py report_2026_10_19 (with <see cref="Rope"/>), laptop: lag
+            /// 130 -> 110 ms at 30 poses/s, 80-90 ms at 60, as steady as before (the low-lag track filtered again).
             /// </summary>
-            public readonly HandInterpolator Track = new HandInterpolator(4f, 1f, 1f);
+            public readonly HandInterpolator Track = new HandInterpolator(2f, 4f, 2f) { Margin = 1f, FitWindow = 0.25f };
+            /// <summary>Between this hand's cursor and what it paints or points at: 6 px of string (1080 px tall screen).</summary>
+            public readonly CursorRope Rope = new CursorRope(6f);
             /// <summary>Camera mode: the free hand's cursor (for buttons), from the raw samples like BodyHands' cursors.</summary>
             public readonly HandInterpolator CameraCursor = new HandInterpolator(1f, 4f, 2f) { Margin = 0.5f, MaxExtrapolation = 0.08f };
             /// <summary>Seen by the camera, through single unsure frames (a dip used to end the stroke and start a new one).</summary>
@@ -310,8 +315,8 @@ namespace MoveIt.Games.Paint
         public static bool SwitchState(bool wasOn, float height, float onHeight, float offHeight) =>
             wasOn ? height > offHeight : height > onHeight;
 
-        /// <summary>The brush hand's position this sample (low-lag track) and its capture time: the hand zone (paper) or
-        /// the framed camera picture.</summary>
+        /// <summary>The brush hand's position this sample (raw) and its capture time: the hand zone (paper) or the framed
+        /// camera picture.</summary>
         bool BrushSample(Body body, Hand hand, out Vector2 position, out double time)
         {
             time = body.SampleTime;
@@ -329,9 +334,13 @@ namespace MoveIt.Games.Paint
             var hand = BrushHand;
             double now = Time.unscaledTimeAsDouble;
             bool tracked = body != null && hand.Presence.Tracked(now) && hand.Track.HasSample;
-            if (!tracked) hand.Track.Reset();
+            if (!tracked)
+            {
+                hand.Track.Reset();
+                hand.Rope.Reset();
+            }
             bool switchAt = false;
-            var pos = tracked ? hand.Track.Evaluate(now, dt, out switchAt) : default;
+            var pos = tracked ? Steady(hand, hand.Track.Evaluate(now, dt, out switchAt)) : default;
             bool onScreen = tracked && OnScreen(pos);
             bool resting = tracked && IsResting(body, hand);
             int change = hand.Pen.UpdateSwitch(tracked, pos, onScreen, onScreen && OverPicture(pos), resting, switchAt);
@@ -362,10 +371,20 @@ namespace MoveIt.Games.Paint
                 tracked = h.Tracked && body != null;
                 pos = h.Position;
             }
+            if (tracked) pos = Steady(hand, pos);
+            else hand.Rope.Reset();
             bool resting = tracked && IsResting(body, hand);
             hand.Cursor = pos;
             hand.CursorVisible = tracked && !resting && OnScreen(pos);
             Dwell(hand, hand.CursorVisible ? ButtonAt(pos) : null, dt);
+        }
+
+        /// <summary>A cursor through the hand's string stabilizer (<see cref="CursorRope"/>), measured in pixels of a
+        /// 1080 px tall screen (screen positions are 0..1 both ways, which isn't square).</summary>
+        Vector2 Steady(Hand hand, Vector2 screen)
+        {
+            var tip = hand.Rope.Follow(new Vector2(screen.x * _guiWidth, screen.y * GameHud.Height));
+            return new Vector2(tip.x / _guiWidth, tip.y / GameHud.Height);
         }
 
         /// <summary>Development without a camera: the mouse is the brush, its button the switch.</summary>
@@ -374,6 +393,8 @@ namespace MoveIt.Games.Paint
             var hand = BrushHand;
             FreeHand.CursorVisible = false;
             Dwell(FreeHand, null, dt);
+            _left.Rope.Reset();    // the camera's cursors start fresh after the mouse
+            _right.Rope.Reset();
             var pos = _hands.Right.Position;
             bool onScreen = OnScreen(pos);
             var mouse = Mouse.current;
@@ -513,21 +534,21 @@ namespace MoveIt.Games.Paint
         }
 
         /// <summary>
-        /// Camera mode: the hand's place in the framed camera picture this sample, and its speed from the last two
-        /// samples (screen heights per second).
+        /// Camera mode: the hand's place in the framed camera picture this sample (raw: the brush's track smooths it),
+        /// and its speed from the last two low-lag samples (screen heights per second).
         /// </summary>
         bool CameraSample(Body body, Hand hand, out Vector2 position)
         {
-            if (!CameraPosition(body, hand, body.Fast, out position)) return false;
+            if (!CameraPosition(body, hand, body.Raw, out position) || !CameraPosition(body, hand, body.Fast, out var fast)) return false;
             float dt = (float)(body.SampleTime - hand.CameraSampleTime);
             bool first = hand.CameraSampleTime <= 0 || dt < 0 || dt >= 0.25f;
             if (first) hand.CameraVelocity = Vector2.zero;
             else if (dt >= Body.MinSpeedInterval)   // (a burst of samples 1 ms apart would turn noise into speed)
-                hand.CameraVelocity = Vector2.Lerp((position - hand.CameraLast) / dt, hand.CameraVelocity, 0.4f);
+                hand.CameraVelocity = Vector2.Lerp((fast - hand.CameraLast) / dt, hand.CameraVelocity, 0.4f);
             if (first || dt >= Body.MinSpeedInterval)
             {
                 hand.CameraSampleTime = body.SampleTime;
-                hand.CameraLast = position;
+                hand.CameraLast = fast;
             }
             var v = hand.CameraVelocity;
             hand.Speed = new Vector2(v.x * _crop.width / _crop.height, v.y).magnitude;   // screen heights/s
@@ -678,6 +699,7 @@ namespace MoveIt.Games.Paint
             {
                 hand.Track.Reset();
                 hand.CameraCursor.Reset();
+                hand.Rope.Reset();
             }
         }
 

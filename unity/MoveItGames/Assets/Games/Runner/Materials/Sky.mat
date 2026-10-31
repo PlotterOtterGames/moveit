@@ -25,10 +25,14 @@ Material:
     m_TexEnvs: []
     m_Ints: []
     m_Floats:
+    - _CloudScale: 1.6
+    - _Clouds: 0
     - _Exponent: 0.55
     - _SunSize: 10
     m_Colors:
     - _BottomColor: {r: 0.7411765, g: 0.8901961, b: 0.8627451, a: 1}
+    - _CloudColor: {r: 1, g: 1, b: 1, a: 1}
+    - _CloudShade: {r: 0.78, g: 0.8399999, b: 0.95, a: 1}
     - _HorizonColor: {r: 0.8235294, g: 0.93333334, b: 0.9647059, a: 1}
     - _SunColor: {r: 1, g: 0.93, b: 0.7, a: 1}
     - _SunDirection: {r: -0.3, g: 0.35, b: 1, a: 0}

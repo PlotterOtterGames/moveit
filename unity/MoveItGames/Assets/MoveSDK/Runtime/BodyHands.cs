@@ -24,8 +24,9 @@ namespace MoveIt.Motion
             /// <summary>Zone units per second.</summary>
             public Vector2 Velocity;
             public float Speed => Velocity.magnitude;
-            /// <summary>The latest usable camera sample's zone position on the low-lag track and its capture time (camera
-            /// clock, s): for cursors that do their own smoothing, like Pikturo's brush.</summary>
+            /// <summary>The latest usable camera sample's zone position, unfiltered, and its capture time (camera clock, s):
+            /// for cursors that do their own smoothing, like Pikturo's brush (smoothing a filtered track again made the
+            /// brush lag 20-25 ms more for the same steadiness, tools/motion/cursor_sim.py report_2026_10_19).</summary>
             public Vector2 SamplePosition;
             public double SampleTime;
         }
@@ -35,6 +36,8 @@ namespace MoveIt.Motion
             public readonly HandPresence Presence = new HandPresence();
             public HandInterpolator Cursor;
             public Hand Sample;
+            /// <summary>The latest sample on the low-lag track (for <see cref="Hand.Velocity"/>).</summary>
+            public Vector2 Fast;
         }
 
         public static BodyHands Instance { get; private set; }
@@ -134,6 +137,7 @@ namespace MoveIt.Motion
             track.Presence.Reset();
             track.Cursor?.Reset();
             track.Sample = default;
+            track.Fast = default;
         }
 
         /// <summary>One camera sample of a hand: the cursor's raw position, and the low-lag one with its velocity.</summary>
@@ -154,20 +158,18 @@ namespace MoveIt.Motion
             Vector2 Zone(Vector2 tip) => new Vector2(0.5f + (tip.x - shoulders.x) / width, (tip.y - bottom) / height);
 
             // The cursor smooths the raw sample itself (smoothing twice made fast moves uneven).
-            track.Cursor.Sample(body.SampleTime, Zone(body.HandTip(body.Raw, elbow, wrist, handExtension)), false, now);
+            Vector2 raw = Zone(body.HandTip(body.Raw, elbow, wrist, handExtension));
+            track.Cursor.Sample(body.SampleTime, raw, false, now);
 
-            // Speed from the last two low-lag samples: it follows starts and stops at once (Fruta's slashes).
+            // Speed from the last two low-lag samples: it follows starts and stops at once (quick swipes).
             var previous = track.Sample;
-            var hand = new Hand
-            {
-                Tracked = true,
-                SamplePosition = Zone(body.HandTip(body.Fast, elbow, wrist, handExtension)),
-                SampleTime = body.SampleTime,
-            };
+            Vector2 fast = Zone(body.HandTip(body.Fast, elbow, wrist, handExtension));
+            var hand = new Hand { Tracked = true, SamplePosition = raw, SampleTime = body.SampleTime };
             float dt = (float)(hand.SampleTime - previous.SampleTime);
             if (previous.Tracked && dt > 0f && dt < 0.25f)
-                hand.Velocity = Vector2.Lerp((hand.SamplePosition - previous.SamplePosition) / dt, previous.Velocity, velocitySmoothing);
+                hand.Velocity = Vector2.Lerp((fast - track.Fast) / dt, previous.Velocity, velocitySmoothing);
             track.Sample = hand;
+            track.Fast = fast;
         }
 
         /// <summary>Mouse = right hand while it moves or a button is held. Returns true while active.</summary>

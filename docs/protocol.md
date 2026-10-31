@@ -12,7 +12,7 @@ The same protocol is used by every backend:
 | `py-replay` | Replays a recorded `.jsonl` session (`motion-service-py/replay.py`) | Phase 0 |
 | `py-mediapipe-full` / `-lite` | PC dev service, `--model auto` picks full and drops to lite if too slow | v1.1 |
 | `android-mediapipe-gpu-full` (or `-cpu-`, `-lite`) | Android: Java library inside the APK (`Assets/Plugins/Android/MoveItMotion.androidlib`) | v1.1 |
-| `android-rknn` | Rockchip NPU backend | later, when the sample boxes arrive |
+| `android-rknn-full` / `-lite` | Android on a Rockchip NPU: MediaPipe's models converted to RKNN, run by the same Java library's native engine (`src/main/cpp/pose_npu.cpp`), same landmarks and smoothing; used first where the APK has models for the chip | v1.1 (2026-10-30, RK3566) |
 
 ## Datagram
 
@@ -54,6 +54,7 @@ UTF-8 JSON, one object per datagram, no newline. A frame is sent **even when nob
 | `cam` | float | *v1.1, optional.* Frames per second the camera actually delivers (a dim room lowers it). |
 | `model` | string | *v1.1, optional.* Pose model in use: `full`, `lite`, `fake`. |
 | `people[].wk` | float[51] | *v1.1, optional.* 17 joints × `[x, y, z]` **world** coordinates in metres, origin between the hips, MediaPipe axes (x image-right, y down, z toward the camera = negative). Real 3D depth, much more reliable than `k`'s z for "in front of / behind the body". |
+| `people[].hk` | float[24] | *v1.1, optional.* The pose model's hand points, 6 × `[x, y, z, visibility]` like `k`: left pinky, left index, left thumb, right pinky, right index, right thumb (MediaPipe landmarks 17, 19, 21, 18, 20, 22). Sent by the PC service since 2026-10-19 so recordings can show whether a palm point is steadier than the wrist pushed along the forearm (`tools/motion/cursor_sim.py --recording ... --palm`); games don't use it yet. |
 
 v1.1 only **adds** optional fields; v1 receivers ignore them and v1 senders still work (the game falls back to
 image-space depth when `wk` is missing). `v` stays `1`.
@@ -85,7 +86,7 @@ The SDK mirrors x so the screen behaves like a mirror.
 `[0, 2, 5, 7, 8, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]`. YOLO-pose already outputs this order.
 
 ## Size and rate
-About 650 bytes per person at 30 fps, well under one UDP datagram (no fragmentation). A binary v2 can
+About 650 bytes per person (~1.3 KB with `wk` and `hk`) at 30-60 fps, well under one UDP datagram (no fragmentation). A binary v2 can
 replace JSON later if profiling on the box shows parsing cost.
 
 ## Camera preview stream (v1.1, optional)
@@ -115,3 +116,18 @@ All little-endian. The image is the **raw camera view, not mirrored**, scaled to
 space as the joints `k`. In Unity (`MoveSDK/Runtime/CameraFeed.cs`) a view-space point `(x, y)` of a `Body` is at
 texture `u = 1 - x / aspect, v = y`. Typical size: 640×360 (PC) or 640×480 (Android), 12–40 KB, 30 fps;
 decoding takes ~1 ms on the laptop.
+
+**On the box: raw frames inside the process (2026-10-31).** On a Cortex-A55 the JPEG round trip was the expensive
+part (the encode ~9 % of the app's CPU in Java, the decode ~15 ms of every frame on Unity's main thread: Vishu! ran
+23.5 fps). So when the Android library can read CameraX's RGBA buffer as it is (no rotation, 4 bytes per pixel) it
+doesn't send datagrams: it scales the newest frame to the requested width into a buffer in `libtundupose.so`
+(`FrameShare.java` → `src/main/cpp/frame_share.cpp`), and the game copies it straight into its texture with two C
+calls (`[DllImport("tundupose")]` in `CameraFeed.cs`):
+
+- `int64 tundu_frame_info(int32* width, int32* height, int64* time)`: the newest frame's number (0 = none yet), size
+  and capture time (Unix ms, as above).
+- `int64 tundu_frame_copy(uint8* dst, int32 capacity, int32* width, int32* height, int64* time)`: copies that frame
+  (RGBA, 4 bytes per pixel, **rows bottom-up** as Unity textures want them) if it fits; returns its number or 0.
+
+The same request (`setVideo`) turns it on and off, and the UDP stream above stays the fallback (a rotated camera, a
+build without the library); `CameraFeed` takes whichever brings frames.

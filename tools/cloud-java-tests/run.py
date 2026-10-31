@@ -8,7 +8,9 @@ framework classes and runs its JUnit tests on this PC, with no Android SDK or Gr
   *run*: Android behaviour itself (PackageInstaller, JobScheduler) still needs a box or MuMu.
 The tests check the Java against the same vectors as the server: server/test/vectors/*.json.
 
-Usage: python3 tools/cloud-java-tests/run.py   (needs a JDK 17+ on PATH; downloads ~200 MB once into cache/)
+Usage: python3 tools/cloud-java-tests/run.py   (needs a JDK 21+ on PATH: android-all 16 is Java 21 bytecode, so
+Unity's bundled JDK 17 can't read it; on the laptop use e.g. %USERPROFILE%\\.jdks\\corretto-22.0.2\\bin.
+Downloads ~200 MB once into cache/)
 """
 import os
 import shutil
@@ -57,7 +59,19 @@ def sources(root):
     return sorted(out)
 
 
+def check_jdk():
+    """javac 21 or newer, or a clear message (an older one fails on every android.* class with "wrong version 65.0")."""
+    try:
+        out = subprocess.run(["javac", "-version"], capture_output=True, text=True).stdout.strip()
+    except FileNotFoundError:
+        sys.exit("javac not found: put a JDK 21+ on PATH")
+    major = int(out.split()[-1].split(".")[0]) if out else 0
+    if major < 21:
+        sys.exit(f"{out or 'javac'}: needs JDK 21+ (android-all 16 is Java 21 bytecode)")
+
+
 def main():
+    check_jdk()
     jars = [fetch(n, p) for n, p in JARS.items()]
     android, junit, hamcrest = jars
     shutil.rmtree(BUILD, ignore_errors=True)

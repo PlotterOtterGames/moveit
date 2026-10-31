@@ -34,6 +34,9 @@ builds/
 tools/branding/out/
 tools/provision/logs/
 unity/MoveItGames/Assets/Plugins/Android/MoveItMotion.androidlib/src/main/assets/*.task
+unity/MoveItGames/Assets/Plugins/Android/MoveItMotion.androidlib/src/main/assets/*.rknn
+# tools/npu/build_native.py: the box shell test tool
+tools/npu/out/
 
 # Blender art (art/): sources and scripts are committed; renders and backups are not
 art/**/previews/
@@ -63,3 +66,7 @@ server/.devbox.json
 # box cloud client tests (tools/cloud-java-tests): downloaded jars and compiled classes
 tools/cloud-java-tests/cache/
 tools/cloud-java-tests/build/
+
+# Fluturo! city texture previews (tools/fly/city_textures.py --preview)
+tools/fly/out/
+tools/dress/out/

@@ -33,6 +33,7 @@ class FrameGrabber:
         self._cond = threading.Condition()
         self._frame = None
         self._t_ms = 0
+        self._mono_ms = 0
         self._seq = 0
         self._running = False
         self._thread = None
@@ -51,6 +52,7 @@ class FrameGrabber:
         while self._running:
             ok, frame = self.cap.read()
             t_ms = int(time.time() * 1000)
+            mono_ms = int(time.monotonic() * 1000)
             if not ok:
                 failures += 1
                 if failures > 50:
@@ -66,17 +68,19 @@ class FrameGrabber:
             with self._cond:
                 self._frame = frame
                 self._t_ms = t_ms
+                self._mono_ms = mono_ms
                 self._seq += 1
                 self._cond.notify_all()
 
     def wait_new(self, last_seq, timeout=1.0):
-        """Block until a frame newer than last_seq exists. Returns (seq, frame, capture_time_ms) or None."""
+        """Block until a frame newer than last_seq exists. Returns (seq, frame, capture time in Unix ms, capture time
+        on the monotonic clock in ms) or None."""
         with self._cond:
             if not self._cond.wait_for(lambda: self._seq != last_seq or not self._running, timeout):
                 return None
             if self._frame is None or self._seq == last_seq:
                 return None
-            return self._seq, self._frame, self._t_ms
+            return self._seq, self._frame, self._t_ms, self._mono_ms
 
     @property
     def running(self):

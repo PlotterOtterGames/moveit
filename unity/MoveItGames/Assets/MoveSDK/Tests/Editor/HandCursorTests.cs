@@ -72,5 +72,86 @@ namespace MoveIt.Motion.Tests
             for (int f = 1; f <= 30; f++) later = cursor.Evaluate(last + latency + 0.03 + f / 60.0, 1f / 60f, out _).x;
             Assert.AreEqual(last + 0.08, later, 0.005, "then waits: a hand that stopped isn't chased off the screen");
         }
+
+        [Test]
+        public void Fit_DrawsASteadySweepWhereItWas_WithSteadierSteps()
+        {
+            // A hand sweeping at 1 unit/s, sampled 30 times a second with camera noise (sd 0.01), 40 ms latency. Pikturo's
+            // brush (a parabola through the last 0.25 s) against straight lines between the same samples (filters off).
+            var rng = new System.Random(7);
+            var fit = new HandInterpolator(100f, 0f, 1f) { Margin = 1f, FitWindow = 0.25f };
+            var lines = new HandInterpolator(100f, 0f, 1f) { Margin = 1f };
+            double fitSum = 0, fitSteps = 0, lineSteps = 0;
+            int n = 0, sample = 0;
+            Vector2 previousFit = default, previousLine = default;
+            for (int f = 0; f < 480; f++)
+            {
+                double now = 0.05 + f / 60.0;
+                for (; sample / 30.0 + 0.04 <= now; sample++)
+                {
+                    double t = sample / 30.0;
+                    var p = new Vector2((float)t + Noise(rng), Noise(rng));
+                    fit.Sample(t, p, false, t + 0.04);
+                    lines.Sample(t, p, false, t + 0.04);
+                }
+                Vector2 a = fit.Evaluate(now, 1f / 60f, out _), b = lines.Evaluate(now, 1f / 60f, out _);
+                if (f > 60)   // after a second: the window is full
+                {
+                    fitSum += a.x - (now - 0.04 - 1.0 / 30.0);   // where the hand was, one camera frame back
+                    var hand = new Vector2(1f / 60f, 0f);       // how far it really moved this frame
+                    fitSteps += (a - previousFit - hand).sqrMagnitude;
+                    lineSteps += (b - previousLine - hand).sqrMagnitude;
+                    n++;
+                }
+                previousFit = a;
+                previousLine = b;
+            }
+            double fitRms = System.Math.Sqrt(fitSteps / n), lineRms = System.Math.Sqrt(lineSteps / n);
+            Assert.AreEqual(0.0, fitSum / n, 0.002, "a steady move is drawn where the hand was, not behind it (a filter lags)");
+            // Python, same setup: 0.81. Most of the brush's gain comes later, in its One Euro filter: a curve without a
+            // corner at every sample keeps the filter's speed estimate, and so its smoothing, steady.
+            Assert.Less(fitRms, 0.92 * lineRms, $"steadier steps: {fitRms:0.00000} vs {lineRms:0.00000} between samples");
+        }
+
+        [Test]
+        public void Fit_NeverRunsOnPastTheNewestSample()
+        {
+            // A hand moving at 1 unit/s whose samples stop coming: a parabola continued past its samples would shoot off.
+            var cursor = new HandInterpolator(100f, 0f, 1f) { Margin = 1f, FitWindow = 0.25f };
+            for (int i = 0; i <= 12; i++)
+            {
+                double t = i / 30.0;
+                cursor.Sample(t, new Vector2((float)t, 0f), false, t + 0.04);
+            }
+            double last = 12 / 30.0;
+            float x = 0f;
+            for (int f = 0; f < 30; f++) x = cursor.Evaluate(last + 0.04 + f / 60.0, 1f / 60f, out _).x;
+            Assert.AreEqual(last, x, 0.003, "waits at the newest sample");
+        }
+
+        [Test]
+        public void Rope_IgnoresShakeSmallerThanTheString_AndTrailsAPull()
+        {
+            var rope = new CursorRope(6f);
+            Assert.AreEqual(new Vector2(100f, 100f), rope.Follow(new Vector2(100f, 100f)), "starts at the cursor");
+            var rng = new System.Random(5);
+            for (int i = 0; i < 60; i++)
+            {
+                var shake = new Vector2((float)rng.NextDouble() * 8f - 4f, (float)rng.NextDouble() * 8f - 4f);
+                Assert.AreEqual(new Vector2(100f, 100f), rope.Follow(new Vector2(100f, 100f) + shake), "a hand held still paints nothing new");
+            }
+            Vector2 tip = default;
+            for (int x = 100; x <= 160; x += 3) tip = rope.Follow(new Vector2(x, 100f));
+            Assert.AreEqual(154f, tip.x, 0.001f, "a pull drags it along, one string length behind");
+            Assert.AreEqual(100f, tip.y, 0.001f);
+            rope.Reset();
+            Assert.AreEqual(new Vector2(10f, 20f), rope.Follow(new Vector2(10f, 20f)), "after a reset it starts at the cursor again");
+        }
+
+        static float Noise(System.Random rng)   // normal, sd 0.01
+        {
+            double u = 1.0 - rng.NextDouble(), v = rng.NextDouble();
+            return (float)(0.01 * System.Math.Sqrt(-2.0 * System.Math.Log(u)) * System.Math.Cos(2.0 * System.Math.PI * v));
+        }
     }
 }

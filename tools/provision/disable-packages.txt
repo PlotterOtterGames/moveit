@@ -15,3 +15,25 @@ com.google.android.gms.setup
 
 # Vendor OTA updaters: a vendor update could replace our setup. Fill in per model after -Inspect, e.g.:
 # com.rockchip.update.service
+
+# X98K Pro (RK3566, Android 11, build X98KPRO_20231007), inspected 2026-10-30
+android.rockchip.update.service
+com.abupdate.fota_demo_iot
+# vendor app store and "memory cleaner" (it could kill the game), both with system rights
+com.yxt.appstore
+com.yxt.memoryclean
+# preinstalled third-party stores, IPTV and remote-control apps
+cm.aptoidetv.pt
+com.hitv.explore
+com.cetusplay.remoteservice
+# factory test tools (ProductTest is com.example.a)
+com.example.a
+com.rockchip.devicetest
+com.cghs.stresstest
+# Product decision for this model (streaming and media apps it ships with):
+# org.xbmc.kodi
+# com.netflix.mediaclient
+# com.amazon.avod.thirdpartyclient
+# com.rockchips.mediacenter
+# com.rockchips.dlna
+# com.rockchip.wfd

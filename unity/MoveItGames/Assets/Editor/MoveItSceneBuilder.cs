@@ -1,11 +1,13 @@
 using System.Linq;
 using MoveIt.Games;
 using MoveIt.Games.Bowling;
+using MoveIt.Games.Dress;
 using MoveIt.Games.Fly;
 using MoveIt.Games.Paint;
 using MoveIt.Games.Runner;
-using MoveIt.Games.Slash;
+using MoveIt.Games.Sports;
 using MoveIt.Games.Sword;
+using MoveIt.Games.Tennis;
 using MoveIt.Motion;
 using MoveIt.Shell;
 using UnityEditor;
@@ -26,7 +28,9 @@ namespace MoveIt.EditorTools
         const string MenuScenePath = "Assets/Scenes/Menu.unity";
         const string MotionDebugScenePath = "Assets/Scenes/MotionDebug.unity";
         const string RunnerScenePath = "Assets/Games/Runner/Runner.unity";
-        const string SlashScenePath = "Assets/Games/Slash/Slash.unity";
+        const string DressScenePath = "Assets/Games/Dress/Dress.unity";
+        const string DressMaterialsDir = "Assets/Games/Dress/Materials";
+        const string DressArtDir = "Assets/Games/Dress/Art";
         const string BowlingScenePath = "Assets/Games/Bowling/Bowling.unity";
         const string PaintScenePath = "Assets/Games/Paint/Paint.unity";
         const string PaintMaterialsDir = "Assets/Games/Paint/Materials";
@@ -34,11 +38,14 @@ namespace MoveIt.EditorTools
         const string SwordMaterialsDir = "Assets/Games/Sword/Materials";
         const string FlyScenePath = "Assets/Games/Fly/Fly.unity";
         const string FlyMaterialsDir = "Assets/Games/Fly/Materials";
+        const string TennisScenePath = "Assets/Games/Tennis/Tennis.unity";
+        const string TennisMaterialsDir = "Assets/Games/Tennis/Materials";
+        const string SportsScenePath = "Assets/Games/Sports/Sports.unity";
+        const string SportsMaterialsDir = "Assets/Games/Sports/Materials";
         const string RunnerMaterialsDir = "Assets/Games/Runner/Materials";
         const string RunnerArtDir = "Assets/Games/Runner/Art";
         const string DinoModelPath = RunnerArtDir + "/Dino.fbx";
         const string DinoControllerPath = RunnerArtDir + "/Dino.controller";
-        const string SlashMaterialsDir = "Assets/Games/Slash/Materials";
         const string BowlingMaterialsDir = "Assets/Games/Bowling/Materials";
         const float LaneWidth = 2.2f;
 
@@ -50,27 +57,31 @@ namespace MoveIt.EditorTools
             BuildMenuScene();
             BuildMotionDebugScene();
             BuildRunnerScene();
-            BuildSlashScene();
+            BuildDressScene();
             BuildBowlingScene();
             BuildPaintScene();
             BuildSwordScene();
             BuildFlyScene();
+            BuildTennisScene();
+            BuildSportsScene();
             EditorBuildSettings.scenes = new[]
             {
                 new EditorBuildSettingsScene(MenuScenePath, true),
                 new EditorBuildSettingsScene(RunnerScenePath, true),
-                new EditorBuildSettingsScene(SlashScenePath, true),
+                new EditorBuildSettingsScene(DressScenePath, true),
                 new EditorBuildSettingsScene(BowlingScenePath, true),
                 new EditorBuildSettingsScene(PaintScenePath, true),
                 new EditorBuildSettingsScene(SwordScenePath, true),
                 new EditorBuildSettingsScene(FlyScenePath, true),
+                new EditorBuildSettingsScene(TennisScenePath, true),
+                new EditorBuildSettingsScene(SportsScenePath, true),
                 new EditorBuildSettingsScene(MotionDebugScenePath, true),
             };
             PlayerSettings.runInBackground = true;  // keep receiving motion data when another window has focus
             BoxBuild.ApplyBranding();
             AssetDatabase.SaveAssets();
             EditorSceneManager.OpenScene(MenuScenePath);
-            Debug.Log("[MoveIt] Built Menu, Runner, Slash, Bowling, Paint, Sword, Fly and MotionDebug scenes.");
+            Debug.Log("[MoveIt] Built Menu, Runner, Dress, Bowling, Paint, Sword, Fly, Tennis, Sports and MotionDebug scenes.");
         }
 
         [MenuItem("MoveIt/Build Menu Scene")]
@@ -85,49 +96,56 @@ namespace MoveIt.EditorTools
             EditorSceneManager.SaveScene(scene, MenuScenePath);
         }
 
-        [MenuItem("MoveIt/Build Slash Scene")]
-        public static void BuildSlashScene()
+        /// <summary>
+        /// Vishu!: an orthographic camera in HUD pixels (1080 high), the game draws the camera picture, the outfit (one
+        /// mesh, Tundu/Outfit), the body mask (Tundu/BodyMask) and the particles itself. Art from tools/dress.
+        /// </summary>
+        [MenuItem("MoveIt/Build Dress Scene")]
+        public static void BuildDressScene()
         {
-            EnsureFolder(SlashMaterialsDir);
-            var fruits = new[]
-            {
-                Mat(SlashMaterialsDir, "Orange", new Color(1f, 0.55f, 0.05f)),
-                Mat(SlashMaterialsDir, "Apple", new Color(0.85f, 0.1f, 0.12f)),
-                Mat(SlashMaterialsDir, "Watermelon", new Color(0.15f, 0.6f, 0.2f)),
-                Mat(SlashMaterialsDir, "Fig", new Color(0.45f, 0.2f, 0.45f)),
-                Mat(SlashMaterialsDir, "Pomegranate", new Color(0.6f, 0.05f, 0.15f)),
-                Mat(SlashMaterialsDir, "Lemon", new Color(1f, 0.9f, 0.2f)),
-            };
-            var bomb = Mat(SlashMaterialsDir, "Bomb", new Color(0.08f, 0.08f, 0.1f));
-            var fuse = Mat(SlashMaterialsDir, "Fuse", new Color(1f, 0.3f, 0.1f), emission: 1.5f);
-            var hand = Mat(SlashMaterialsDir, "Hand", new Color(0.6f, 0.9f, 1f), emission: 1f);
-            var blade = SpriteMat(SlashMaterialsDir, "Blade");
-
+            EnsureFolder(DressMaterialsDir);
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            RenderSettings.ambientMode = AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.5f, 0.5f, 0.55f);
-            CreateLight(Quaternion.Euler(35f, -25f, 0f), 1.2f, shadows: false);
-
-            var cam = CreateCamera(new Color(0.28f, 0.17f, 0.11f));
+            var cam = CreateCamera(Hex("#141938"));
             cam.orthographic = true;
-            cam.orthographicSize = 5f;
-            cam.transform.position = new Vector3(0f, 0f, -10f);
-
+            cam.orthographicSize = 540f;
+            cam.nearClipPlane = 0.1f;
+            cam.farClipPlane = 100f;
+            cam.transform.position = new Vector3(960f, 540f, -10f);
             CreateMotionRig(fullScreenOverlay: false);
 
-            var game = new GameObject("Slash").AddComponent<SlashGame>();
+            var game = new GameObject("Dress").AddComponent<DressGame>();
             Set(game, "cam", cam);
-            var so = new SerializedObject(game);
-            var list = so.FindProperty("fruitMaterials");
-            list.arraySize = fruits.Length;
-            for (int i = 0; i < fruits.Length; i++) list.GetArrayElementAtIndex(i).objectReferenceValue = fruits[i];
-            so.ApplyModifiedPropertiesWithoutUndo();
-            Set(game, "bombMaterial", bomb);
-            Set(game, "fuseMaterial", fuse);
-            Set(game, "bladeMaterial", blade);
-            Set(game, "handMaterial", hand);
+            Set(game, "outfitMaterial", ShaderMat(DressMaterialsDir, "Outfit", "Tundu/Outfit"));
+            Set(game, "maskMaterial", ShaderMat(DressMaterialsDir, "BodyMask", "Tundu/BodyMask"));
+            var fx = ShaderMat(DressMaterialsDir, "DressFx", "Tundu/Fx");
+            fx.SetFloat("_SrcBlend", (float)BlendMode.SrcAlpha);
+            fx.SetFloat("_DstBlend", (float)BlendMode.OneMinusSrcAlpha);
+            Set(game, "fxMaterial", fx);
+            Set(game, "atlasJson", AssetDatabase.LoadAssetAtPath<TextAsset>(DressArtDir + "/outfit_atlas.json"));
+            Set(game, "uiJson", AssetDatabase.LoadAssetAtPath<TextAsset>(DressArtDir + "/dress_ui.json"));
+            foreach (var (field, file) in new[] { ("atlas", "outfit_atlas"), ("atlasMask", "outfit_mask"), ("thumbs", "outfit_thumbs"),
+                                                  ("thumbsMask", "outfit_thumbs_mask"), ("uiSheet", "dress_ui"), ("fxSheet", "dress_fx") })
+            {
+                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>($"{DressArtDir}/{file}.png");
+                if (tex == null) Debug.LogWarning($"[MoveIt] {DressArtDir}/{file}.png is missing: run tools/dress/outfits.py and ui_art.py");
+                Set(game, field, tex);
+            }
+            EditorSceneManager.SaveScene(scene, DressScenePath);
+        }
 
-            EditorSceneManager.SaveScene(scene, SlashScenePath);
+        static Material ShaderMat(string folder, string name, string shaderName)
+        {
+            string path = $"{folder}/{name}.mat";
+            var shader = Shader.Find(shaderName);
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = shader;
+            EditorUtility.SetDirty(mat);
+            return mat;
         }
 
         [MenuItem("MoveIt/Build Bowling Scene")]
@@ -349,11 +367,12 @@ namespace MoveIt.EditorTools
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.Linear;
             RenderSettings.fogColor = horizon;
-            RenderSettings.fogStartDistance = 60f;
-            RenderSettings.fogEndDistance = 165f;
+            RenderSettings.fogStartDistance = 70f;
+            RenderSettings.fogEndDistance = 185f;
             RenderSettings.ambientMode = AmbientMode.Flat;
             RenderSettings.ambientLight = new Color(0.62f, 0.66f, 0.74f);
-            CreateLight(Quaternion.Euler(50f, -30f, 0f), 1.2f, shadows: false);
+            // a little softer than the other games: the city's pale walls would wash out in a 1.2 sun
+            CreateLight(Quaternion.Euler(50f, -30f, 0f), 1f, shadows: false);
             Object.FindAnyObjectByType<Light>().color = new Color(1f, 0.96f, 0.88f);
 
             var cam = CreateCamera(horizon);
@@ -361,28 +380,319 @@ namespace MoveIt.EditorTools
             cam.nearClipPlane = 0.1f;
             cam.farClipPlane = 200f;
             cam.fieldOfView = 60f;
-            cam.transform.position = new Vector3(0f, FlyWorld.FlyHeight + 1.6f, -5f);
-            cam.transform.LookAt(new Vector3(0f, FlyWorld.FlyHeight + 0.2f, 8f));
+            cam.transform.position = new Vector3(0f, FlyWorld.FlyHeight + FlyGame.CameraHeight, -FlyGame.CameraBack);
+            cam.transform.LookAt(new Vector3(0f, FlyWorld.FlyHeight + FlyGame.LookHeight, FlyGame.LookAhead));
             cam.GetUniversalAdditionalCameraData().renderPostProcessing = true;
             var post = new GameObject("Post Processing").AddComponent<Volume>();
             post.isGlobal = true;
-            post.sharedProfile = PostProfile("Assets/Games/Fly/FlyPost.asset");
+            var profile = PostProfile("Assets/Games/Fly/FlyPost.asset");
+            if (profile.TryGet<ColorAdjustments>(out var grade))
+            {
+                grade.postExposure.Override(-0.05f);   // bright pastel facades: no extra exposure, a bit more colour
+                grade.saturation.Override(32f);
+                grade.contrast.Override(18f);
+                EditorUtility.SetDirty(profile);
+            }
+            post.sharedProfile = profile;
 
             CreateMotionRig(fullScreenOverlay: false);
 
             var world = new GameObject("City").AddComponent<FlyWorld>();
-            Set(world, "cityMaterial", FlyToon("City", curve: true));
+            Set(world, "cityMaterial", FlyCityMat(horizon));
             Set(world, "cloudMaterial", FlyToon("Cloud", rim: 0.35f));
 
             var game = new GameObject("Fly").AddComponent<FlyGame>();
             Set(game, "cam", cam);
             Set(game, "world", world);
             Set(game, "toonMaterial", FlyToon("Toon", rim: 0.2f));
+            Set(game, "actorMaterial", FlyActorMat());
             Set(game, "sparkMaterial", FxMat("Spark", "fx_star.png", Color.white, folder: FlyMaterialsDir));
             Set(game, "glowMaterial", FxMat("Glow", "fx_dot.png", Color.white, additive: true, folder: FlyMaterialsDir));
             Set(game, "markerMaterial", FxMat("Marker", null, Color.white, folder: FlyMaterialsDir, onTop: true));
+            Set(game, "shadowMaterial", FxMat("Shadow", "fx_dot.png", new Color(0.1f, 0.12f, 0.3f, 0.42f), folder: FlyMaterialsDir));
+            Set(game, "streakMaterial", FxMat("Streak", "fx_streak.png", Color.white, additive: true, folder: FlyMaterialsDir));
 
             EditorSceneManager.SaveScene(scene, FlyScenePath);
+        }
+
+        /// <summary>
+        /// Tenis!: a stadium in the sun (<see cref="TennisStadium"/> builds the court, stands and crowd in code), the camera
+        /// high behind the player's baseline like Wii Sports Tennis, real-time shadows under the players.
+        /// </summary>
+        [MenuItem("MoveIt/Build Tennis Scene")]
+        public static void BuildTennisScene()
+        {
+            EnsureFolder(TennisMaterialsDir);
+            var horizon = Hex("#D2EEF6");
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            RenderSettings.skybox = SkyMat(horizon, TennisMaterialsDir);
+            RenderSettings.fog = true;
+            RenderSettings.fogMode = FogMode.Linear;
+            RenderSettings.fogColor = horizon;
+            RenderSettings.fogStartDistance = 55f;
+            RenderSettings.fogEndDistance = 150f;
+            RenderSettings.ambientMode = AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(0.62f, 0.66f, 0.74f);
+            CreateLight(Quaternion.Euler(52f, -28f, 0f), 1.15f, shadows: true);
+            Object.FindAnyObjectByType<Light>().color = new Color(1f, 0.96f, 0.88f);
+
+            var cam = CreateCamera(horizon);
+            cam.clearFlags = CameraClearFlags.Skybox;
+            cam.nearClipPlane = 0.1f;
+            cam.farClipPlane = 220f;
+            cam.fieldOfView = 46f;
+            // high behind the player's baseline: their back player near the bottom, the far pair across the net
+            cam.transform.position = new Vector3(0f, 5.4f, -22f);
+            cam.transform.LookAt(new Vector3(0f, 0.2f, -0.5f));
+            cam.GetUniversalAdditionalCameraData().renderPostProcessing = true;
+            var post = new GameObject("Post Processing").AddComponent<Volume>();
+            post.isGlobal = true;
+            post.sharedProfile = PostProfile("Assets/Games/Tennis/TennisPost.asset");
+
+            CreateMotionRig(fullScreenOverlay: false);
+
+            var game = new GameObject("Tennis").AddComponent<TennisGame>();
+            Set(game, "cam", cam);
+            Set(game, "actorMaterial", TennisToon("Actor", gloss: 0.9f, rim: 0.28f));
+            Set(game, "stadiumMaterial", TennisToon("Stadium", gloss: 0.25f, rim: 0f));
+            Set(game, "netMaterial", FxMat("Net", null, Color.white, folder: TennisMaterialsDir));
+            var ball = TennisToon("Ball", gloss: 0f, rim: 0.45f, vertex: false);
+            ball.SetColor("_BaseColor", Hex("#DDF23A"));
+            ball.SetColor("_EmissionColor", Hex("#DDF23A") * 0.35f);
+            EditorUtility.SetDirty(ball);
+            Set(game, "ballMaterial", ball);
+            Set(game, "sparkMaterial", FxMat("Spark", "fx_star.png", Color.white, folder: TennisMaterialsDir));
+            Set(game, "dotMaterial", FxMat("Dot", "fx_dot.png", Color.white, folder: TennisMaterialsDir));
+            Set(game, "trailMaterial", FxMat("Trail", null, Color.white, additive: true, folder: TennisMaterialsDir));
+            Set(game, "markerMaterial", FxMat("Marker", null, Color.white, folder: TennisMaterialsDir, onTop: true));
+
+            EditorSceneManager.SaveScene(scene, TennisScenePath);
+        }
+
+        /// <summary>Sporte!: one scene for its three events (each builds its own world in code and sets the sky, fog and
+        /// sun).</summary>
+        [MenuItem("MoveIt/Build Sports Scene")]
+        public static void BuildSportsScene()
+        {
+            BuildActivityScene<SportsGame>(SportsScenePath, SportsMaterialsDir, "Assets/Games/Sports/SportsPost.asset", game =>
+            {
+                // the athletes: the model of art/sports/athlete.py, its clips, Tundu/Athlete
+                const string fbx = "Assets/Games/Sports/Art/Athlete.fbx";
+                Set(game, "athletePrefab", AssetDatabase.LoadAssetAtPath<GameObject>(fbx));
+                Set(game, "athleteMaterial", AthleteMat(SportsMaterialsDir));
+                SetArray(game, "athleteClips", AssetDatabase.LoadAllAssetsAtPath(fbx).OfType<AnimationClip>()
+                    .Where(c => !c.name.StartsWith("__preview__")).Cast<Object>().ToArray());
+                // the venues (art/sports/venues.py), their textures (tools/sports/textures.py) and materials
+                const string art = "Assets/Games/Sports/Art", tex = art + "/Textures", venues = art + "/Venues";
+                T Load<T>(string path) where T : Object => AssetDatabase.LoadAssetAtPath<T>(path);
+                Set(game, "art.football", Load<GameObject>(venues + "/Football.fbx"));
+                Set(game, "art.track", Load<GameObject>(venues + "/Track.fbx"));
+                Set(game, "art.beach", Load<GameObject>(venues + "/Beach.fbx"));
+                Set(game, "art.footballSeats", Load<TextAsset>(venues + "/Football_crowd.txt"));
+                Set(game, "art.trackSeats", Load<TextAsset>(venues + "/Track_crowd.txt"));
+                Set(game, "art.beachSeats", Load<TextAsset>(venues + "/Beach_crowd.txt"));
+                Set(game, "art.grassDetail", Load<Texture2D>(tex + "/grass_detail.png"));
+                Set(game, "art.trackDetail", Load<Texture2D>(tex + "/track_detail.png"));
+                Set(game, "art.sandDetail", Load<Texture2D>(tex + "/sand_detail.png"));
+                // the venues fill most of the screen: Tundu/Toon's simple path (no rim or gloss, sky light per vertex)
+                // saves the TV box's GPU a lot per pixel
+                var world = ToonIn(SportsMaterialsDir, "VenueWorld", gloss: 0f, rim: 0f, vertex: true);
+                world.SetFloat("_Ambient", 0.42f);
+                world.SetFloat("_ShadowStrength", 0.62f);
+                world.EnableKeyword("_TOON_SIMPLE");
+                Set(game, "art.world", world);
+                var ground = ToonIn(SportsMaterialsDir, "VenueGround", gloss: 0f, rim: 0f, vertex: true);
+                ground.SetTexture("_BaseMap", Load<Texture2D>(tex + "/grass_detail.png"));
+                ground.SetFloat("_Ambient", 0.42f);
+                ground.SetFloat("_ShadowStrength", 0.6f);
+                ground.EnableKeyword("_TOON_SIMPLE");
+                Set(game, "art.ground", ground);
+                var boards = ShaderMat(SportsMaterialsDir, "Boards", "Tundu/Screen");
+                boards.SetTexture("_BaseMap", Load<Texture2D>(tex + "/ads.png"));
+                boards.SetTextureScale("_BaseMap", new Vector2(1f / 24f, 1f));
+                boards.SetFloat("_Scroll", 0.012f);
+                boards.SetVector("_LedDensity", new Vector4(2400f, 100f, 0f, 0f));
+                Set(game, "art.boards", boards);
+                var screen = ShaderMat(SportsMaterialsDir, "BigScreen", "Tundu/Screen");
+                screen.SetTexture("_BaseMap", Load<Texture2D>(tex + "/screen.png"));
+                screen.SetVector("_LedDensity", new Vector4(330f, 150f, 0f, 0f));
+                Set(game, "art.screen", screen);
+                var net = ShaderMat(SportsMaterialsDir, "Net", "Tundu/Net");
+                net.SetTexture("_BaseMap", Load<Texture2D>(tex + "/net.png"));
+                Set(game, "art.net", net);
+                var crowd = ShaderMat(SportsMaterialsDir, "Crowd", "Tundu/Crowd");
+                crowd.SetTexture("_BaseMap", Load<Texture2D>(art + "/crowd_atlas.png"));
+                Set(game, "art.crowd", crowd);
+            });
+        }
+
+        /// <summary>Tundu/Athlete: the athletes' material (their colours come per character).</summary>
+        static Material AthleteMat(string folder)
+        {
+            string path = $"{folder}/Athlete.mat";
+            var shader = Shader.Find("Tundu/Athlete");
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = shader;
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        /// <summary>
+        /// A game of activities (<see cref="ActivityGame"/>): a sunlit sky by default (the activities set their own), the
+        /// camera they move, shadows, a little post-processing, the materials they build with.
+        /// </summary>
+        static void BuildActivityScene<T>(string scenePath, string materials, string postAsset, System.Action<T> extra = null) where T : ActivityGame
+        {
+            EnsureFolder(materials);
+            var horizon = Hex("#D2EEF6");
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            var sky = SkyMat(horizon, materials);
+            RenderSettings.skybox = sky;
+            RenderSettings.fog = true;
+            RenderSettings.fogMode = FogMode.Linear;
+            RenderSettings.fogColor = horizon;
+            RenderSettings.fogStartDistance = 45f;
+            RenderSettings.fogEndDistance = 150f;
+            RenderSettings.ambientMode = AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(0.62f, 0.66f, 0.74f);
+            CreateLight(Quaternion.Euler(50f, -30f, 0f), 1.2f, shadows: true);
+            var sun = Object.FindAnyObjectByType<Light>();
+            sun.color = new Color(1f, 0.96f, 0.88f);
+
+            var cam = CreateCamera(horizon);
+            cam.clearFlags = CameraClearFlags.Skybox;
+            cam.nearClipPlane = 0.05f;
+            cam.farClipPlane = 260f;
+            cam.fieldOfView = 58f;
+            cam.transform.position = new Vector3(0f, 2.5f, -5f);
+            cam.transform.LookAt(new Vector3(0f, 1.3f, 0f));
+            cam.GetUniversalAdditionalCameraData().renderPostProcessing = true;
+            var post = new GameObject("Post Processing").AddComponent<Volume>();
+            post.isGlobal = true;
+            post.sharedProfile = PostProfile(postAsset);
+
+            CreateMotionRig(fullScreenOverlay: false);
+
+            var game = new GameObject(typeof(T).Name.Replace("Game", "")).AddComponent<T>();
+            Set(game, "cam", cam);
+            Set(game, "sun", sun);
+            Set(game, "actorMaterial", ToonIn(materials, "Actor", gloss: 0.9f, rim: 0.25f, vertex: true));
+            Set(game, "worldMaterial", ToonIn(materials, "World", gloss: 0.25f, rim: 0f, vertex: true));
+            Set(game, "toonMaterial", ToonIn(materials, "Toon", gloss: 0.3f, rim: 0.15f, vertex: false));
+            Set(game, "ghostMaterial", GhostMat("Ghost", depth: false, folder: materials));
+            Set(game, "ghostDepthMaterial", GhostMat("GhostDepth", depth: true, folder: materials));
+            Set(game, "fxMaterial", FxMat("Fx", null, Color.white, folder: materials));
+            Set(game, "markerMaterial", FxMat("Marker", null, Color.white, folder: materials, onTop: true));
+            Set(game, "sparkMaterial", FxMat("Spark", "fx_star.png", Color.white, folder: materials));
+            Set(game, "dotMaterial", FxMat("Dot", "fx_dot.png", Color.white, folder: materials));
+            Set(game, "waterMaterial", ShaderMat(materials, "Water", "Tundu/Water"));
+            Set(game, "skyMaterial", sky);
+            extra?.Invoke(game);
+
+            EditorSceneManager.SaveScene(scene, scenePath);
+        }
+
+        /// <summary>Tundu/Toon in <paramref name="folder"/> for a flat world: vertex colours (alpha = gloss) for merged parts
+        /// and worlds, or plain white for pieces coloured one by one.</summary>
+        static Material ToonIn(string folder, string name, float gloss, float rim, bool vertex)
+        {
+            string path = $"{folder}/{name}.mat";
+            var shader = Shader.Find("Tundu/Toon");
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = shader;
+            mat.SetColor("_BaseColor", Color.white);
+            mat.SetTexture("_BaseMap", null);
+            mat.SetFloat("_Curve", 0f);
+            mat.SetFloat("_UseVertexColor", vertex ? 1f : 0f);
+            mat.SetFloat("_Gloss", gloss);
+            mat.SetFloat("_GlossPower", 36f);
+            mat.SetFloat("_Ambient", 0.35f);
+            mat.SetFloat("_ShadeSoftness", 0.2f);
+            mat.SetFloat("_ShadowStrength", 0.55f);
+            mat.SetColor("_RimColor", new Color(1f, 1f, 1f, rim));
+            mat.SetColor("_EmissionColor", Color.black);
+            mat.enableInstancing = !vertex;
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        /// <summary>Tundu/Toon for Tenis! (flat world): with vertex colours (alpha = gloss) for the merged players and
+        /// stadium, or a plain colour.</summary>
+        static Material TennisToon(string name, float gloss, float rim, bool vertex = true)
+        {
+            string path = $"{TennisMaterialsDir}/{name}.mat";
+            var shader = Shader.Find("Tundu/Toon");
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = shader;
+            mat.SetColor("_BaseColor", Color.white);
+            mat.SetTexture("_BaseMap", null);
+            mat.SetFloat("_Curve", 0f);
+            mat.SetFloat("_UseVertexColor", vertex ? 1f : 0f);
+            mat.SetFloat("_Gloss", gloss);
+            mat.SetFloat("_GlossPower", 36f);
+            mat.SetFloat("_Ambient", 0.35f);
+            mat.SetFloat("_ShadeSoftness", 0.2f);
+            mat.SetFloat("_ShadowStrength", 0.55f);
+            mat.SetColor("_RimColor", new Color(1f, 1f, 1f, rim));
+            mat.SetColor("_EmissionColor", Color.black);
+            mat.enableInstancing = false;
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        /// <summary>Tundu/City with the city's texture array (tools/fly/city_textures.py, imported by FlyArtImport):
+        /// one material for every block. Its glass mirrors the same sky as the skybox.</summary>
+        static Material FlyCityMat(Color horizon)
+        {
+            string path = $"{FlyMaterialsDir}/City.mat";
+            var shader = Shader.Find("Tundu/City");
+            var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (mat == null)
+            {
+                mat = new Material(shader);
+                AssetDatabase.CreateAsset(mat, path);
+            }
+            mat.shader = shader;
+            AssetDatabase.ImportAsset(FlyArtImport.CityTexture);
+            var tiles = AssetDatabase.LoadAssetAtPath<Texture2DArray>(FlyArtImport.CityTexture);
+            if (tiles == null) Debug.LogError($"[MoveIt] {FlyArtImport.CityTexture} is not a texture array: run tools/fly/city_textures.py, reimport");
+            mat.SetTexture("_BaseMap", tiles);
+            mat.SetColor("_SkyTop", Hex("#5BB8F2"));
+            mat.SetColor("_SkyHorizon", horizon);
+            mat.SetFloat("_Ambient", 0.14f);
+            mat.SetColor("_ShadeColor", new Color(0.64f, 0.66f, 0.88f));
+            mat.enableInstancing = false;
+            EditorUtility.SetDirty(mat);
+            return mat;
+        }
+
+        /// <summary>Tundu/Toon for characters merged from parts: vertex colours (alpha = gloss), a shiny highlight, a soft
+        /// rim, flat (they fly; the city bends below them).</summary>
+        static Material FlyActorMat()
+        {
+            var mat = FlyToon("Actor", rim: 0.28f);
+            mat.SetFloat("_UseVertexColor", 1f);
+            mat.SetFloat("_Gloss", 0.9f);
+            mat.SetFloat("_GlossPower", 36f);
+            mat.SetFloat("_Ambient", 0.35f);
+            mat.SetFloat("_ShadeSoftness", 0.2f);
+            EditorUtility.SetDirty(mat);
+            return mat;
         }
 
         /// <summary>Tundu/Toon, white (the game colours each part): flat, or bending with the world (the city).</summary>
@@ -430,9 +740,9 @@ namespace MoveIt.EditorTools
         }
 
         /// <summary>Tundu/Ghost: the colour material, or the depth one drawn just before it (see the shader).</summary>
-        static Material GhostMat(string name, bool depth)
+        static Material GhostMat(string name, bool depth, string folder = SwordMaterialsDir)
         {
-            string path = $"{SwordMaterialsDir}/{name}.mat";
+            string path = $"{folder}/{name}.mat";
             var shader = Shader.Find("Tundu/Ghost");
             var mat = AssetDatabase.LoadAssetAtPath<Material>(path);
             if (mat == null)

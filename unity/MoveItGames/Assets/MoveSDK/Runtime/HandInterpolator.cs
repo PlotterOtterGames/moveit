@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 namespace MoveIt.Motion
@@ -17,9 +18,14 @@ namespace MoveIt.Motion
     ///
     /// Settings (tools/motion/cursor_sim.py):
     /// <list type="bullet">
-    /// <item>Fruta and the hand cursors (<see cref="BodyHands"/>): Margin 0.5, glide 80 ms, filter 1 / 4 / 2.</item>
-    /// <item>Pikturo's brush: Margin 1, no glide, filter 4 / 1 / 1: only real samples, so it never slides past the
-    /// point where the hand stopped (lines and corners land where they were meant), for ~one camera frame more lag.</item>
+    /// <item>The hand cursors (<see cref="BodyHands"/>, Pikturo's and Vishu!'s camera cursors): Margin 0.5, glide 80 ms,
+    /// filter 1 / 4 / 2 (tuned for Fruta's slashes, the game Vishu! replaced).</item>
+    /// <item>Pikturo's brush: Margin 1, no glide, <see cref="FitWindow"/> 0.25 s, filter 2 / 4 / 2: a parabola through
+    /// the last quarter second of samples, drawn one camera frame back, so it never glides past the point where the hand
+    /// stopped (2026-10-19: as smooth as the old brush, which filtered the low-lag track and then again here, with
+    /// 20-25 ms less lag). On the user's painting recording (2026-10-20) it scored jerkier than the old brush (3.45 vs
+    /// 2.51 px/frame^2 of excess acceleration, but ~20 ms quicker); a per-sample filter that scored best felt worse to
+    /// the user than this one, so this stays.</item>
     /// </list>
     ///
     /// Each sample can carry a flag (Pikturo: "the other hand is raised"), returned for the same moment as the
@@ -34,8 +40,17 @@ namespace MoveIt.Motion
         public float MaxExtrapolation;
         /// <summary>How much of the previous speed estimate is kept on each sample (0 = the last two samples only).</summary>
         public float VelocitySmoothing = 0.4f;
+        /// <summary>
+        /// Seconds of samples (newest back) that a parabola is fitted through by least squares, drawn at the cursor's
+        /// moment: a moving regression (Savitzky-Golay on uneven sample times; the Kinect SDK's joint smoothing paper
+        /// recommends one where a few frames of delay are fine). It weighs ~8 (30 fps) to ~15 (60 fps) samples, a hand
+        /// moving at a steady speed is drawn where it was, not behind it (a filter lags), and the path has no corner
+        /// at every sample, which keeps the One Euro filter after it steady. Never extrapolated past the newest
+        /// sample. 0 = straight lines between samples.
+        /// </summary>
+        public float FitWindow;
 
-        const int Capacity = 6;
+        const int Capacity = 24;   // 0.25 s of a 60 fps camera, with room
         readonly double[] _times = new double[Capacity];
         readonly Vector3[] _positions = new Vector3[Capacity];
         readonly bool[] _flags = new bool[Capacity];
@@ -118,7 +133,56 @@ namespace MoveIt.Motion
                 p = Vector3.Lerp(_positions[i - 1], _positions[i], k);
                 flag = _flags[i - 1];
             }
+            if (FitWindow > 0f && Fit(t, out var fitted)) p = fitted;
             return new Vector3(_x.Filter(p.x, frameDt), _y.Filter(p.y, frameDt), _z.Filter(p.z, frameDt));
+        }
+
+        /// <summary>The least-squares parabola through the samples of the last <see cref="FitWindow"/> seconds (at least
+        /// 4), at camera time <paramref name="t"/> (clamped to the samples used).</summary>
+        bool Fit(double t, out Vector3 p)
+        {
+            p = default;
+            if (_count < 3) return false;
+            double newest = _times[_count - 1];
+            int first = _count - 1;
+            while (first > 0 && _times[first - 1] >= newest - FitWindow) first--;
+            first = Mathf.Min(first, Mathf.Max(0, _count - 4));
+            // normal equations of a + b u + c u^2, u = time relative to the newest sample (seconds)
+            double s0 = 0, s1 = 0, s2 = 0, s3 = 0, s4 = 0;
+            Vector3d y0 = default, y1 = default, y2 = default;
+            for (int i = first; i < _count; i++)
+            {
+                double u = _times[i] - newest, u2 = u * u;
+                s0 += 1; s1 += u; s2 += u2; s3 += u2 * u; s4 += u2 * u2;
+                y0.Add(_positions[i], 1);
+                y1.Add(_positions[i], u);
+                y2.Add(_positions[i], u2);
+            }
+            double det = s0 * (s2 * s4 - s3 * s3) - s1 * (s1 * s4 - s3 * s2) + s2 * (s1 * s3 - s2 * s2);
+            if (Math.Abs(det) < 1e-18) return false;   // samples at (nearly) the same moment
+            double x = Math.Max(_times[first], Math.Min(newest, t)) - newest;
+            // Cramer's rule, then a + b x + c x^2, for each axis
+            double Axis(double r0, double r1, double r2)
+            {
+                double a = r0 * (s2 * s4 - s3 * s3) - s1 * (r1 * s4 - s3 * r2) + s2 * (r1 * s3 - s2 * r2);
+                double b = s0 * (r1 * s4 - s3 * r2) - r0 * (s1 * s4 - s3 * s2) + s2 * (s1 * r2 - r1 * s2);
+                double c = s0 * (s2 * r2 - r1 * s3) - s1 * (s1 * r2 - r1 * s2) + r0 * (s1 * s3 - s2 * s2);
+                return (a + (b + c * x) * x) / det;
+            }
+            p = new Vector3((float)Axis(y0.X, y1.X, y2.X), (float)Axis(y0.Y, y1.Y, y2.Y), (float)Axis(y0.Z, y1.Z, y2.Z));
+            return true;
+        }
+
+        struct Vector3d
+        {
+            public double X, Y, Z;
+
+            public void Add(Vector3 v, double w)
+            {
+                X += v.x * w;
+                Y += v.y * w;
+                Z += v.z * w;
+            }
         }
 
         /// <summary>Forget the hand (lost): the next sample starts fresh.</summary>

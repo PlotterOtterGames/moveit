@@ -1,0 +1,26 @@
+{
+    "name": "MoveIt.Games.Dress.Tests",
+    "rootNamespace": "MoveIt.Games.Dress.Tests",
+    "references": [
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "MoveIt.Games.Dress",
+        "MoveIt.Games.Common",
+        "MoveIt.Motion"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

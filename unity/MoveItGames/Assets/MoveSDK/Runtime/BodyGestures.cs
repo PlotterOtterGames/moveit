@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace MoveIt.Motion
 {
@@ -22,7 +23,8 @@ namespace MoveIt.Motion
     /// own calibrated body (torso length as the unit), so the same thresholds work for a child and an adult
     /// at any distance from the camera.
     ///
-    /// Calibration happens automatically when a player stands still for <see cref="stillTime"/> seconds.
+    /// Calibration happens automatically when a player stands still for <see cref="stillTime"/> seconds where the scene's
+    /// game needs them (<see cref="Area"/>, checked by <see cref="Placement"/>); "hands up" (start) counts only there too.
     /// </summary>
     [DefaultExecutionOrder(-75)]
     public sealed class BodyGestures : MonoBehaviour
@@ -110,6 +112,30 @@ namespace MoveIt.Motion
         public float JumpRise => jumpRise;
         public float CrouchEnter => crouchEnter;
 
+        /// <summary>
+        /// Where the current scene's game needs the player (null = anywhere: nothing checked). This object lives for the
+        /// whole app, so the area belongs to the scene that set it: a scene that sets none checks nothing.
+        /// </summary>
+        public PlayArea Area
+        {
+            get => _areaScene == SceneManager.GetActiveScene().handle ? _area : null;
+            set
+            {
+                _area = value;
+                _areaScene = SceneManager.GetActiveScene().handle;
+            }
+        }
+
+        /// <summary>Before a round: is the player where <see cref="Area"/> needs them, with room for the whole game?</summary>
+        public PlacementCheck Placement { get; } = new PlacementCheck();
+        /// <summary>During play: is the body about to leave the picture (<see cref="PlayArea.InPlay"/>)?</summary>
+        public PlacementCheck InPlay { get; } = new PlacementCheck();
+        /// <summary>
+        /// Frame a screen last asked the player to stand where <see cref="Area"/> needs them (a waiting, paused or results
+        /// screen): the skeleton mirror shows <see cref="Placement"/>'s edges then, <see cref="InPlay"/>'s otherwise.
+        /// </summary>
+        public int PlacementShownFrame { get; set; } = -10;
+
         double _lastSampleTime;
         Vector3 _prevCenter;
         float _stillTimer;
@@ -121,6 +147,8 @@ namespace MoveIt.Motion
         float _riseStartOffset;
         float _handsTimer;
         bool _handsLatched;
+        PlayArea _area, _checkedArea;
+        int _areaScene = -1;
 
         /// <summary>Forget the calibration; it re-runs as soon as the player stands still.</summary>
         public void Recalibrate()
@@ -149,14 +177,25 @@ namespace MoveIt.Motion
                 Body = body;
                 IsCalibrated = false;
                 ResetMotionState();
+                Placement.Reset();
+                InPlay.Reset();
                 if (lost) Emit(Gesture.PlayerLost);
                 if (body != null) Emit(Gesture.PlayerFound);
+            }
+            var area = Area;
+            if (area != _checkedArea)
+            {
+                _checkedArea = area;
+                Placement.Reset();
+                InPlay.Reset();
             }
             if (body == null || body.SampleTime == _lastSampleTime) return;
 
             float dt = _lastSampleTime > 0 ? (float)(body.SampleTime - _lastSampleTime) : 0f;
             if (dt > 0f && dt < Body.MinSpeedInterval) return;
             _lastSampleTime = body.SampleTime;
+            Placement.Update(body, area);
+            InPlay.Update(body, area?.InPlay);
             // Gestures read the low-lag track: they react sooner than the smooth track used for drawing.
             var center = body.FastTorsoCenter;
             float torso = body.FastTorsoLength;
@@ -174,7 +213,7 @@ namespace MoveIt.Motion
         void UpdateCalibration(Body body, Vector3 center, float torso, float dt)
         {
             float speed = Vector2.Distance(center, _prevCenter) / dt / torso;
-            if (!body.ShouldersVisible || speed > stillSpeed)
+            if (!body.ShouldersVisible || speed > stillSpeed || Placement.Blocks)
             {
                 _stillTimer = 0f;
                 _stillSumCenter = Vector3.zero;
@@ -275,7 +314,7 @@ namespace MoveIt.Motion
                 Emit(Gesture.CrouchEnd);
             }
 
-            // Both hands above the head.
+            // Both hands above the head. It starts a round, so it counts only where the game needs the player.
             var fast = body.Fast;
             float handsLine = fast[(int)Joint.Nose].y + handsUpAboveNose * unit;
             bool wristsVisible = body.IsVisible(Joint.LeftWrist) && body.IsVisible(Joint.RightWrist);
@@ -283,7 +322,7 @@ namespace MoveIt.Motion
             if (AreHandsUp)
             {
                 _handsTimer += dt;
-                if (!_handsLatched && _handsTimer >= handsUpHold)
+                if (!_handsLatched && _handsTimer >= handsUpHold && !Placement.Blocks)
                 {
                     _handsLatched = true;
                     Emit(Gesture.HandsUp);

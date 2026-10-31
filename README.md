@@ -11,7 +11,7 @@ camera → motion service (pose AI) ──UDP 5005──▶ Unity app (MoveSDK �
 | Folder | What |
 |---|---|
 | `motion-service-py/` | PC motion service: camera → MediaPipe Pose → 17-joint skeleton → UDP. Also `fake_sender.py` (scripted test player) and `replay.py`. |
-| `unity/MoveItGames/` | Unity 6000.3 (URP) project: **MoveSDK** (`Assets/MoveSDK`), games (`Assets/Games/Runner`, `Slash`, `Bowling`, shared code in `Common`) and the menu (`Assets/Shell`). |
+| `unity/MoveItGames/` | Unity 6000.3 (URP) project: **MoveSDK** (`Assets/MoveSDK`), games (`Assets/Games/Runner`, `Dress`, `Bowling`, `Paint`, `Sword`, `Fly`, shared code in `Common`) and the menu (`Assets/Shell`). |
 | `tools/branding/` | Boot animation, boot logo, icon and TV banner generated from `Assets/Resources/brand.json`. |
 | `tools/provision/` | Turns a stock Android box into a MoveIt box over adb (home screen, hide Android, boot animation). |
 | `tools/dev/run-on-mumu.ps1` | Installs the APK into MuMu Player (or any adb device), grants the camera, starts it, shows its logs. |
@@ -61,7 +61,7 @@ Kinect games ([Kinect Adventures](https://en.wikipedia.org/wiki/Kinect_Adventure
 | Game | Why | Body | Keyboard / mouse |
 |---|---|---|---|
 | **Vrapo!** (Runner) | Auto-runner (TMNT runner is Nex #10; the original Subway Surfers idea) | Step left/right = lane, jump, crouch = slide | ← → / Space / ↓ (hold) |
-| **Fruta!** (slash) | Slashing is the only mechanic with two hits in Nex's top 6 (Starri #3, Fruit Ninja #6) | Swipe hands fast through fruit, avoid bombs. 60 s rounds, combos for 3+ in one swipe | Swipe the mouse |
+| **Vishu!** (dress up, replaced Fruta! on 2026-10-16) | AR dress-up mirrors (Barbie's Kinect Dream Closet, Disney's princess mirror) + the top dress-up game Dress to Impress (theme, timer, runway, star ratings) | See yourself on the TV wearing the clothes: hold a hand on a bubble to choose, the same one again for a new colour; a fashion show with poses and three judges | 1-7 categories, arrows + Enter, R surprise, E magic, S show, F photo |
 | **Bowling** | Nex #4 and its most-played group game; headline event of Kinect Sports | Step sideways to place the ball, swing arm underhand to roll (swing speed = ball speed). 1–4 players take turns, 5 frames | ← → place, ↑ ↓ aim, hold Space for power |
 
 **On the TV:** connect the laptop to the TV with HDMI and maximize the Game view (or make a Windows build).

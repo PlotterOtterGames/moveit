@@ -1,10 +1,35 @@
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace MoveIt.Games.Fly
 {
-    /// <summary>Shapes drawn in code: the reach ring, a star, and the HUD heart.</summary>
+    /// <summary>Shapes drawn in code: the reach ring, a star, the HUD heart and the turn arrow.</summary>
     public static class FlyArt
     {
+        /// <summary>A fat rounded arrow pointing right, white with soft edges (tinted when drawn; flip for left).</summary>
+        public static Texture2D Arrow(int size = 128)
+        {
+            var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { name = "Arrow", wrapMode = TextureWrapMode.Clamp };
+            var px = new Color32[size * size];
+            // distance to the arrow's outline: a shaft (rounded box) and a head (triangle), with a soft 2-pixel edge
+            for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                float u = (x + 0.5f) / size, v = (y + 0.5f) / size - 0.5f;
+                float shaft = Mathf.Max(Mathf.Max(0.12f - u, u - 0.58f), Mathf.Abs(v) - 0.13f);
+                float head = Mathf.Max(u - 0.9f + Mathf.Abs(v) * 1.15f, Mathf.Max(0.5f - u, Mathf.Abs(v) - 0.38f));
+                float d = Mathf.Min(shaft, head) * size;
+                float a = Mathf.Clamp01(0.5f - d / 2f);
+                // a darker outline ring so it reads on a bright sky
+                float ring = Mathf.Clamp01(0.5f - Mathf.Abs(d + 4f) / 2f);
+                byte grey = (byte)(255 - 150 * ring);
+                px[y * size + x] = new Color32(grey, grey, grey, (byte)(a * 255));
+            }
+            tex.SetPixels32(px);
+            tex.Apply();
+            return tex;
+        }
         /// <summary>A flat ring in the XY plane, outer radius 0.5, inner <paramref name="inner"/>.</summary>
         public static Mesh Ring(float inner = 0.4f, int segments = 48)
         {

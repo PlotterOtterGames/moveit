@@ -9,7 +9,7 @@ namespace MoveIt.Shell
 {
     /// <summary>
     /// The box's home screen (the app is registered as Android's HOME, so the box boots here and the remote's Home
-    /// button returns here). A row of game tiles (six): a step to the left or right (or ← →) moves one tile, stepping back to
+    /// button returns here). A row of game tiles (eight): a step to the left or right (or ← →) moves one tile, stepping back to
     /// the middle keeps it; raise both hands or press OK to play. ↓ reaches the Settings button. Settings is remote-only and shows just what a family
     /// needs. Android's own settings are hidden behind 7 presses on "Device" (like Android's developer-mode trick).
     /// Game Pass: games in Game Pass show a lock while it isn't active; choosing one (or Settings → Game Pass) opens
@@ -38,9 +38,9 @@ namespace MoveIt.Shell
             },
             new Entry
             {
-                Scene = "Slash", Color = new Color(1f, 0.55f, 0.1f),
-                Title = () => T("Fruta!", "Fruit Slash!"),
-                Description = () => T("Copëto frutat me duar, shmang bombat", "Slice the fruit with your hands, avoid the bombs"),
+                Scene = "Dress", Color = new Color(1f, 0.42f, 0.72f),
+                Title = () => T("Vishu!", "Dress Up!"),
+                Description = () => T("Vishu me rroba magjike në pasqyrë, pastaj dil në sfilatë", "Dress up in magic clothes in the mirror, then walk the runway"),
             },
             new Entry
             {
@@ -66,10 +66,24 @@ namespace MoveIt.Shell
                 Title = () => T("Fluturo!", "Fly!"),
                 Description = () => T("Fluturo si superhero mbi qytet dhe godit robotët me grusht", "Fly like a superhero over the city and punch the robots"),
             },
+            new Entry
+            {
+                Scene = "Tennis", Color = new Color(0.93f, 0.6f, 0.1f),
+                Title = () => T("Tenis!", "Tennis!"),
+                Description = () => T("Tund dorën si raketë dhe mund çiftin tjetër në tenis", "Swing your arm like a racket and beat the other pair at tennis"),
+            },
+            new Entry
+            {
+                Scene = "Sports", Color = new Color(0.95f, 0.45f, 0.2f),
+                Title = () => T("Sporte!", "Sports!"),
+                Description = () => T("Vrapo 100 metra, gjuaj në portë dhe luaj volejboll në plazh", "Run the 100 metres, shoot at goal and play beach volleyball"),
+            },
         };
 
         const int AdminTapsNeeded = 7;
         const string CameraTestScene = "MotionDebug";
+        /// <summary>A step to a side moves a tile (a lane step, 0.55 torso lengths), and hands up plays: down to the waist is enough.</summary>
+        static readonly PlayArea Area = new PlayArea(BodyPart.Hips, side: 0.7f);
         /// <summary>An update waiting to install goes in after this long with no remote key and nobody in front of the camera.</summary>
         const float IdleBeforeInstall = 600f;
 
@@ -86,7 +100,14 @@ namespace MoveIt.Shell
         static bool _appStarted;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        static void ResetStatics() => _appStarted = false;  // the editor keeps statics between Play sessions
+        static void ResetStatics()   // the editor keeps statics between Play sessions
+        {
+            _appStarted = false;
+            _lastGame = null;
+        }
+
+        /// <summary>The game played last: back on the home screen its tile is selected again (not the default one).</summary>
+        static string _lastGame;
 
         public int SelectedGame { get; private set; } = 1;
         public bool SettingsButtonFocused { get; private set; }
@@ -94,6 +115,8 @@ namespace MoveIt.Shell
         public SettingsItem SettingsFocus { get; private set; }
         public bool AdminUnlocked { get; private set; }
         public bool GamePassOpen => _pass.Open;
+        /// <summary>The Game Pass code screen (tests read its focus and code).</summary>
+        public GamePassPanel GamePass => _pass;
 
         int SettingsCount => AdminUnlocked ? 8 : 7;
 
@@ -101,8 +124,11 @@ namespace MoveIt.Shell
         {
             _input = BodyInput.Instance != null ? BodyInput.Instance : FindAnyObjectByType<BodyInput>();
             _input?.ResetLane();
+            PlayerGate.Use(_input, Area);
             _previousLane = 0;
             _mirror = FindAnyObjectByType<MotionDebugOverlay>();
+            // the background is the camera's clear colour: a full-screen box drawn over it cost the box's GPU ~1.5 ms a frame
+            if (Camera.main != null) Camera.main.backgroundColor = Brand.Current.BackgroundColor;
             GameAudio.PlayMusic("menu");
             TunduCloud.SetBusy(false);
             TunduCloud.MarkHealthy();
@@ -112,6 +138,8 @@ namespace MoveIt.Shell
                 _appStarted = true;
                 _startupInstallUntil = Time.unscaledTime + 60f;
             }
+            int last = _lastGame == null ? -1 : _shown.FindIndex(g => g.Scene == _lastGame);
+            if (last >= 0) SelectedGame = last;
         }
 
         void Update()
@@ -139,14 +167,16 @@ namespace MoveIt.Shell
             _shown.Clear();
             foreach (var g in Games)
                 if (TunduCloud.AccessFor(g.Scene) != Access.Hidden) _shown.Add(g);
-            int index = _shown.FindIndex(g => g.Scene == selected);
+            int index = -1;   // a loop, not FindIndex: this runs every frame and a lambda would allocate
+            for (int i = 0; i < _shown.Count && index < 0; i++)
+                if (_shown[i].Scene == selected) index = i;
             SelectedGame = Mathf.Clamp(index >= 0 ? index : SelectedGame, 0, Mathf.Max(0, _shown.Count - 1));
         }
 
         void TrackActivity()
         {
             bool remote = RemoteInput.Up || RemoteInput.Down || RemoteInput.Left || RemoteInput.Right || RemoteInput.Confirm || RemoteInput.Back;
-            bool someone = PlayerGate.State(_input) is GateState.Ready or GateState.Calibrating;
+            bool someone = PlayerGate.State(_input) is GateState.Ready or GateState.Calibrating or GateState.Placing;
             if (remote || someone) _lastActivity = Time.unscaledTime;
         }
 
@@ -201,7 +231,11 @@ namespace MoveIt.Shell
                     GameAudio.Sfx("ui_select", vary: 0f);
                     _pass.Show(game.Title());
                 }
-                else Launch(game.Scene);
+                else
+                {
+                    _lastGame = game.Scene;
+                    Launch(game.Scene);
+                }
             }
         }
 
@@ -370,7 +404,7 @@ namespace MoveIt.Shell
             GUI.depth = 10;  // draw behind the skeleton mirror (lower depth = on top)
             float w = GameHud.Begin();
             var brand = Brand.Current;
-            GameHud.Box(new Rect(0, 0, w, GameHud.Height), brand.BackgroundColor);
+            if (Camera.main == null) GameHud.Box(new Rect(0, 0, w, GameHud.Height), brand.BackgroundColor);
             DrawTopBar(w, brand);
             DrawHome(w, brand);
             if (SettingsOpen) DrawSettings(w, brand);
@@ -413,9 +447,9 @@ namespace MoveIt.Shell
                 var c = g.Color;
                 c.a = selected ? 1f : 0.55f;
                 GameHud.Box(r, c);
-                // five or six tiles on a 16:9 TV are narrower: smaller type
-                TileTitle.fontSize = tileW >= 440f ? 76 : tileW >= 300f ? 60 : 50;
-                TileText.fontSize = tileW >= 300f ? 32 : 27;
+                // more tiles on a 16:9 TV are narrower: smaller type (eight tiles are ~200 px wide)
+                TileTitle.fontSize = tileW >= 440f ? 76 : tileW >= 300f ? 60 : tileW >= 220f ? 50 : 36;
+                TileText.fontSize = tileW >= 300f ? 32 : tileW >= 220f ? 27 : 23;
                 GameHud.Text(new Rect(r.x, r.y + 40, r.width, 120), g.Title(), TileTitle);
                 GameHud.Text(new Rect(r.x + 22, r.y + 190, r.width - 44, 190), g.Description(), TileText);
                 if (TunduCloud.AccessFor(g.Scene) == Access.Locked)
@@ -438,8 +472,10 @@ namespace MoveIt.Shell
             {
                 GateState.NoService => T("← → zgjidh,  OK luaj,  ↓ cilësimet   (kamera nuk është aktive)", "← → choose,  OK play,  ↓ settings   (camera service not running)"),
                 GateState.NoPlayer => StepIn,
+                GateState.Placing => PlayerGate.PlacementHint(_input),
                 GateState.Calibrating => HoldStill,
-                _ => T("Hap majtas ose djathtas për të zgjedhur, ngri duart lart për të luajtur", "Step left or right to choose, raise both hands to play"),
+                _ => PlayerGate.PlacementHint(_input)
+                     ?? T("Hap majtas ose djathtas për të zgjedhur, ngri duart lart për të luajtur", "Step left or right to choose, raise both hands to play"),
             };
             // Keep clear of the skeleton mirror in the bottom-right corner.
             GameHud.Text(new Rect(40, 830, w - 680, 140), hint, GameHud.Medium);

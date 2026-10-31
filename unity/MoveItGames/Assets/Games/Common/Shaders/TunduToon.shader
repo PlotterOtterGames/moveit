@@ -2,6 +2,8 @@
 // shadows, and the "curved world" of famous runners: the ground bends away over the horizon so far things rise over
 // it instead of popping in. The bend is one global value the game sets (_TunduCurve, metres of drop per metre² of
 // distance ahead of the camera); 0 = flat (every scene that doesn't set it).
+// Options for characters built from merged parts (all off by default, so older materials look the same): vertex
+// colours (rgb = colour, a = how glossy), a soft specular highlight, emission (glows through the bloom) and a flash.
 Shader "Tundu/Toon"
 {
     Properties
@@ -16,6 +18,11 @@ Shader "Tundu/Toon"
         _RimColor ("Rim Light (alpha = strength)", Color) = (1, 1, 1, 0)
         _RimPower ("Rim Power", Range(1, 8)) = 3
         _Curve ("Bends With The World (0/1)", Float) = 1
+        _UseVertexColor ("Vertex Colours (0/1; alpha = gloss)", Float) = 0
+        _Gloss ("Gloss", Range(0, 2)) = 0
+        _GlossPower ("Gloss Tightness", Range(4, 128)) = 32
+        [HDR] _EmissionColor ("Emission", Color) = (0, 0, 0, 0)
+        _FlashColor ("Flash (alpha = amount)", Color) = (1, 1, 1, 0)
     }
 
     SubShader
@@ -36,6 +43,11 @@ Shader "Tundu/Toon"
             half4 _RimColor;
             half _RimPower;
             half _Curve;
+            half _UseVertexColor;
+            half _Gloss;
+            half _GlossPower;
+            half4 _EmissionColor;
+            half4 _FlashColor;
         CBUFFER_END
 
         float _TunduCurve;
@@ -60,6 +72,7 @@ Shader "Tundu/Toon"
             #pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
+            #pragma shader_feature_local _TOON_SIMPLE
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
@@ -71,6 +84,7 @@ Shader "Tundu/Toon"
                 float4 positionOS : POSITION;
                 float3 normalOS : NORMAL;
                 float2 uv : TEXCOORD0;
+                half4 color : COLOR;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -81,6 +95,10 @@ Shader "Tundu/Toon"
                 float3 normalWS : TEXCOORD1;
                 float3 positionWS : TEXCOORD2;   // unbent: lighting and shadow maps live in the flat world
                 float fogFactor : TEXCOORD3;
+                half4 color : COLOR;
+                #if defined(_TOON_SIMPLE)
+                    half3 ambient : TEXCOORD4;   // sky light worked out per vertex
+                #endif
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -95,22 +113,38 @@ Shader "Tundu/Toon"
                 o.normalWS = TransformObjectToWorldNormal(v.normalOS);
                 o.uv = TRANSFORM_TEX(v.uv, _BaseMap);
                 o.fogFactor = ComputeFogFactor(o.positionCS.z);
+                // meshes without colours read white here only when the option is off
+                o.color = lerp(half4(1.0h, 1.0h, 1.0h, 1.0h), v.color, _UseVertexColor);
+                #if defined(_TOON_SIMPLE)
+                    o.ambient = SampleSH(o.normalWS);
+                #endif
                 return o;
             }
 
             half4 frag(Varyings i) : SV_Target
             {
-                half3 albedo = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, i.uv).rgb * _BaseColor.rgb;
+                half3 albedo = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, i.uv).rgb * _BaseColor.rgb * i.color.rgb;
+                albedo = lerp(albedo, _FlashColor.rgb, _FlashColor.a);
                 float3 n = normalize(i.normalWS);
                 Light light = GetMainLight(TransformWorldToShadowCoord(i.positionWS));
                 half ndl = dot(n, light.direction);
                 half lit = smoothstep(_ShadeThreshold - _ShadeSoftness, _ShadeThreshold + _ShadeSoftness, ndl);
                 lit *= lerp(1.0h, light.shadowAttenuation, _ShadowStrength);
                 half3 color = lerp(albedo * _ShadeColor.rgb, albedo * light.color, lit);
+            #if defined(_TOON_SIMPLE)
+                // big flat surfaces (Sporte!'s venues): the sky light from the vertices, no rim, no gloss. Over a pitch
+                // and the stands that's a lot less to work out per pixel on the TV box's GPU.
+                color += albedo * i.ambient * _Ambient;
+            #else
                 color += albedo * SampleSH(n) * _Ambient;
                 float3 view = normalize(GetWorldSpaceViewDir(i.positionWS));
                 half rim = pow(1.0h - saturate(dot(n, view)), _RimPower) * _RimColor.a;
                 color += _RimColor.rgb * rim;
+                // a soft highlight where the sun glints (vertex alpha says how glossy the part is)
+                half3 h = normalize(light.direction + view);
+                color += light.color * pow(saturate(dot(n, h)), _GlossPower) * (_Gloss * i.color.a * lit);
+            #endif
+                color += _EmissionColor.rgb;
                 return half4(MixFog(color, i.fogFactor), 1.0h);
             }
             ENDHLSL

@@ -56,6 +56,53 @@ namespace MoveIt.Games
             GUI.color = old;
         }
 
+        /// <summary>
+        /// A line in virtual coordinates. Rotates inside the HUD's scale (GUIUtility.RotateAroundPivot takes its pivot in
+        /// screen pixels, so under a scaled GUI.matrix it turns lines around the wrong point).
+        /// </summary>
+        public static void Line(Vector2 a, Vector2 b, Color color, float width)
+        {
+            var d = b - a;
+            float length = d.magnitude;
+            if (length < 0.01f) return;
+            var matrix = GUI.matrix;
+            var old = GUI.color;
+            GUI.matrix = matrix * Matrix4x4.TRS(a, Quaternion.Euler(0f, 0f, Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg), Vector3.one);
+            GUI.color = color;
+            GUI.DrawTexture(new Rect(0f, -width / 2f, length, width), Texture2D.whiteTexture);
+            GUI.matrix = matrix;
+            GUI.color = old;
+        }
+
+        /// <summary>Three chevrons pointing left (-1) or right (+1) that light up one after another toward the tip: "go this way".</summary>
+        public static void Chevrons(Vector2 center, int direction, float size, Color color)
+        {
+            float phase = Time.unscaledTime * 1.6f;
+            float arm = size * 0.45f, stroke = size * 0.16f;
+            for (int i = 0; i < 3; i++)
+            {
+                var c = color;
+                c.a *= Mathf.Lerp(1f, 0.25f, Mathf.Repeat(phase - i / 3f, 1f));
+                var tip = new Vector2(center.x + direction * ((i - 1) * size * 0.55f + size * 0.25f), center.y);
+                var top = new Vector2(tip.x - direction * arm, center.y - arm);
+                var bottom = new Vector2(tip.x - direction * arm, center.y + arm);
+                var shadow = new Color(0f, 0f, 0f, 0.5f * c.a);
+                var offset = new Vector2(3f, 3f);
+                Line(tip + offset, top + offset, shadow, stroke);
+                Line(tip + offset, bottom + offset, shadow, stroke);
+                Line(tip, top, c, stroke);
+                Line(tip, bottom, c, stroke);
+            }
+        }
+
+        /// <summary>A short message on a dark bar with a coloured edge: a warning that mustn't hide the game.</summary>
+        public static void Banner(Rect r, string text, Color color)
+        {
+            Box(r, new Color(0f, 0f, 0f, 0.6f));
+            Box(new Rect(r.x, r.yMax - 5f, r.width, 5f), color);
+            Text(r, text, Medium, TextAnchor.MiddleCenter, color);
+        }
+
         static void EnsureStyles()
         {
             if (_big != null) return;

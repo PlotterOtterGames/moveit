@@ -22,6 +22,7 @@ namespace MoveIt.Motion
         static readonly Color MidColor = new Color(0.9f, 0.9f, 0.9f);
         static readonly Color InactiveColor = new Color(1f, 1f, 1f, 0.3f);
         static readonly Color ThresholdColor = new Color(1f, 1f, 0.2f, 0.45f);
+        static readonly Color EdgeColor = new Color(1f, 0.35f, 0.31f, 0.9f);
 
         readonly List<string> _log = new List<string>();
         GUIStyle _label, _box;
@@ -90,6 +91,13 @@ namespace MoveIt.Motion
             {
                 if (gestures != null && gestures.IsCalibrated && system.ActiveBody != null) DrawThresholds(view, aspect);
                 foreach (var body in system.Tracker.Bodies) DrawBody(view, body, body == system.ActiveBody);
+                if (gestures != null && system.ActiveBody != null)
+                {
+                    // Before a round (a screen asks the player to stand where the game needs them): the game's whole area.
+                    // During one: the body itself, so stepping around inside the area doesn't light anything.
+                    bool beforeRound = !gestures.IsCalibrated || Time.frameCount - gestures.PlacementShownFrame <= 2;
+                    DrawEdges(view, (beforeRound ? gestures.Placement : gestures.InPlay).Edges);
+                }
                 if (!system.IsConnected)
                     GUI.Label(new Rect(view.x + 10, view.y + view.height / 2 - 20, view.width - 20, 40),
                         fullScreen ? "Waiting for motion service on UDP 5005...  (python main.py --preview)" : "no motion service", _label);
@@ -111,9 +119,10 @@ namespace MoveIt.Motion
             }
             if (gestures != null)
             {
-                lines.Add(gestures.IsCalibrated
+                lines.Add((gestures.IsCalibrated
                     ? "calibrated"
-                    : gestures.HasPlayer ? $"calibrating... stand still {gestures.CalibrationProgress * 100:0}%" : "no player");
+                    : gestures.HasPlayer ? $"calibrating... stand still {gestures.CalibrationProgress * 100:0}%" : "no player")
+                    + $"   placement {gestures.Placement.Issue} ({gestures.Placement.Edges})   in play {gestures.InPlay.Issue}");
                 lines.Add($"lane {gestures.Lane,2}   lateral {gestures.LateralOffset,5:0.00}   vertical {gestures.VerticalOffset,5:0.00}   v-speed {gestures.VerticalSpeed,5:0.0}");
                 lines.Add($"{(gestures.IsJumping ? "JUMPING  " : "")}{(gestures.IsCrouching ? "CROUCHING  " : "")}{(gestures.AreHandsUp ? "HANDS UP" : "")}");
             }
@@ -168,6 +177,22 @@ namespace MoveIt.Motion
             }
         }
 
+        /// <summary>
+        /// Like Kinect's samples drew its ClippedEdges: the picture's edges the body crosses, or has too little room before
+        /// for the game (<see cref="PlacementCheck"/>), light up.
+        /// </summary>
+        void DrawEdges(Rect view, PictureEdges edges)
+        {
+            if (edges == PictureEdges.None) return;
+            float t = fullScreen ? 12f : 6f;
+            GUI.color = EdgeColor;
+            if ((edges & PictureEdges.Left) != 0) GUI.DrawTexture(new Rect(view.x, view.y, t, view.height), Texture2D.whiteTexture);
+            if ((edges & PictureEdges.Right) != 0) GUI.DrawTexture(new Rect(view.xMax - t, view.y, t, view.height), Texture2D.whiteTexture);
+            if ((edges & PictureEdges.Top) != 0) GUI.DrawTexture(new Rect(view.x, view.y, view.width, t), Texture2D.whiteTexture);
+            if ((edges & PictureEdges.Bottom) != 0) GUI.DrawTexture(new Rect(view.x, view.yMax - t, view.width, t), Texture2D.whiteTexture);
+            GUI.color = Color.white;
+        }
+
         static Vector2 ToGui(Rect view, Body body, Vector3 p) =>
             new Vector2(view.x + p.x / body.Aspect * view.width, view.y + (1f - p.y) * view.height);
 
@@ -178,8 +203,10 @@ namespace MoveIt.Motion
             if (length < 0.01f) return;
             var matrix = GUI.matrix;
             GUI.color = color;
-            GUIUtility.RotateAroundPivot(Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg, a);
-            GUI.DrawTexture(new Rect(a.x, a.y - width / 2, length, width), Texture2D.whiteTexture);
+            // Rotated inside the 1080-high scale: GUIUtility.RotateAroundPivot takes its pivot in screen pixels, so on any
+            // other screen height it turned every bone that isn't level around the wrong point (only level ones showed).
+            GUI.matrix = matrix * Matrix4x4.TRS(a, Quaternion.Euler(0f, 0f, Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg), Vector3.one);
+            GUI.DrawTexture(new Rect(0f, -width / 2, length, width), Texture2D.whiteTexture);
             GUI.matrix = matrix;
             GUI.color = Color.white;
         }

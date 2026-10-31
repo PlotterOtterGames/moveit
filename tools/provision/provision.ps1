@@ -90,10 +90,22 @@ if ($Inspect) {
     Shell "pm list packages -f" | Sort-Object | Out-File $file -Append -Encoding utf8
     "`n# Properties" | Out-File $file -Append -Encoding utf8
     Shell "getprop" | Out-File $file -Append -Encoding utf8
+    # Hardware, security and network facts (inspect-box.sh). Android's sh refuses Windows line endings: push an LF copy.
+    $tmp = Join-Path $env:TEMP "inspect-box.sh"
+    [IO.File]::WriteAllText($tmp, ([IO.File]::ReadAllText("$PSScriptRoot\inspect-box.sh") -replace "`r`n", "`n"))
+    Adb push $tmp /data/local/tmp/inspect-box.sh 2>$null | Out-Null   # its progress line goes to stderr
+    $facts = Shell "sh /data/local/tmp/inspect-box.sh"
+    Shell "rm -f /data/local/tmp/inspect-box.sh" | Out-Null
+    "`n# Hardware, security, network" | Out-File $file -Append -Encoding utf8
+    $facts | Out-File $file -Append -Encoding utf8
     Step "Launchers on this box"
     Get-HomePackages | ForEach-Object { Write-Host "  $_" }
+    Step "Key facts"
+    $facts | Select-String -Pattern "^(ro.product.cpu.abilist|ro.adb.secure|ro.debuggable|selinux|MemTotal|GLES|kernel UVC driver|USB camera fps|librknnrt version|.* LISTEN )" |
+        ForEach-Object { Write-Host "  $($_.Line.Trim())" }
     Write-Host "`nFull report: $file"
-    Write-Host "Look for vendor OTA updaters, IPTV apps and anything unknown; add them to disable-packages.txt."
+    Write-Host "Look for vendor OTA updaters, app stores, IPTV apps and anything unknown (and who they talk to, under"
+    Write-Host "'Connections'); add them to disable-packages.txt."
     exit 0
 }
 

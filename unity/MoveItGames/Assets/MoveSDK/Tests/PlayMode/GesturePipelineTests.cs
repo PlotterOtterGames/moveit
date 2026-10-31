@@ -157,7 +157,7 @@ namespace MoveIt.Motion.Tests
 
             Assert.Less(minX, 0.3f, "Hand should reach the left part of the screen");
             Assert.Greater(maxX, 0.7f, "Hand should reach the right part of the screen");
-            Assert.Greater(maxSpeed, 1.8f, "Swipe should be fast enough to count as a slash in Fruta");
+            Assert.Greater(maxSpeed, 1.8f, "A swipe should be fast (the hand cursors keep up with it)");
         }
 
         GameObject CreateRig()

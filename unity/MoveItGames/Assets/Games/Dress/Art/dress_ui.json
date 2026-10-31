@@ -1,0 +1,734 @@
+{
+ "size": [
+  1024,
+  2048
+ ],
+ "rects": [
+  {
+   "name": "curtain",
+   "rect": [
+    0,
+    0,
+    192,
+    768
+   ]
+  },
+  {
+   "name": "judge_cat",
+   "rect": [
+    200,
+    0,
+    256,
+    256
+   ]
+  },
+  {
+   "name": "judge_bunny",
+   "rect": [
+    464,
+    0,
+    256,
+    256
+   ]
+  },
+  {
+   "name": "judge_dino",
+   "rect": [
+    728,
+    0,
+    256,
+    256
+   ]
+  },
+  {
+   "name": "pose_star",
+   "rect": [
+    0,
+    776,
+    192,
+    192
+   ]
+  },
+  {
+   "name": "pose_hips",
+   "rect": [
+    200,
+    776,
+    192,
+    192
+   ]
+  },
+  {
+   "name": "pose_heart",
+   "rect": [
+    400,
+    776,
+    192,
+    192
+   ]
+  },
+  {
+   "name": "pose_wave",
+   "rect": [
+    600,
+    776,
+    192,
+    192
+   ]
+  },
+  {
+   "name": "pose_super",
+   "rect": [
+    800,
+    776,
+    192,
+    192
+   ]
+  },
+  {
+   "name": "pose_plane",
+   "rect": [
+    0,
+    976,
+    192,
+    192
+   ]
+  },
+  {
+   "name": "theme_princess",
+   "rect": [
+    200,
+    976,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "theme_fairy",
+   "rect": [
+    368,
+    976,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "theme_mermaid",
+   "rect": [
+    536,
+    976,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "theme_hero",
+   "rect": [
+    704,
+    976,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "theme_summer",
+   "rect": [
+    0,
+    1176,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "theme_winter",
+   "rect": [
+    168,
+    1176,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "theme_party",
+   "rect": [
+    336,
+    1176,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "bubble_button",
+   "rect": [
+    504,
+    1176,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "cat_top",
+   "rect": [
+    672,
+    1176,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "cat_bottom",
+   "rect": [
+    808,
+    1176,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "cat_hair",
+   "rect": [
+    0,
+    1344,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "cat_head",
+   "rect": [
+    136,
+    1344,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "cat_face",
+   "rect": [
+    272,
+    1344,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "cat_back",
+   "rect": [
+    408,
+    1344,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "cat_hand",
+   "rect": [
+    544,
+    1344,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "act_magic",
+   "rect": [
+    680,
+    1344,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "act_dice",
+   "rect": [
+    816,
+    1344,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "act_show",
+   "rect": [
+    0,
+    1480,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "act_photo",
+   "rect": [
+    136,
+    1480,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "act_remove",
+   "rect": [
+    272,
+    1480,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "act_ready",
+   "rect": [
+    408,
+    1480,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "none",
+   "rect": [
+    544,
+    1480,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "hand",
+   "rect": [
+    680,
+    1480,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "star_full",
+   "rect": [
+    816,
+    1480,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "star_empty",
+   "rect": [
+    0,
+    1616,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "glow",
+   "rect": [
+    136,
+    1616,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "panel",
+   "rect": [
+    272,
+    1616,
+    96,
+    96
+   ]
+  },
+  {
+   "name": "bulb",
+   "rect": [
+    376,
+    1616,
+    64,
+    64
+   ]
+  }
+ ],
+ "thumbSize": [
+  1280,
+  1280
+ ],
+ "thumbs": [
+  {
+   "name": "top_princess",
+   "rect": [
+    0,
+    0,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "top_fairy",
+   "rect": [
+    160,
+    0,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "top_mermaid",
+   "rect": [
+    320,
+    0,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "top_hero",
+   "rect": [
+    480,
+    0,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "top_winter",
+   "rect": [
+    640,
+    0,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "top_party",
+   "rect": [
+    800,
+    0,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "bottom_ballgown",
+   "rect": [
+    960,
+    0,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "bottom_petals",
+   "rect": [
+    1120,
+    0,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "bottom_tail",
+   "rect": [
+    0,
+    160,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "bottom_hero",
+   "rect": [
+    160,
+    160,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "bottom_tutu",
+   "rect": [
+    320,
+    160,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "bottom_winter",
+   "rect": [
+    480,
+    160,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "hair_long",
+   "rect": [
+    640,
+    160,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "hair_buns",
+   "rect": [
+    800,
+    160,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "hair_braid",
+   "rect": [
+    960,
+    160,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "hair_curly",
+   "rect": [
+    1120,
+    160,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "hair_ponytail",
+   "rect": [
+    0,
+    320,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "hair_mermaid",
+   "rect": [
+    160,
+    320,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "head_crown",
+   "rect": [
+    320,
+    320,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "head_tiara",
+   "rect": [
+    480,
+    320,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "head_flowers",
+   "rect": [
+    640,
+    320,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "head_catears",
+   "rect": [
+    800,
+    320,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "head_unicorn",
+   "rect": [
+    960,
+    320,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "head_sunhat",
+   "rect": [
+    1120,
+    320,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "face_hearts",
+   "rect": [
+    0,
+    480,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "face_stars",
+   "rect": [
+    160,
+    480,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "face_sunglasses",
+   "rect": [
+    320,
+    480,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "face_mask",
+   "rect": [
+    480,
+    480,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "face_hero",
+   "rect": [
+    640,
+    480,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "face_cheeks",
+   "rect": [
+    800,
+    480,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "back_fairy",
+   "rect": [
+    960,
+    480,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "back_butterfly",
+   "rect": [
+    1120,
+    480,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "back_angel",
+   "rect": [
+    0,
+    640,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "back_cape",
+   "rect": [
+    160,
+    640,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "back_cloak",
+   "rect": [
+    320,
+    640,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "back_dragon",
+   "rect": [
+    480,
+    640,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "hand_wand",
+   "rect": [
+    640,
+    640,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "hand_bag",
+   "rect": [
+    800,
+    640,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "hand_bouquet",
+   "rect": [
+    960,
+    640,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "hand_mic",
+   "rect": [
+    1120,
+    640,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "hand_icecream",
+   "rect": [
+    0,
+    800,
+    160,
+    160
+   ]
+  },
+  {
+   "name": "hand_balloon",
+   "rect": [
+    160,
+    800,
+    160,
+    160
+   ]
+  }
+ ]
+}

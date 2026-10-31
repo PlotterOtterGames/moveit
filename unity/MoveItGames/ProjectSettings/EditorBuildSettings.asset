@@ -12,8 +12,8 @@ EditorBuildSettings:
     path: Assets/Games/Runner/Runner.unity
     guid: 1856527356d57d04392bf03d632f261e
   - enabled: 1
-    path: Assets/Games/Slash/Slash.unity
-    guid: 61993eb80e93ca447ac128406b6fba52
+    path: Assets/Games/Dress/Dress.unity
+    guid: 1231e703b4831fa48aecfed90cb96ce1
   - enabled: 1
     path: Assets/Games/Bowling/Bowling.unity
     guid: ac927c09c76abe8439d6662d25c5a8e5
@@ -23,6 +23,15 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Games/Sword/Sword.unity
     guid: a42b8baa045de1e4ca77f16fd6eaf01b
+  - enabled: 1
+    path: Assets/Games/Fly/Fly.unity
+    guid: 7771774132a8c3d4cbdf08870b07dd26
+  - enabled: 1
+    path: Assets/Games/Tennis/Tennis.unity
+    guid: 14fabec9716003646bbffdc734444e2b
+  - enabled: 1
+    path: Assets/Games/Sports/Sports.unity
+    guid: 5944a36b60c423046bf28ce3add29458
   - enabled: 1
     path: Assets/Scenes/MotionDebug.unity
     guid: e3b391124a167024589f6a73931f4017

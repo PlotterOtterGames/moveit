@@ -33,8 +33,12 @@ STUBS = {
     "Unity.InputSystem": "Stubs/InputSystem.cs",
     "UnityEngine.TestRunner": "Stubs/TestRunner.cs",
     "UnityEditor.TestRunner": None,
+    "Unity.RenderPipelines.Core.Runtime": None,
+    "Unity.RenderPipelines.Universal.Runtime": "Stubs/RenderPipelines.cs",
 }
-UNITY6_ONLY = {"PhysicsMaterial", "PhysicsMaterialCombine", "linearVelocity", "linearDamping", "angularDamping"}
+UNITY6_ONLY = {"PhysicsMaterial", "PhysicsMaterialCombine", "linearVelocity", "linearDamping", "angularDamping",
+               "IsFeatureEnabled", "cpuMainThreadFrameTime", "cpuMainThreadPresentWaitTime", "cpuRenderThreadFrameTime",
+               "refreshRateRatio"}
 CONFIGS = {
     "player": "UNITY_ANDROID;DEVELOPMENT_BUILD",
     "editor": "UNITY_EDITOR;UNITY_EDITOR_WIN;UNITY_STANDALONE_WIN;UNITY_STANDALONE",

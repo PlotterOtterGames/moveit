@@ -6,173 +6,397 @@ using UnityEngine;
 namespace MoveIt.Games.Fly.Tests
 {
     /// <summary>
-    /// Fluturo!'s rules (<see cref="FlyRun"/>): each mechanic on its own (scripted, nothing spawns by itself), then whole
-    /// games played by simulated players: a perfect one wins all three levels, one who stands still loses in the first,
-    /// one who only dodges can't beat a boss, a child-like one (slow to react, a third of its punches late, dodges half
-    /// the time) usually wins, and a struggling one clears a level or two. <see cref="Balance"/> prints the numbers
-    /// (2026-10-10: perfect 20/20, good 20/20, child 17/20, struggling 5/20 wins; about 3 minutes a game).
+    /// Fluturo!'s rules (<see cref="FlyRun"/>), an endless punch 'em up in the air: each mechanic on its own (scripted,
+    /// nothing happens by itself): drone swarms, the rush from every side, fist to fist (the faster puncher wins), the
+    /// boss, the districts getting harder; then whole runs played by simulated players who punch at different speeds:
+    /// the faster one gets further, one who stands still loses in the first district, one who never punches never saves
+    /// one. <see cref="Balance"/> prints the numbers.
     /// </summary>
     public sealed class FlyRunTests
     {
         const float Dt = 1f / 60f;
 
-        static FlyRun Scripted(int level = 1)
+        static FlyRun Scripted(int district = 1)
         {
             var run = new FlyRun(1) { Scripted = true };
-            run.Start(level);
+            run.Start(district);
             return run;
+        }
+
+        /// <summary>A scripted rush with one robot waiting at (x, y, z), arrived and ready.</summary>
+        static (FlyRun, Thing) Rush(float x = 0.4f, float y = 0.2f, float z = 6f, int hp = 1, int district = 1)
+        {
+            var run = Scripted(district);
+            run.BeginRush(0);
+            var robot = run.SpawnRobot(x, y, z, hp);
+            StepUntil(run, () => robot.State == ThingState.Wait && run.Phase == FlyPhase.Rush, 10f);
+            return (run, robot);
         }
 
         /// <summary>Steps until <paramref name="until"/> is true (or the time runs out); returns every event seen.</summary>
         static List<FlyEvent> StepUntil(FlyRun run, System.Func<bool> until, float seconds = 20f, Vector2 steer = default,
-                                       System.Func<Vector2> steering = null)
+                                       System.Func<Vector2> steering = null, System.Func<bool> punching = null)
         {
             var events = new List<FlyEvent>();
             for (float t = 0f; t < seconds && !until(); t += Dt)
             {
-                run.Step(Dt, steering != null ? steering() : steer, false);
+                run.Step(Dt, steering != null ? steering() : steer, punching != null && punching());
                 events.AddRange(run.Events);
             }
             return events;
         }
 
+        static List<FlyEvent> Punch(FlyRun run, bool right = true)
+        {
+            run.Step(Dt, Vector2.zero, true, right);
+            return run.Events.ToList();
+        }
+
         static bool Has(IEnumerable<FlyEvent> events, FlyEventKind kind) => events.Any(e => e.Kind == kind);
 
-        // ---------------------------------------------------------------- robots
+        /// <summary>A player punching <paramref name="perSecond"/> times a second, evenly.</summary>
+        static System.Func<bool> Puncher(float perSecond)
+        {
+            float clock = 0f;
+            return () =>
+            {
+                clock += Dt * perSecond;
+                if (clock < 1f) return false;
+                clock -= 1f;
+                return true;
+            };
+        }
+
+        // ---------------------------------------------------------------- flying: swarms, stars
 
         [Test]
-        public void Robot_FliesIn_Hovers_ThenCharges_AndHurtsAHeroWhoStays()
+        public void TheHeroFlies_DroneSwarmsComeOnTheWay_ThenTheRush()
         {
-            var run = Scripted();
-            var robot = run.SpawnRobot(0.3f, 0.2f);
-            StepUntil(run, () => robot.State == ThingState.Hover);
-            Assert.AreEqual(ThingState.Hover, robot.State, "it stopped in front of the hero");
-            Assert.AreEqual(run.HoverDistance, robot.Position.z, 0.1f);
-            var events = StepUntil(run, () => robot.State == ThingState.Gone, 5f);
-            Assert.IsTrue(Has(events, FlyEventKind.RobotCharges), "it charged");
-            Assert.IsTrue(Has(events, FlyEventKind.RobotHitHero), "and hit the hero, who didn't move");
-            Assert.AreEqual(run.StartHearts - 1, run.Hearts);
+            var run = new FlyRun(3);
+            run.Start();
+            var events = StepUntil(run, () => run.Phase == FlyPhase.Stop, 40f);
+            Assert.AreEqual(FlyPhase.Stop, run.Phase, "a rush after the flight");
+            Assert.AreEqual(run.Settings.FlightMeters, run.Distance, 1f);
+            Assert.AreEqual(run.Settings.Swarms, events.Count(e => e.Kind == FlyEventKind.SwarmComes), "the flight's swarms");
+            Assert.IsTrue(Has(events, FlyEventKind.RushStarts));
+            Assert.IsFalse(run.Things.Any(t => t.Kind is ThingKind.Star or ThingKind.Heart or ThingKind.Drone && t.Alive),
+                           "the street is cleared for the rush");
+            StepUntil(run, () => run.CurrentSpeed == 0f, 3f);
+            Assert.AreEqual(0f, run.CurrentSpeed, "the hero hovers: the street stops");
         }
 
         [Test]
-        public void MovingAwayWhileARobotCharges_DodgesIt()
+        public void Drones_ArePunchedAsTheyCome_EachDropsAStar_AWholeSwarmIsABonus()
         {
             var run = Scripted();
-            var robot = run.SpawnRobot(0f, 0f, 6f);
-            bool charging = false;
-            var events = StepUntil(run, () => robot.State is ThingState.Gone or ThingState.Smashed, 10f,
-                steering: () => (charging = charging || robot.State == ThingState.Lunge) ? new Vector2(1f, 0f) : Vector2.zero);
-            Assert.IsTrue(Has(events, FlyEventKind.RobotMissed), "it charged past");
-            Assert.AreEqual(run.StartHearts, run.Hearts);
+            run.SpawnSwarm(FlyRun.Formation.Column, 3, 0f, 0f);
+            var events = new List<FlyEvent>();
+            for (float t = 0f; t < 8f && run.Things.Any(x => x.Kind == ThingKind.Drone && x.Alive); t += Dt)
+            {
+                bool punch = run.Things.Any(x => x.Kind == ThingKind.Drone && run.CanPunch(x));
+                run.Step(Dt, Vector2.zero, punch);
+                events.AddRange(run.Events);
+            }
+            Assert.AreEqual(3, events.Count(e => e.Kind == FlyEventKind.DroneSmashed), "one punch each, one after another");
+            Assert.AreEqual(3 + 3, run.StarsCollected, "a star from each, three more for the whole swarm");
+            Assert.IsTrue(Has(events, FlyEventKind.SwarmCleared));
+            Assert.AreEqual(1, run.SwarmsCleared);
+            Assert.AreEqual(3, run.Combo, "three hits in a row");
         }
 
         [Test]
-        public void Punch_SmashesTheRobotInReach_ElseItsAWhiff()
+        public void ADroneThatGetsThrough_OnlyBumps_TheComboIsLost()
         {
             var run = Scripted();
-            run.Step(Dt, Vector2.zero, punch: true);
-            Assert.IsTrue(Has(run.Events, FlyEventKind.Whiff), "nothing to hit");
-
-            var robot = run.SpawnRobot(0.6f, 0.4f, 6f);
-            StepUntil(run, () => robot.State == ThingState.Hover);
-            Assert.IsTrue(run.CanPunch(robot), "a hovering robot this close is within reach");
-            run.Step(Dt, Vector2.zero, punch: true);
-            Assert.IsTrue(Has(run.Events, FlyEventKind.RobotSmashed));
-            Assert.AreEqual(ThingState.Smashed, robot.State);
-            Assert.IsTrue(robot.Punched);
-            Assert.AreEqual(10, run.Score);
-            Assert.AreEqual(1, run.RobotsSmashed);
+            run.SpawnSwarm(FlyRun.Formation.Column, 2, 0f, 0f);
+            StepUntil(run, () => run.Things.Any(x => x.Kind == ThingKind.Drone && run.CanPunch(x)), 5f);
+            Punch(run);
+            Assert.AreEqual(1, run.Combo);
+            var events = StepUntil(run, () => !run.Things.Any(x => x.Kind == ThingKind.Drone && x.Alive), 6f);
+            Assert.IsTrue(Has(events, FlyEventKind.DroneBumped), "the second flew into the hero");
+            Assert.AreEqual(run.StartHearts, run.Hearts, "no heart lost to a drone");
+            Assert.AreEqual(0, run.Combo);
+            Assert.IsFalse(Has(events, FlyEventKind.SwarmCleared));
         }
-
-        [Test]
-        public void ARobotTooFarToTheSide_IsOutOfReach_UntilTheHeroFliesOver()
-        {
-            var run = Scripted();
-            var robot = run.SpawnRobot(2f, 0f, 6f);
-            StepUntil(run, () => robot.State == ThingState.Hover);
-            Assert.IsFalse(run.CanPunch(robot), "2 m to the side is too far");
-            StepUntil(run, () => run.CanPunch(robot), 2f, new Vector2(1f, 0f));
-            Assert.IsTrue(run.CanPunch(robot), "flying toward it brings it within reach");
-        }
-
-        [Test]
-        public void APunch_HitsTheNearestRobot_PreferringTheFistsSide()
-        {
-            var run = Scripted();
-            var far = run.SpawnRobot(-0.5f, 0f, 3.4f);
-            var near = run.SpawnRobot(0.5f, 0f, 3.0f);
-            run.Step(Dt, Vector2.zero, punch: true, rightHand: true);
-            Assert.AreEqual(ThingState.Smashed, near.State, "the right fist takes the nearer one, on its side");
-            Assert.AreNotEqual(ThingState.Smashed, far.State);
-
-            var run2 = Scripted();
-            var left = run2.SpawnRobot(-0.6f, 0f, 3.2f);
-            var right = run2.SpawnRobot(0.6f, 0f, 3.0f);
-            run2.Step(Dt, Vector2.zero, punch: true, rightHand: false);
-            Assert.AreEqual(ThingState.Smashed, left.State, "a near tie goes to the punching fist's side");
-            Assert.AreNotEqual(ThingState.Smashed, right.State);
-        }
-
-        // ---------------------------------------------------------------- stars and hearts
 
         [Test]
         public void Stars_AreCollectedByFlyingThroughThem()
         {
             var run = Scripted();
             var on = run.SpawnStar(0.2f, 0.1f);
-            var off = run.SpawnStar(-2f, 0f);
-            var events = StepUntil(run, () => run.Things.Count == 0, 6f);
+            run.SpawnStar(-2f, 0f);
+            var events = StepUntil(run, () => run.Things.Count == 0, 8f);
             Assert.AreEqual(1, events.Count(e => e.Kind == FlyEventKind.StarCollected), "only the star on the hero's path");
             Assert.AreEqual(on.Id, events.First(e => e.Kind == FlyEventKind.StarCollected).ThingId);
             Assert.AreEqual(5, run.Score);
+            Assert.AreEqual(1, run.StarsCollected);
         }
 
         [Test]
-        public void AHeart_GivesOneBack_UpToTheStart()
+        public void TurningACorner_DropsTheStarsAhead_RobotsAndDronesFollow()
         {
             var run = Scripted();
-            var robot = run.SpawnRobot(0f, 0f, 6f);
-            StepUntil(run, () => robot.State == ThingState.Gone);
+            var near = run.SpawnStar(0f, 0f);
+            near.Position = new Vector3(0f, 0f, 1f);    // already reaching the hero: stays
+            var far = run.SpawnStar(0.5f, 0.2f);
+            var heart = run.SpawnHeart(0f, 0.3f);
+            var robot = run.SpawnRobot(0.4f, 0.1f, 20f);
+            run.SpawnSwarm(FlyRun.Formation.Line, 3);
+            run.Turned();
+            CollectionAssert.Contains(run.Things, near);
+            CollectionAssert.DoesNotContain(run.Things, far, "a star over the old street is gone");
+            CollectionAssert.DoesNotContain(run.Things, heart);
+            CollectionAssert.Contains(run.Things, robot, "robots fly after the hero");
+            Assert.AreEqual(3, run.Things.Count(t => t.Kind == ThingKind.Drone), "so do drones");
+        }
+
+        // ---------------------------------------------------------------- the rush
+
+        [Test]
+        public void TheRush_SendsGroups_ThatChargeInFromSeveralSidesAtOnce()
+        {
+            var run = new FlyRun(4);
+            run.Start(3);   // groups of four
+            run.BeginRush();
+            var events = StepUntil(run, () => run.Things.Count(t => t.Kind == ThingKind.Robot && !t.Thrower) >= run.Settings.GroupSize, 3f);
+            Assert.IsTrue(Has(events, FlyEventKind.GroupComes));
+            var fighters = run.Things.Where(t => t.Kind == ThingKind.Robot && !t.Thrower).ToList();
+            Assert.AreEqual(run.Settings.GroupSize, fighters.Count);
+            int sides = 0;
+            if (fighters.Any(t => t.Position.x < -5f)) sides++;
+            if (fighters.Any(t => t.Position.x > 5f)) sides++;
+            if (fighters.Any(t => t.Position.y > 4f)) sides++;
+            if (fighters.Any(t => t.Position.z > 10f)) sides++;
+            Assert.GreaterOrEqual(sides, 3, "from the left, the right, above and ahead");
+            StepUntil(run, () => false, 2.5f);
+            Assert.GreaterOrEqual(run.Things.Count(t => t.Attacking), 3, "several at the hero at the same time");
+            Assert.AreEqual(fighters.Count, fighters.Select(t => t.Spot).Distinct().Count(), "each to its own spot");
+        }
+
+        [Test]
+        public void AFighter_ChargesIn_WindsUpBesideTheHero_ThenStrikes()
+        {
+            var run = Scripted();
+            run.BeginRush(0);
+            run.SpawnGroup();
+            var fighter = run.Things.First(t => t.Kind == ThingKind.Robot);
+            var events = StepUntil(run, () => fighter.State == ThingState.Windup, 5f);
+            Assert.AreEqual(ThingState.Windup, fighter.State);
+            Assert.IsTrue(run.CanPunch(fighter), "beside the hero: within reach");
+            Assert.LessOrEqual(Vector2.Distance(new Vector2(fighter.Position.x, fighter.Position.y), run.Hero), run.SpotRadius + 0.3f);
+            events = StepUntil(run, () => run.HitsTaken > 0, 3f);
+            Assert.IsTrue(Has(events, FlyEventKind.RobotCharges));
+            Assert.Less(run.Hearts, run.StartHearts, "the hero stayed: hit");
+        }
+
+        [Test]
+        public void SteppingAsideAsItStrikes_DodgesIt()
+        {
+            var (run, robot) = Rush();
+            run.Attack(robot);
+            var events = StepUntil(run, () => robot.State == ThingState.Retreat, 6f,
+                steering: () => robot.State == ThingState.Lunge ? new Vector2(robot.Target.x > 0f ? -1f : 1f, 0f) : Vector2.zero);
+            Assert.IsTrue(Has(events, FlyEventKind.RobotMissed), "it struck at where the hero was");
+            Assert.AreEqual(run.StartHearts, run.Hearts);
+        }
+
+        [Test]
+        public void ARobotOnItsWayIn_CanAlreadyBePunched()
+        {
+            var (run, robot) = Rush(z: 9f);
+            Assert.IsFalse(run.CanPunch(robot), "waiting at its place: out of reach");
+            run.Attack(robot);
+            StepUntil(run, () => run.CanPunch(robot), 3f);
+            Assert.AreEqual(ThingState.Advance, robot.State, "still coming");
+            Assert.IsTrue(Has(Punch(run), FlyEventKind.RobotSmashed));
+            Assert.AreEqual(10, run.Score);
+        }
+
+        [Test]
+        public void APunch_GoesToTheRobotAboutToStrike()
+        {
+            var (run, first) = Rush(-1f, z: 4f);
+            var second = run.SpawnRobot(1f, 0f, 4f);
+            StepUntil(run, () => second.State == ThingState.Wait, 10f);
+            run.Attack(first);
+            StepUntil(run, () => first.State == ThingState.Windup && first.StateTime > run.Settings.WindupSeconds * 0.1f, 4f);
+            run.Attack(second);
+            StepUntil(run, () => second.State == ThingState.Windup || first.State != ThingState.Windup, 4f);
+            Assert.AreEqual(ThingState.Windup, first.State, "still winding up");
+            Assert.IsTrue(run.CanPunch(first) && run.CanPunch(second), "both in reach, one each side");
+            Punch(run, right: true);
+            Assert.AreEqual(ThingState.Smashed, first.State, "the one about to strike goes first, though the right fist is on the other one's side");
+        }
+
+        [Test]
+        public void BothFistsAtOnce_SmashTwoRobots()
+        {
+            var (run, a) = Rush(-1f);
+            var b = run.SpawnRobot(1f, 0f, 6f);
+            StepUntil(run, () => b.State == ThingState.Wait, 10f);
+            run.Attack(a);
+            run.Attack(b);
+            StepUntil(run, () => run.CanPunch(a) && run.CanPunch(b), 3f);
+            run.Step(Dt, Vector2.zero, true, true, bothHands: true);
+            Assert.AreEqual(2, run.Events.Count(e => e.Kind == FlyEventKind.RobotSmashed));
+        }
+
+        [Test]
+        public void AnArmouredRobot_TakesTwoPunches_ItComesStraightBack()
+        {
+            var (run, robot) = Rush(hp: 2);
+            run.Attack(robot);
+            StepUntil(run, () => robot.State == ThingState.Windup, 3f);
+            Assert.IsTrue(Has(Punch(run), FlyEventKind.RobotHit), "the first punch knocks it back");
+            Assert.AreEqual(ThingState.Stagger, robot.State);
+            StepUntil(run, () => robot.StateTime > 0.2f, 1f);
+            Assert.IsTrue(run.CanPunch(robot), "still within reach for a quick second punch");
+            Assert.IsTrue(Has(Punch(run, right: false), FlyEventKind.RobotSmashed));
+            Assert.AreEqual(5 + 20 + 3, run.Score, "a hit, an armoured robot out, and a combo of two");
+        }
+
+        [Test]
+        public void AThrowersSpark_PunchedBack_KnocksOutTheThrower()
+        {
+            var (run, thrower) = Rush(z: 7f);
+            thrower.Thrower = true;
+            var spark = run.ThrowSpark(thrower);
+            StepUntil(run, () => run.CanPunch(spark), 4f);
+            Assert.IsTrue(Has(Punch(run), FlyEventKind.FireballReturned));
+            var events = StepUntil(run, () => thrower.State == ThingState.Smashed, 4f);
+            Assert.IsTrue(Has(events, FlyEventKind.RobotSmashed), "its own spark knocked it out");
+        }
+
+        [Test]
+        public void BeatingEveryRobot_EndsTheRush_ThenTheChampionComes()
+        {
+            var run = new FlyRun(2);
+            run.Start();
+            run.BeginRush();
+            int size = run.RushSize;
+            var events = StepUntil(run, () => run.Phase == FlyPhase.ClashIntro, 60f,
+                punching: () => run.Things.Any(x => x.Kind == ThingKind.Robot && run.CanPunch(x)));
+            Assert.AreEqual(FlyPhase.ClashIntro, run.Phase);
+            Assert.IsTrue(Has(events, FlyEventKind.RushCleared));
+            Assert.AreEqual(size, run.RobotsSmashed, "every robot of the rush");
+            Assert.AreEqual(run.StartHearts, run.Hearts, "punching each one as it came, nobody got through");
+            Assert.AreEqual(1, run.CleanRushes);
+            Assert.IsTrue(Has(events, FlyEventKind.ClashStarts));
+        }
+
+        // ---------------------------------------------------------------- the clash: the faster puncher wins
+
+        [Test]
+        public void TheClash_TheFasterPuncherWins()
+        {
+            var run = new FlyRun(5);
+            run.Start();
+            run.BeginClash(false);
+            var events = StepUntil(run, () => run.Phase == FlyPhase.Cleared, 20f, punching: Puncher(4f));
+            Assert.IsTrue(Has(events, FlyEventKind.ClashGo));
+            Assert.IsTrue(Has(events, FlyEventKind.ClashWon), "4 punches a second beat the champion's 1.7");
+            Assert.AreEqual(run.StartHearts, run.Hearts);
+            Assert.AreEqual(1, run.ClashesWon);
+            Assert.AreEqual(10, run.StarsCollected, "a knockout is worth ten stars");
+            Assert.Less(run.QuickestClash, 10f);
+            Assert.Greater(events.Count(e => e.Kind == FlyEventKind.ClashRobotPunch), 3, "the champion punched back all along");
+        }
+
+        [Test]
+        public void TheClash_TheSlowerPuncherLosesHearts_TheBarStartsAgain()
+        {
+            var run = new FlyRun(5);
+            run.Start();
+            run.BeginClash(false);
+            var events = StepUntil(run, () => run.HitsTaken > 0, 20f, punching: Puncher(0.8f));
+            Assert.IsTrue(Has(events, FlyEventKind.ClashLost), "the champion was faster");
             Assert.AreEqual(run.StartHearts - 1, run.Hearts);
-            run.SpawnHeart(0f, 0f);
-            run.SpawnHeart(0f, 0f, 2f);
-            StepUntil(run, () => run.Things.Count == 0, 6f);
-            Assert.AreEqual(run.StartHearts, run.Hearts, "two hearts, but never more than the start");
+            Assert.AreEqual(0f, run.Clash.Bar, 1e-4f, "back to the middle");
+            Assert.AreEqual(FlyPhase.Clash, run.Phase, "and on");
+        }
+
+        [Test]
+        public void ANearlyEvenClash_TheChampionTires_SoItEnds()
+        {
+            var run = new FlyRun(6);
+            run.Start(5);
+            run.BeginClash(false);
+            float rate = run.Clash.Rate;
+            var events = StepUntil(run, () => run.Phase is FlyPhase.Cleared or FlyPhase.Lost, 60f, punching: Puncher(rate * 0.85f));
+            Assert.IsTrue(Has(events, FlyEventKind.ClashWon), $"won in {run.Clash.Time:0} s");
+            Assert.Less(run.Clash.CurrentRate, rate, "tired by then");
+        }
+
+        [Test]
+        public void ASavedDistrict_GivesAHeartBack_AndTheNextIsHarder()
+        {
+            var run = new FlyRun(7);
+            run.Start();
+            run.BeginClash(false);
+            StepUntil(run, () => run.HitsTaken > 0, 20f, punching: Puncher(0.8f));   // a heart lost first
+            int hearts = run.Hearts;
+            var events = StepUntil(run, () => run.District == 2, 30f, punching: Puncher(5f));
+            Assert.IsTrue(Has(events, FlyEventKind.DistrictStarted));
+            Assert.AreEqual(hearts + 1, run.Hearts, "a heart back");
+            Assert.AreEqual(FlyPhase.Flight, run.Phase);
+            Assert.Greater(run.Settings.FlightSpeed, DistrictSettings.For(1).FlightSpeed);
+            Assert.Greater(run.Settings.ClashRate, DistrictSettings.For(1).ClashRate);
+        }
+
+        [Test]
+        public void Districts_GetHarderForEver_WithinLimits_ABossEveryThird()
+        {
+            for (int d = 1; d < 40; d++)
+            {
+                DistrictSettings a = DistrictSettings.For(d), b = DistrictSettings.For(d + 1);
+                Assert.GreaterOrEqual(b.FlightSpeed, a.FlightSpeed, $"district {d}");
+                Assert.GreaterOrEqual(b.GroupSize, a.GroupSize, $"district {d}");
+                Assert.GreaterOrEqual(b.Groups, a.Groups, $"district {d}");
+                Assert.GreaterOrEqual(b.ChargeSpeed, a.ChargeSpeed, $"district {d}");
+                Assert.LessOrEqual(b.WindupSeconds, a.WindupSeconds, $"district {d}");
+                Assert.GreaterOrEqual(b.ClashRate - (b.Boss ? 0.4f : 0f), a.ClashRate - (a.Boss ? 0.4f : 0f), $"district {d}");
+                Assert.AreEqual(d % 3 == 0, a.Boss, $"district {d}");
+                Assert.LessOrEqual(a.ClashRate, 4.6f, "a child's flailing can still win");
+                Assert.GreaterOrEqual(a.WindupSeconds, 0.45f, "time to react");
+                Assert.LessOrEqual(a.GroupSize, 7);
+            }
         }
 
         // ---------------------------------------------------------------- the boss
 
         [Test]
-        public void FireballsPunchedBack_HurtTheBoss_AndBeatingItClearsTheLevel()
+        public void TheBoss_FireballsPunchedBack_ThenTheFinalClash()
         {
-            var run = Scripted();
-            run.SpawnRobot(0f, 0f, 6f);
-            StepUntil(run, () => run.Hearts < run.StartHearts);   // lose one heart first
+            var run = Scripted(3);
             run.BeginBoss();
             var events = StepUntil(run, () => run.Phase == FlyPhase.Boss, 5f);
             Assert.IsTrue(Has(events, FlyEventKind.BossAppears));
             int hp = run.Boss.Hp;
-            Assert.AreEqual(LevelSettings.For(1).BossHp, hp);
+            Assert.AreEqual(DistrictSettings.For(3).BossHp, hp);
             for (int i = 0; i < hp; i++)
             {
                 var ball = run.Throw(new Vector3(run.Hero.x, run.Hero.y, 0f));
                 StepUntil(run, () => run.CanPunch(ball), 5f);
-                run.Step(Dt, Vector2.zero, punch: true);
-                Assert.IsTrue(Has(run.Events, FlyEventKind.FireballReturned), $"fireball {i + 1} punched back");
+                Assert.IsTrue(Has(Punch(run), FlyEventKind.FireballReturned), $"fireball {i + 1} punched back");
                 events = StepUntil(run, () => ball.State == ThingState.Gone, 5f);
                 Assert.IsTrue(Has(events, FlyEventKind.BossHit), $"fireball {i + 1} hit the boss");
             }
+            Assert.IsTrue(Has(events, FlyEventKind.ClashStarts), "its fireballs beaten, it comes face to face");
+            Assert.IsTrue(run.Clash.WithBoss);
+            events = StepUntil(run, () => run.Phase == FlyPhase.Cleared, 20f, punching: Puncher(4f));
+            Assert.IsTrue(Has(events, FlyEventKind.ClashWon));
             Assert.IsTrue(Has(events, FlyEventKind.BossDefeated));
-            Assert.AreEqual(FlyPhase.LevelClear, run.Phase);
-            Assert.AreEqual(run.StartHearts, run.Hearts, "hearts filled up again");
-            StepUntil(run, () => run.Phase == FlyPhase.Flight, 6f);
-            Assert.AreEqual(2, run.Level, "on to level 2");
+            Assert.AreEqual(1, run.BossesBeaten);
+            Assert.AreEqual(25, run.StarsCollected);
+            StepUntil(run, () => run.Phase == FlyPhase.Flight, 5f);
+            Assert.AreEqual(4, run.District, "on to the next district");
+            Assert.IsNull(run.Boss);
         }
 
         [Test]
         public void AFireball_HurtsAHeroWhoStays_AndMissesOneWhoDodges()
         {
-            var run = Scripted();
+            var run = Scripted(3);
             run.BeginBoss();
             StepUntil(run, () => run.Phase == FlyPhase.Boss, 5f);
             var ball = run.Throw(Vector3.zero);
@@ -183,45 +407,104 @@ namespace MoveIt.Games.Fly.Tests
             ball = run.Throw(Vector3.zero);
             events = StepUntil(run, () => ball.State == ThingState.Gone, 5f, new Vector2(-1f, 0f));
             Assert.IsFalse(Has(events, FlyEventKind.FireballHitHero), "dodged");
-            Assert.AreEqual(run.StartHearts - 1, run.Hearts);
         }
 
+        // ---------------------------------------------------------------- hearts, records, new enemies
+
         [Test]
-        public void BeatingTheThirdBoss_WinsTheGame()
+        public void HitsInARow_BuildACombo_GettingHurtBreaksIt()
         {
-            var run = Scripted(level: 3);
-            run.BeginBoss();
-            StepUntil(run, () => run.Phase == FlyPhase.Boss, 5f);
-            var events = new List<FlyEvent>();
-            for (int i = 0; i < 20 && !run.Over; i++)
+            var (run, a) = Rush(-1f);
+            var b = run.SpawnRobot(1f, 0f, 6f);
+            var c = run.SpawnRobot(0f, 0.5f, 7f);
+            StepUntil(run, () => b.State == ThingState.Wait && c.State == ThingState.Wait, 10f);
+            foreach (var robot in new[] { a, b })
             {
-                var ball = run.Throw(new Vector3(run.Hero.x, run.Hero.y, 0f));
-                StepUntil(run, () => run.CanPunch(ball), 5f);
-                run.Step(Dt, Vector2.zero, punch: true);
-                events.AddRange(StepUntil(run, () => ball.State == ThingState.Gone, 5f));
+                run.Attack(robot);
+                StepUntil(run, () => run.CanPunch(robot), 3f);
+                Punch(run);
             }
-            Assert.AreEqual(FlyPhase.Won, run.Phase);
-            Assert.IsTrue(run.Over);
-            Assert.IsTrue(Has(events, FlyEventKind.Won));
-            Assert.AreEqual(LevelSettings.For(3).BossHp * 15 + 300 + 50, run.Score, "returns, the boss, the no-hit bonus");
+            Assert.AreEqual(2, run.Combo);
+            Assert.AreEqual(10 + 13, run.Score, "the second smash in a row earns 3 more");
+            run.Attack(c);
+            StepUntil(run, () => c.State == ThingState.Retreat, 6f);
+            Assert.AreEqual(0, run.Combo, "hurt: the combo is over");
+            Assert.AreEqual(2, run.BestCombo);
         }
 
         [Test]
-        public void LosingTheLastHeart_LosesTheGame()
+        public void AHeart_GivesOneBack_UpToTheStart()
+        {
+            var (run, robot) = Rush();
+            run.Attack(robot);
+            StepUntil(run, () => robot.State == ThingState.Retreat, 6f);
+            Assert.AreEqual(run.StartHearts - 1, run.Hearts);
+            var flying = Scripted();
+            flying.SpawnHeart(0f, 0f);
+            StepUntil(flying, () => flying.Things.Count == 0, 8f);
+            Assert.AreEqual(flying.StartHearts, flying.Hearts, "never more than the start");
+        }
+
+        [Test]
+        public void LosingTheLastHeart_EndsTheRun()
         {
             var run = Scripted();
+            run.BeginClash(false);
+            StepUntil(run, () => run.Phase == FlyPhase.Clash, 5f);
             var events = new List<FlyEvent>();
-            for (int i = 0; i < run.StartHearts; i++)
+            for (int i = 0; i < 200 && !run.Over; i++)
             {
-                var robot = run.SpawnRobot(0f, 0f, 6f);
-                events.AddRange(StepUntil(run, () => robot.State == ThingState.Gone));
+                run.ChampionPunch();   // (what it causes shows in the next step's events)
+                events.AddRange(StepUntil(run, () => run.Clash.Recover <= 0f && run.Events.Count == 0, 3f));
             }
             Assert.AreEqual(0, run.Hearts);
             Assert.AreEqual(FlyPhase.Lost, run.Phase);
+            Assert.IsTrue(run.Over);
+            Assert.AreEqual(run.StartHearts, events.Count(e => e.Kind == FlyEventKind.ClashLost));
             Assert.IsTrue(Has(events, FlyEventKind.Lost));
-            var more = run.SpawnRobot(0f, 0f, 6f);
-            StepUntil(run, () => more.State == ThingState.Gone);
-            Assert.AreEqual(0, run.Hearts, "nothing more happens once the game is lost");
+        }
+
+        [Test]
+        public void PassingTheRecord_IsAnnouncedOnce()
+        {
+            var (run, a) = Rush(-1f);
+            run.Record = 15;
+            var b = run.SpawnRobot(1f, 0f, 6f);
+            StepUntil(run, () => b.State == ThingState.Wait, 10f);
+            var events = new List<FlyEvent>();
+            foreach (var robot in new[] { a, b })
+            {
+                run.Attack(robot);
+                StepUntil(run, () => run.CanPunch(robot), 3f);
+                events.AddRange(Punch(run));
+                events.AddRange(StepUntil(run, () => false, 0.5f));
+            }
+            Assert.AreEqual(1, events.Count(e => e.Kind == FlyEventKind.NewRecord), $"score {run.Score} passed 15 once");
+        }
+
+        [Test]
+        public void NewKindsOfRobots_ComeDistrictByDistrict_EachAnnouncedOnce()
+        {
+            var run = new FlyRun(8);
+            run.Start();
+            var bot = Perfect(8);
+            var met = new List<(EnemyKind kind, int district)>();
+            for (float t = 0f; t < 600f && run.District <= 4 && !run.Over; t += Dt)
+            {
+                var (steer, punch) = bot.Decide(run);
+                run.Step(Dt, steer, punch);
+                foreach (var e in run.Events)
+                    if (e.Kind == FlyEventKind.NewEnemy) met.Add(((EnemyKind)(int)e.Value, run.District));
+            }
+            Assert.AreEqual(met.Count, met.Select(m => m.kind).Distinct().Count(), "each kind once");
+            var first = met.ToDictionary(m => m.kind, m => m.district);
+            Assert.AreEqual(1, first[EnemyKind.Drone]);
+            Assert.AreEqual(1, first[EnemyKind.Robot]);
+            Assert.AreEqual(1, first[EnemyKind.Champion]);
+            Assert.AreEqual(2, first[EnemyKind.Armoured]);
+            Assert.AreEqual(3, first[EnemyKind.Thrower]);
+            Assert.AreEqual(3, first[EnemyKind.Boss]);
+            Assert.AreEqual(4, first[EnemyKind.Dart]);
         }
 
         // ---------------------------------------------------------------- steering
@@ -238,79 +521,83 @@ namespace MoveIt.Games.Fly.Tests
             Assert.AreEqual(0f, FlyRun.Steer(0f, 0.2f, 0f).y, 1e-4f, "standing on tiptoe isn't flying up");
         }
 
-        // ---------------------------------------------------------------- whole games
+        // ---------------------------------------------------------------- whole runs
 
-        /// <summary>A simulated player. It notices a thing <see cref="Reaction"/> s after it appears and lines up with the
-        /// most urgent robot or fireball. While it's in reach it tries a punch every half second, and each try works
-        /// <see cref="Accuracy"/> of the time (late, missed, not seen by the camera), so a robot hovering for two seconds
-        /// is rarely missed but a fast fireball sometimes is. Whatever still comes at it, it tries to dodge, managing
-        /// <see cref="DodgeSkill"/> of the time (else it freezes). Between threats it flies to the stars.</summary>
+        /// <summary>A simulated player. It notices a robot coming (or a fireball, a drone) <see cref="Reaction"/> s after it
+        /// starts. While one is in reach it tries a punch every <see cref="PunchEvery"/> s, each try working
+        /// <see cref="Accuracy"/> of the time (late, missed, not seen by the camera). In a clash it punches
+        /// <see cref="MashRate"/> times a second. When a robot strikes or a fireball is nearly there it tries to dodge,
+        /// managing <see cref="DodgeSkill"/> of the time. While flying it goes for the drones and the stars.</summary>
         sealed class Bot
         {
-            public float Reaction = 0.15f, Accuracy = 1f, DodgeSkill = 1f;
+            public float Reaction = 0.15f, Accuracy = 1f, DodgeSkill = 1f, PunchEvery = 0.25f, MashRate = 5f;
             public bool Moves = true, Punches = true;
             public bool Dodges { get => DodgeSkill > 0f; set => DodgeSkill = value ? 1f : 0f; }
             readonly System.Random _rng;
             readonly Dictionary<int, float> _seen = new Dictionary<int, float>();
             readonly Dictionary<int, bool> _willDodge = new Dictionary<int, bool>();
-            readonly Dictionary<int, float> _comingAt = new Dictionary<int, float>(), _nextTry = new Dictionary<int, float>();
+            readonly Dictionary<int, float> _comingAt = new Dictionary<int, float>();
             Vector2 _steer;
-            float _time, _punchCooldown;
+            float _time, _nextTry, _mash;
 
             public Bot(int seed) => _rng = new System.Random(seed * 31 + 7);
 
             public (Vector2, bool) Decide(FlyRun run)
             {
                 _time += Dt;
-                _punchCooldown -= Dt;
+                if (run.Phase is FlyPhase.Clash or FlyPhase.ClashIntro)
+                {
+                    // fist to fist: as fast as it can (a little uneven)
+                    if (!Punches || run.Phase == FlyPhase.ClashIntro) return (_steer, false);
+                    _mash += Dt * MashRate * (0.85f + 0.3f * (float)_rng.NextDouble());
+                    if (_mash < 1f) return (_steer, false);
+                    _mash -= 1f;
+                    return (_steer, true);
+                }
                 Thing threat = null;
                 foreach (var t in run.Things)
                 {
+                    bool coming = t.Attacking || t.Dangerous || t.Kind == ThingKind.Drone && t.Alive && t.Position.z < 12f;
+                    if (!coming)
+                    {
+                        _seen.Remove(t.Id);
+                        continue;
+                    }
                     if (!_seen.ContainsKey(t.Id)) _seen[t.Id] = _time;
-                    if (!t.Dangerous || _time - _seen[t.Id] < Reaction || t.Position.z > 18f) continue;
+                    if (_time - _seen[t.Id] < Reaction) continue;
                     if (!_willDodge.ContainsKey(t.Id)) _willDodge[t.Id] = _rng.NextDouble() < DodgeSkill;
                     if (threat == null || t.Position.z < threat.Position.z) threat = t;
                 }
 
-                var want = _steer;
+                var want = Vector2.zero;
                 bool punch = false;
-                if (threat != null)
+                bool canHit = threat != null && run.CanPunch(threat);
+                if (Punches && canHit && _time >= _nextTry)
                 {
-                    var spot = new Vector2(threat.Position.x / run.HalfWidth, threat.Position.y / run.HalfHeight);
-                    if (Punches && threat.Kind == ThingKind.Robot && threat.State != ThingState.Lunge) want = spot;
-                    if (Punches && run.CanPunch(threat) && _punchCooldown <= 0f)
-                    {
-                        if (!_nextTry.ContainsKey(threat.Id)) _nextTry[threat.Id] = _time;
-                        if (_time >= _nextTry[threat.Id])
-                        {
-                            _nextTry[threat.Id] = _time + 0.5f;
-                            if (_rng.NextDouble() < Accuracy)
-                            {
-                                punch = true;
-                                _punchCooldown = 0.3f;
-                            }
-                        }
-                    }
-                    // its punches didn't work and it's nearly here: dodge
-                    if (!punch && (threat.State == ThingState.Lunge || threat.Kind == ThingKind.Fireball && threat.Position.z < 2f))
-                    {
-                        // it's coming: after a reaction time, away from where it's going (or frozen)
-                        if (!_comingAt.ContainsKey(threat.Id)) _comingAt[threat.Id] = _time;
-                        if (_willDodge[threat.Id] && _time - _comingAt[threat.Id] >= Reaction)
-                        {
-                            var target = new Vector2(threat.Target.x / run.HalfWidth, threat.Target.y / run.HalfHeight);
-                            want = new Vector2(target.x > 0f ? target.x - 1.4f : target.x + 1.4f, 0f);
-                        }
-                    }
+                    _nextTry = _time + PunchEvery;
+                    punch = _rng.NextDouble() < Accuracy;
                 }
-                else
+                if (threat != null && threat.Kind != ThingKind.Drone && !punch && threat.Dangerous &&
+                    (threat.Kind == ThingKind.Robot || threat.Position.z < 2f))
                 {
-                    Thing star = null;
+                    // it's striking (or nearly here): after a reaction time, away from where it's going (or frozen)
+                    if (!_comingAt.ContainsKey(threat.Id)) _comingAt[threat.Id] = _time;
+                    if (_willDodge[threat.Id] && _time - _comingAt[threat.Id] >= Reaction * 0.5f)
+                    {
+                        var target = new Vector2(threat.Target.x / run.HalfWidth, threat.Target.y / run.HalfHeight);
+                        want = new Vector2(target.x > 0f ? target.x - 1.4f : target.x + 1.4f, 0f);
+                    }
+                    else want = _steer;
+                }
+                else if (run.Phase == FlyPhase.Flight)
+                {
+                    // flying: toward the nearest drone ahead, else the stars
+                    Thing aim = null;
                     foreach (var t in run.Things)
-                        if (t.Kind is ThingKind.Star or ThingKind.Heart && t.Position.z > 0.5f && t.Position.z < 20f &&
-                            (star == null || t.Position.z < star.Position.z))
-                            star = t;
-                    want = star != null ? new Vector2(star.Position.x / run.HalfWidth, star.Position.y / run.HalfHeight) : Vector2.zero;
+                        if ((t.Kind == ThingKind.Drone && t.Alive || t.Kind is ThingKind.Star or ThingKind.Heart) && t.Position.z > 0.5f &&
+                            t.Position.z < 20f && (aim == null || t.Position.z < aim.Position.z))
+                            aim = t;
+                    if (aim != null) want = new Vector2(aim.Position.x / run.HalfWidth, aim.Position.y / run.HalfHeight);
                 }
                 if (!Moves) want = Vector2.zero;
                 // a person doesn't jump to the new place at once
@@ -321,80 +608,77 @@ namespace MoveIt.Games.Fly.Tests
 
         sealed class Outcome
         {
-            public bool Won;
-            public int LevelsCleared, Score, HitsTaken;
+            public int District, Score, HitsTaken, BestCombo, ClashesWon, ClashesLost, RobotsSmashed, Stars;
             public float Minutes;
         }
 
-        static Outcome Play(Bot bot, int seed, float maxMinutes = 12f)
+        static Outcome Play(Bot bot, int seed, float maxMinutes = 15f)
         {
             var run = new FlyRun(seed);
             run.Start();
             float t = 0f;
-            int cleared = 0;
+            int clashesLost = 0;
             while (!run.Over && t < maxMinutes * 60f)
             {
                 var (steer, punch) = bot.Decide(run);
                 run.Step(Dt, steer, punch);
                 foreach (var e in run.Events)
-                    if (e.Kind == FlyEventKind.BossDefeated) cleared++;
+                    if (e.Kind == FlyEventKind.ClashLost) clashesLost++;
                 t += Dt;
             }
-            return new Outcome { Won = run.Phase == FlyPhase.Won, LevelsCleared = cleared, Score = run.Score, HitsTaken = run.HitsTaken, Minutes = t / 60f };
+            return new Outcome
+            {
+                District = run.District, Score = run.Score, HitsTaken = run.HitsTaken, BestCombo = run.BestCombo,
+                ClashesWon = run.ClashesWon, ClashesLost = clashesLost, RobotsSmashed = run.RobotsSmashed,
+                Stars = run.StarsCollected, Minutes = t / 60f,
+            };
         }
 
-        static Bot Perfect(int seed) => new Bot(seed);
-        static Bot Kid(int seed) => new Bot(seed) { Reaction = 0.45f, Accuracy = 0.65f, DodgeSkill = 0.5f };
-        static Bot Struggling(int seed) => new Bot(seed) { Reaction = 0.6f, Accuracy = 0.5f, DodgeSkill = 0.3f };
-        static Bot Good(int seed) => new Bot(seed) { Reaction = 0.3f, Accuracy = 0.85f, DodgeSkill = 0.6f };
+        static Bot Perfect(int seed) => new Bot(seed) { MashRate = 5f };
+        static Bot Good(int seed) => new Bot(seed) { Reaction = 0.3f, Accuracy = 0.85f, DodgeSkill = 0.6f, PunchEvery = 0.35f, MashRate = 4f };
+        static Bot Kid(int seed) => new Bot(seed) { Reaction = 0.45f, Accuracy = 0.65f, DodgeSkill = 0.5f, PunchEvery = 0.4f, MashRate = 3f };
+        static Bot Struggling(int seed) => new Bot(seed) { Reaction = 0.6f, Accuracy = 0.5f, DodgeSkill = 0.3f, PunchEvery = 0.6f, MashRate = 2.2f };
         static Bot Statue(int seed) => new Bot(seed) { Moves = false, Punches = false, Dodges = false };
         static Bot Dodger(int seed) => new Bot(seed) { Punches = false };
 
         [Test]
-        public void APerfectPlayer_WinsAllThreeLevels()
-        {
-            for (int seed = 0; seed < 6; seed++)
-            {
-                var o = Play(Perfect(seed), seed);
-                Assert.IsTrue(o.Won, $"seed {seed}: cleared {o.LevelsCleared}, hits {o.HitsTaken}");
-                Assert.LessOrEqual(o.HitsTaken, 2, $"seed {seed}");
-                Assert.Less(o.Minutes, 6f, "a whole game takes a few minutes");
-            }
-        }
-
-        [Test]
-        public void APlayerWhoStandsStill_LosesInTheFirstLevel()
+        public void APlayerWhoStandsStill_LosesInTheFirstDistrict()
         {
             for (int seed = 0; seed < 6; seed++)
             {
                 var o = Play(Statue(seed), seed);
-                Assert.IsFalse(o.Won);
-                Assert.AreEqual(0, o.LevelsCleared, $"seed {seed}");
-                Assert.Less(o.Minutes, 1f, $"seed {seed}: robots keep charging, so it ends soon");
+                Assert.AreEqual(1, o.District, $"seed {seed}");
+                Assert.Less(o.Minutes, 1.5f, $"seed {seed}: the robots keep coming, so it ends soon");
             }
         }
 
         [Test]
-        public void APlayerWhoNeverPunches_CantBeatABoss()
+        public void APlayerWhoNeverPunches_NeverSavesADistrict()
         {
             for (int seed = 0; seed < 4; seed++)
-            {
-                var o = Play(Dodger(seed), seed, maxMinutes: 5f);
-                Assert.IsFalse(o.Won);
-                Assert.AreEqual(0, o.LevelsCleared, $"seed {seed}");
-            }
+                Assert.AreEqual(1, Play(Dodger(seed), seed, maxMinutes: 5f).District, $"seed {seed}");
         }
 
         [Test]
-        public void AChildLikePlayer_UsuallyWins_AStrugglingOneClearsALevelOrTwo()
+        public void TheFasterYouPunch_TheFurtherYouGet()
         {
-            const int games = 20;
-            var kid = Enumerable.Range(0, games).Select(seed => Play(Kid(seed), seed)).ToList();
-            Assert.GreaterOrEqual(kid.Count(o => o.LevelsCleared >= 1), games * 0.9, "the first level is gentle");
-            Assert.GreaterOrEqual(kid.Count(o => o.Won), games * 0.5, "a child who keeps punching usually wins");
-            var struggling = Enumerable.Range(0, games).Select(seed => Play(Struggling(seed), seed)).ToList();
-            Assert.GreaterOrEqual(struggling.Count(o => o.LevelsCleared >= 1), games * 0.5, "even a struggling player sees a boss fall");
-            Assert.LessOrEqual(struggling.Count(o => o.Won), games * 0.5, "but winning isn't a given");
+            const int games = 12;
+            double Mean(System.Func<int, Bot> make) => Enumerable.Range(0, games).Select(s => Play(make(s), s, 12f)).Average(o => o.District);
+            double perfect = Mean(Perfect), good = Mean(Good), kid = Mean(Kid), struggling = Mean(Struggling);
+            Assert.Greater(perfect, good, "perfect beyond good");
+            Assert.Greater(good, kid, "good beyond child");
+            Assert.Greater(kid, struggling, "child beyond struggling");
+            Assert.GreaterOrEqual(struggling, 1.5, "a struggling player still saves a district now and then");
+            Assert.GreaterOrEqual(kid, 3.5, "a child gets a few districts in");
+        }
+
+        [Test]
+        public void AChildLikePlayer_PlaysAFewMinutes_AndSeesAKnockout()
+        {
+            var kid = Enumerable.Range(0, 12).Select(seed => Play(Kid(seed), seed)).ToList();
+            Assert.GreaterOrEqual(kid.Count(o => o.ClashesWon >= 1), 11, "nearly every child wins a clash");
+            double minutes = kid.Average(o => o.Minutes);
+            Assert.That(minutes, Is.InRange(1.5, 10.0), "a run lasts a few minutes");
         }
 
         [Test]
@@ -402,15 +686,19 @@ namespace MoveIt.Games.Fly.Tests
         {
             foreach (var (name, make) in new (string, System.Func<int, Bot>)[]
                      {
-                         ("perfect (reacts in 0.15 s)", Perfect), ("good (0.3 s, 85 % punches, 60 % dodges)", Good),
-                         ("child (0.45 s, 65 % punches, 50 % dodges)", Kid),
-                         ("struggling (0.6 s, 50 %, 30 %)", Struggling),
+                         ("perfect (0.15 s, 4 punches/s, clash 5/s)", Perfect),
+                         ("good (0.3 s, 3/s, 85 % land, clash 4/s)", Good),
+                         ("child (0.45 s, 2.5/s, 65 % land, clash 3/s)", Kid),
+                         ("struggling (0.6 s, 1.7/s, 50 %, clash 2.2/s)", Struggling),
                          ("never punches, dodges", Dodger), ("stands still", Statue),
                      })
             {
-                var games = Enumerable.Range(0, 20).Select(seed => Play(make(seed), seed, 8f)).ToList();
-                TestContext.WriteLine($"{name,-42} won {games.Count(g => g.Won),2}/20, levels cleared {games.Average(g => g.LevelsCleared):0.0}, " +
-                                      $"hearts lost {games.Average(g => g.HitsTaken):0.0}, score {games.Average(g => g.Score):0}, " +
+                var games = Enumerable.Range(0, 20).Select(seed => Play(make(seed), seed, 15f)).ToList();
+                var districts = games.Select(g => g.District).OrderBy(d => d).ToList();
+                TestContext.WriteLine($"{name,-46} district mean {districts.Average():0.0} (median {districts[10]}, {districts[0]}-{districts[19]}), " +
+                                      $"clashes won {games.Average(g => g.ClashesWon):0.0} lost {games.Average(g => g.ClashesLost):0.0}, " +
+                                      $"robots {games.Average(g => g.RobotsSmashed):0}, stars {games.Average(g => g.Stars):0}, " +
+                                      $"best combo {games.Average(g => g.BestCombo):0}, score {games.Average(g => g.Score):0}, " +
                                       $"minutes {games.Average(g => g.Minutes):0.0}");
             }
         }

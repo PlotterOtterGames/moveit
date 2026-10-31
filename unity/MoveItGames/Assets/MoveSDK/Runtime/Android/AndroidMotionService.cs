@@ -64,6 +64,24 @@ namespace MoveIt.Motion
         /// <summary>Ask Android for the camera again (Settings → Kamera when permission was refused).</summary>
         public static void RequestPermission() => Runner.Instance?.StartWithPermission();
 
+        /// <summary>Switches the pose model while the service runs: "auto", "full" or "lite".</summary>
+        public static void SetModel(string model)
+        {
+            if (model == Model) return;
+            Model = model;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using var service = new AndroidJavaClass("al.moveit.motion.MotionService");
+                service.CallStatic("setModel", model);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[AndroidMotion] setModel failed: {e.Message}");
+            }
+#endif
+        }
+
         sealed class Runner : MonoBehaviour
         {
             public static Runner Instance;

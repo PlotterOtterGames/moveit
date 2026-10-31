@@ -23,6 +23,7 @@ Metrics (px on a 1920x1080 screen, the zone mapped to the whole screen):
 """
 
 import argparse
+import bisect
 import json
 import math
 import random
@@ -135,6 +136,10 @@ def true_tip(w):
 
 
 def to_screen(zone):
+    if MAP == "mirror":
+        kx = MIRROR_PX_PER_TORSO * 2 * ZONE_HALF_W
+        ky = MIRROR_PX_PER_TORSO * (1 + ZONE_BELOW_HIPS + ZONE_ABOVE_SHOULDERS)
+        return SCREEN_W / 2 + (zone[0] - 0.5) * kx, SCREEN_H / 2 + (0.5 - zone[1]) * ky
     return zone[0] * SCREEN_W, (1 - zone[1]) * SCREEN_H
 
 
@@ -175,12 +180,58 @@ def mid(a, b):
     return (a[0] + b[0]) / 2, (a[1] + b[1]) / 2
 
 
-def sample_joints(motion, t, rng):
+# Noise measured in a real session (motion-service-py/sessions/paint.jsonl, 2026-10-20: laptop webcam in a dim room,
+# 20 fps): the hand point's residual from a 7-sample parabola was 0.5-0.9 % of a torso length with the hand still,
+# 2.4-3 % moving slowly (painting), 8-15 % fast: the camera gets far noisier while the hand moves (motion blur at long
+# exposures). None = the old constant NOISE; else (still, per torso length per second) in torso lengths, per axis,
+# for the arm joints (the body joints get the still part), and it replaces MP_SMOOTH (it was measured after it).
+SPEED_NOISE = None
+DIM_ROOM = (0.005, 0.010)           # calibrated with residual_check() against the recording
+# The same recording, by the wrist's visibility at painting speeds: >= 0.9 0.92 %, 0.7-0.9 3.0 %, 0.5-0.7 3.6 %,
+# 0.3-0.5 5.1 %: unsure frames are 3-5x noisier. VIS_MODEL draws each sample's visibility (85 / 6.5 / 6 / 3 % of the
+# usable samples, more unsure ones when the hand moves fast, in runs) with that much noise, the base noise lowered so
+# the whole stays calibrated (DIM_ROOM / 1.83).
+VIS_MODEL = False
+VIS_BANDS = ((0.97, 1.0), (0.8, 3.3), (0.6, 3.9), (0.4, 5.6))      # (visibility, noise x)
+VIS_BASE = (0.0027, 0.0055)
+
+
+def sample_joints(motion, t, rng, noise_scale=1.0):
     w = wrist_at(motion, t)
     true = {"ls": (SHOULDER_C[0] - 0.07, SHOULDER_C[1]), "rs": R_SHOULDER,
             "lh": (HIP_C[0] - 0.04, HIP_C[1]), "rh": (HIP_C[0] + 0.04, HIP_C[1]),
             "elbow": elbow_for(w), "wrist": w}
+    if SPEED_NOISE:
+        still, per_speed = VIS_BASE if VIS_MODEL else SPEED_NOISE
+        v = wrist_speed(motion, t) / M_PER_UNIT / U                     # torso lengths per second
+        arm = (still + per_speed * v) * U * noise_scale
+        return {j: (x + rng.gauss(0, arm if j in ("elbow", "wrist") else still * U),
+                    y + rng.gauss(0, arm if j in ("elbow", "wrist") else still * U)) for j, (x, y) in true.items()}
     return {j: (x + rng.gauss(0, NOISE * ASPECT), y + rng.gauss(0, NOISE)) for j, (x, y) in true.items()}
+
+
+def residual_check(motion="paint", seconds=20.0, seed=3):
+    """The recording's noise measure on simulated samples (to calibrate SPEED_NOISE): rms residual of the hand point
+    from a 7-sample parabola, % of a torso length, by hand speed."""
+    rng = random.Random(seed)
+    pts = []
+    for item in capture_times(seconds, rng):
+        c = item[1]
+        j = sample_joints(motion, c, rng)
+        w, e = j["wrist"], j["elbow"]
+        pts.append((c, (w[0] + (w[0] - e[0]) * HAND_EXT, w[1] + (w[1] - e[1]) * HAND_EXT), wrist_speed(motion, c) / M_PER_UNIT / U))
+    bands = {"still": [], "slow": [], "fast": []}
+    for i in range(3, len(pts) - 3):
+        win = pts[i - 3:i + 4]
+        ts = [q[0] - win[3][0] for q in win]
+        r = []
+        for k in range(2):
+            coef = solve([[sum(t ** (a + b) for t in ts) for b in range(3)] for a in range(3)],
+                         [sum(q[1][k] * t ** a for q, t in zip(win, ts)) for a in range(3)])
+            r.append(win[3][1][k] - sum(cf * ts[3] ** a for a, cf in enumerate(coef)))
+        v = win[3][2]
+        bands["still" if v < 0.3 else "slow" if v < 1.5 else "fast"].append(math.hypot(*r) / U)
+    return {k: 100 * math.sqrt(statistics.fmean(x * x for x in xs)) for k, xs in bands.items() if xs}
 
 
 class CurrentHands:
@@ -339,14 +390,38 @@ class SmoothTrackHands(ContinuousHands):
 
 # ---------------------------------------------------------------- running it
 
-PIPELINE = "regular"            # "regular": a sample every 1/CAM_FPS; "inference": main.py on a PC, see below
+PIPELINE = "regular"            # "regular": a sample every 1/CAM_FPS; "inference": main.py on a PC, see below; "pc": the
+                                # laptop as recorded (see capture_times)
 INFERENCE, INFERENCE_JITTER = 0.031, 0.006
+LOOP_EXTRA, LOOP_EXTRA_JITTER = 0.020, 0.002   # "pc": the rest of main.py's loop after the packet is sent (preview etc.)
 DIPS = (0.0, 0.0)               # chance that a sample's wrist visibility dips below 0.5: hand slow, hand fast (> 1.5 m/s)
+MP_SMOOTH = False               # pass the noisy joints through MediaPipe's own landmark filter (see MediaPipeEuro)
+MP_TIME = "capture"             # the timestamps MediaPipe's filter gets: "capture" or "detect" (main.py before 2026-10-19)
+MAP = "zone"                    # where the cursor is drawn: "zone" = BodyHands' hand zone over the whole screen (Pikturo's
+                                # paper), "mirror" = the camera picture framed knees to above the head (Vishu!, Pikturo's
+                                # camera mode: 327 px per torso length both ways, vs 600 x 415 in the zone)
+MIRROR_PX_PER_TORSO = 1080 / 3.3
 
 
 def capture_times(seconds, rng):
     """(arrival, capture) times of the samples. "inference": the camera delivers CAM_FPS, the pose model takes about
-    as long as a camera frame and always takes the newest one (main.py's FrameGrabber), so frames are skipped unevenly."""
+    as long as a camera frame and always takes the newest one (main.py's FrameGrabber), so frames are skipped unevenly.
+    "pc": the laptop in motion-service-py/sessions/punches.jsonl (2026-10-15): a 60 fps camera, inference ~13 ms, but
+    main.py's whole loop (preview window included) ~40 ms, so it takes every 2nd camera frame and now and then the 3rd:
+    gaps of 33 ms and ~9% of 50 ms. The packet leaves right after inference."""
+    if PIPELINE == "pc":
+        frames = [k / CAM_FPS for k in range(int(seconds * CAM_FPS))]
+        out, t, done = [], 0.0, -1.0
+        for f in frames:
+            ready = f + 0.008                                       # 8 ms to get the frame off the camera
+            if f <= done or ready < t and any(g > f and g + 0.008 <= t for g in frames):
+                continue                                            # a newer frame is waiting: this one is skipped
+            start = max(t, ready)
+            inference = max(0.006, rng.gauss(INFERENCE, INFERENCE_JITTER))
+            out.append((start + inference + 0.002, f, start))
+            t = start + inference + max(0.0, rng.gauss(LOOP_EXTRA, LOOP_EXTRA_JITTER))
+            done = f
+        return out
     if PIPELINE == "regular":
         captures, t = [], 0.0
         while t < seconds:
@@ -377,11 +452,57 @@ def wrist_speed(motion, t):
     return math.dist(a, b) / 0.01 * M_PER_UNIT
 
 
+class MediaPipeEuro:
+    """MediaPipe's own landmark smoothing, on in VIDEO mode with one pose (pose_landmarks_detector_graph.cc): One Euro,
+    min cutoff 0.05 Hz, beta 80, derivative cutoff 1 Hz, on pixels, the speed in object scales (the pose's ROI) per
+    second and taken from the last *raw* value (mediapipe/util/filtering/one_euro_filter.cc). Its dt comes from the
+    timestamps passed to detect_for_video."""
+
+    def __init__(self):
+        self.x = self.raw = self.dx = self.t = None
+        self.freq = 30.0
+
+    def alpha(self, cutoff):
+        return 1 / (1 + self.freq / (2 * math.pi * cutoff))
+
+    def __call__(self, value, t, value_scale):
+        if self.t is not None:
+            if t <= self.t:
+                return value
+            self.freq = 1 / (t - self.t)
+        self.t = t
+        d = 0.0 if self.raw is None else (value - self.raw) * value_scale * self.freq
+        self.raw = value
+        self.dx = d if self.dx is None else self.dx + (d - self.dx) * self.alpha(1.0)
+        a = self.alpha(0.05 + 80 * abs(self.dx))
+        self.x = value if self.x is None else self.x + (value - self.x) * a
+        return self.x
+
+
 def run(make_hands, motion, seconds=6.0, seed=1, stats=None):
     rng = random.Random(seed)
     packets = []
-    for a, c in capture_times(seconds, rng):
-        joints, vis = sample_joints(motion, c, rng), 0.95
+    mp = {}
+    unsure_run = [False]
+    image_h = 720.0
+    roi = 3.9 * U * image_h                                # the pose ROI (body + margin) in pixels
+    for item in capture_times(seconds, rng):
+        a, c = item[0], item[1]
+        vis, scale = 0.95, 1.0
+        if VIS_MODEL:
+            fast = wrist_speed(motion, c) / M_PER_UNIT / U > 1.5
+            # a Markov chain: 15 % unsure frames when slow, 31 % fast, in runs (an unsure frame is followed by another 60 %)
+            unsure = rng.random() < (0.6 if unsure_run[0] else 0.18 if fast else 0.07)
+            unsure_run[0] = unsure
+            r = rng.random()
+            band = VIS_BANDS[0] if not unsure else VIS_BANDS[1 if r < 0.42 else 2 if r < 0.81 else 3]
+            vis, scale = band
+        joints = sample_joints(motion, c, rng, scale)
+        if MP_SMOOTH and not SPEED_NOISE:
+            ts = c if MP_TIME == "capture" else (item[2] if len(item) > 2 else a - 0.002)
+            for j, (x, y) in joints.items():
+                fx, fy = mp.setdefault(j, (MediaPipeEuro(), MediaPipeEuro()))
+                joints[j] = (fx(x * image_h, ts, 1 / roi) / image_h, fy(y * image_h, ts, 1 / roi) / image_h)
         if any(DIPS) and rng.random() < DIPS[wrist_speed(motion, c) > 1.5]:
             vis = 0.4
         packets.append((a, c, joints, vis))
@@ -396,6 +517,8 @@ def run(make_hands, motion, seconds=6.0, seed=1, stats=None):
             lat = (frame_t - cap) * 1000
             latency_ms = lat if latency_ms <= 0 else latency_ms + (lat - latency_ms) * 0.1
             tracker.update(joints, cap, vis)
+            if getattr(hands, "per_packet", False):
+                hands.packet(tracker, frame_t)
             k += 1
             new = True
         lead = min(max(latency_ms / 1000, 0), 0.08)
@@ -439,6 +562,7 @@ def metrics(motion, samples):
     out = {"stutter px/frame": rms(step_errors), "worst px": max(map(abs, step_errors)), "lag ms": best[0], "error px": best[1]}
     if motion == "stopgo":
         out["overshoot px"] = overshoot(ts, cur)
+        out["short px"] = settle(ts, cur)
     if motion == "swipe":
         speeds = [math.dist(cur[i], cur[i - 1]) / (ts[i] - ts[i - 1]) / SCREEN_W for i in range(1, len(cur)) if 0.8 <= ts[i] <= 2.0]
         out["peak screens/s"] = max(speeds)
@@ -457,6 +581,54 @@ def overshoot(ts, cur):
         past = (c[0] - sp[0]) * ds[0] + (c[1] - sp[1]) * ds[1]
         worst[stop] = max(worst.get(stop, 0.0), past)
     return statistics.fmean(worst.values()) if worst else float("nan")
+
+
+def settle(ts, cur):
+    """Mean distance from each stop point just before the hand moves on (px): where a line really ends."""
+    gaps = {}
+    for t, c in zip(ts, cur):
+        _, stop, point, _ = stopgo(t)
+        if stop + STOPGO_HOLD - 0.03 <= t <= stop + STOPGO_HOLD - 0.01:
+            gaps[stop] = math.dist(c, to_screen(zone_of(true_tip(point), SHOULDER_C, HIP_C, U)))
+    return statistics.fmean(gaps.values()) if gaps else float("nan")
+
+
+def from_screen(px):
+    if MAP == "mirror":
+        kx = MIRROR_PX_PER_TORSO * 2 * ZONE_HALF_W
+        ky = MIRROR_PX_PER_TORSO * (1 + ZONE_BELOW_HIPS + ZONE_ABOVE_SHOULDERS)
+        return 0.5 + (px[0] - SCREEN_W / 2) / kx, 0.5 - (px[1] - SCREEN_H / 2) / ky
+    return px[0] / SCREEN_W, 1 - px[1] / SCREEN_H
+
+
+class Rope:
+    """A brush stabilizer from drawing programs (Krita's stabilizer, Procreate's StreamLine, Lazy Nezumi, SAI): the
+    brush tip hangs on a string of `radius` px behind the cursor and moves only when the string is pulled tight, so
+    a hand held still paints nothing new and shake smaller than the string never reaches the paint. Lines end
+    `radius` short of where the cursor stopped unless `settle` (s) pulls the tip in once the cursor rests."""
+
+    def __init__(self, inner, radius, settle=0.0):
+        self.inner, self.radius, self.settle_s = inner, radius, settle
+        self.tip = None
+        self.per_packet = getattr(inner, "per_packet", False)
+
+    def packet(self, tr, now):
+        self.inner.packet(tr, now)
+
+    def frame(self, tr, now, lead, frame_dt, new_sample):
+        p = self.inner.frame(tr, now, lead, frame_dt, new_sample)
+        if p is None:
+            self.tip = None
+            return None
+        c = to_screen(p)
+        if self.tip is None:
+            self.tip = c
+        d = math.dist(c, self.tip)
+        if d > self.radius:
+            self.tip = add(self.tip, mul(sub(c, self.tip), 1 - self.radius / d))
+        elif self.settle_s > 0 and frame_dt > 0:
+            self.tip = add(self.tip, mul(sub(c, self.tip), 1 - math.exp(-frame_dt / self.settle_s)))
+        return from_screen(self.tip)
 
 
 def rms(xs):
@@ -749,6 +921,7 @@ class HandTimeline:
         self.unit = 0.0
         self.out = Filter2(cut, beta, dcut)
         self.buf = []
+        self.keep = 6
         self.v = (0.0, 0.0)
         self.offset = None
         self.interval = 1 / 30
@@ -763,8 +936,20 @@ class HandTimeline:
         self.v = (0.0, 0.0)
         self.out.reset()
 
+    per_packet = False                  # True: the game hands it every packet (MotionSystem.PacketReceived), not just
+                                        # the newest one each frame (two packets in one frame lost one, often at 60 fps)
+
     def frame(self, tr, now, lead, frame_dt, new_sample):
-        if new_sample and tr.t != self.last_t:
+        if new_sample and not self.per_packet:
+            self.packet(tr, now)
+        if self.tracked and now - self.last_good > 0.3:
+            self.lose()
+        if not self.tracked:
+            return None
+        return self.out(self.at(now - self.offset - self.margin * self.interval), frame_dt)
+
+    def packet(self, tr, now):
+        if tr.t != self.last_t:
             self.last_t = tr.t
             if tr.vis >= (0.3 if self.robust and self.tracked else 0.5):
                 p = hand_zone(self, tr, self.track)
@@ -775,26 +960,101 @@ class HandTimeline:
                         self.v = (0.0, 0.0)
                     elif dt >= 0.012:
                         self.v = add(mul(mul(sub(p, self.buf[-1][1]), 1 / dt), 0.6), mul(self.v, 0.4))
-                self.buf = (self.buf + [(tr.t, p)])[-6:]
+                self.buf = (self.buf + [(tr.t, p)])[-self.keep:]
                 off = now - tr.t
                 self.offset = off if self.offset is None else self.offset + (off - self.offset) * 0.1
                 self.tracked, self.last_good = True, now
             elif not self.robust:
                 self.lose()
-        if self.tracked and now - self.last_good > 0.3:
-            self.lose()
-        if not self.tracked:
-            return None
-        td, b = now - self.offset - self.margin * self.interval, self.buf
+
+    def at(self, td):
+        """The hand at camera time td: between samples (linear), past the newest gliding on up to max_ahead."""
+        b = self.buf
         if td <= b[0][0]:
-            p = b[0][1]
-        elif td >= b[-1][0]:
-            p = add(b[-1][1], mul(self.v, min(td - b[-1][0], self.max_ahead)))
+            return b[0][1]
+        if td >= b[-1][0]:
+            return add(b[-1][1], mul(self.v, min(td - b[-1][0], self.max_ahead)))
+        i = next(i for i in range(1, len(b)) if b[i][0] >= td)
+        (t0, a), (t1, c) = b[i - 1], b[i]
+        return add(a, mul(sub(c, a), (td - t0) / (t1 - t0)))
+
+
+class FitTimeline(HandTimeline):
+    """HandTimeline that draws a least-squares line (degree 1) or parabola (2) through the last `count` samples, at
+    the drawn moment: a moving regression (Savitzky-Golay on uneven times), like the Kinect white paper's "use future
+    frames when a few frames of delay are acceptable". Pikturo's brush on 2026-10-19 only: on the real recording it
+    jumped a little whenever a sample arrived (the refit moves the drawn point), 3.45 px/frame^2 of stutter vs 2.51.
+    Weighing the samples by visibility and cross-fading old and new fits didn't fix that (2026-10-20)."""
+
+    def __init__(self, *a, count=5, degree=2, window=None, **k):
+        super().__init__(*a, **k)
+        self.count, self.degree, self.window = count, degree, window
+        if window:
+            self.keep = 64
+
+    def at(self, td):
+        if self.window:                                   # the samples of the last `window` seconds (at least degree + 2)
+            b = [s for s in self.buf if s[0] >= self.buf[-1][0] - self.window]
+            if len(b) < self.degree + 2:
+                b = self.buf[-(self.degree + 2):]
         else:
-            i = next(i for i in range(1, len(b)) if b[i][0] >= td)
-            (t0, a), (t1, c) = b[i - 1], b[i]
-            p = add(a, mul(sub(c, a), (td - t0) / (t1 - t0)))
-        return self.out(p, frame_dt)
+            b = self.buf[-self.count:]
+        if len(b) <= self.degree:
+            return super().at(td)
+        td = min(max(td, b[0][0]), b[-1][0])             # never extrapolate the curve
+        t_ref = b[-1][0]
+        rows = [[(t - t_ref) ** e for e in range(self.degree + 1)] for t, _ in b]
+        x = td - t_ref
+        basis = [x ** e for e in range(self.degree + 1)]
+        # normal equations, (degree+1) x (degree+1)
+        n = self.degree + 1
+        ata = [[sum(r[i] * r[j] for r in rows) for j in range(n)] for i in range(n)]
+        out = []
+        for k in range(2):
+            atb = [sum(r[i] * p[k] for r, (_, p) in zip(rows, b)) for i in range(n)]
+            coef = solve(ata, atb)
+            out.append(sum(c * v for c, v in zip(coef, basis)))
+        return tuple(out)
+
+
+class SampleFiltered(HandTimeline):
+    """Each raw sample smoothed when it arrives (One Euro in zone units on the camera clock: `scut` Hz, `sbeta` per zone
+    per second), then straight lines between the smoothed samples, `margin` frames back, then the per-frame filter.
+    The old brush's shape (the low-lag track is such a per-sample filter) with its own numbers."""
+
+    def __init__(self, margin, cut, beta, dcut, scut, sbeta, sdcut=1.0):
+        super().__init__(margin, cut, beta, dcut, 0.0, "raw")
+        self.sample_filter = Filter2(scut, sbeta, sdcut)
+        self.prev_t = None
+
+    def lose(self):
+        super().lose()
+        self.sample_filter.reset()
+        self.prev_t = None
+
+    def packet(self, tr, now):
+        n = len(self.buf)
+        newest = self.buf[-1][0] if self.buf else None
+        super().packet(tr, now)
+        if self.buf and self.buf[-1][0] != newest:          # a new sample went in: smooth it
+            t, p = self.buf[-1]
+            dt = t - self.prev_t if self.prev_t is not None else 0.0
+            self.prev_t = t
+            self.buf[-1] = (t, self.sample_filter(p, dt))
+
+
+def solve(a, b):
+    """Gaussian elimination for the small normal equations."""
+    n = len(b)
+    m = [row[:] + [b[i]] for i, row in enumerate(a)]
+    for c in range(n):
+        p = max(range(c, n), key=lambda r: abs(m[r][c]))
+        m[c], m[p] = m[p], m[c]
+        for r in range(n):
+            if r != c and m[c][c] != 0:
+                f = m[r][c] / m[c][c]
+                m[r] = [x - f * y for x, y in zip(m[r], m[c])]
+    return [m[i][n] / m[i][i] for i in range(n)]
 
 
 def report_2026_10_09():
@@ -834,7 +1094,95 @@ def report_2026_10_09():
         PIPELINE, DIPS = saved
 
 
+LAPTOP = dict(PIPELINE="pc", CAM_FPS=60.0, INFERENCE=0.013, INFERENCE_JITTER=0.0015, MP_SMOOTH=True)
+BOX = dict(PIPELINE="regular", CAM_FPS=30.0, LATENCY=0.045, LATENCY_JITTER=0.008, MP_SMOOTH=True)
+
+
+def conditions(**changes):
+    """Sets module settings for a block of runs; returns the old values to put back."""
+    saved = {k: globals()[k] for k in changes}
+    globals().update(changes)
+    return saved
+
+
+def score(make, motions, seeds=range(1, 5)):
+    out = {}
+    for motion in motions:
+        m = {}
+        for seed in seeds:
+            for k, v in metrics(motion, run(make, motion, seed=seed)).items():
+                m.setdefault(k, []).append(v)
+        out[motion] = {k: statistics.fmean(v) for k, v in m.items()}
+    return out
+
+
+def line(name, result, keep=("jitter px/frame", "stutter px/frame", "worst px", "lag ms", "overshoot px")):
+    parts = [f"{motion}: " + " ".join(f"{k.split()[0]} {v:.0f}" if k != "jitter px/frame" else f"jitter {v:.1f}"
+                                      for k, v in m.items() if k in keep) for motion, m in result.items()]
+    return f"    {name:44s} " + " | ".join(parts)
+
+
+def PikturoBrush():
+    """Pikturo's brush since 2026-10-19 (PaintGame.Hand.Track + CursorRope): raw samples, a parabola through the last
+    250 ms of them drawn one camera frame back, One Euro 2 / 4 / 2, and a 6 px string between cursor and paint. On the
+    real recording it scored jerkier than per-sample smoothing (PerSampleBrush), but the user found it felt better
+    (2026-10-20): it is ~10-20 ms quicker, which this score doesn't weigh."""
+    return Rope(FitTimeline(1.0, 2.0, 4.0, 2.0, 0.0, "raw", degree=2, window=0.25), 6)
+
+
+def PerSampleBrush():
+    """Pikturo's hands for a few hours on 2026-10-20, then reverted (the user: "it felt better before"): raw samples,
+    each smoothed as it arrives (One Euro 1.5 Hz, beta 30 per zone width per second), straight lines between them one
+    camera frame back, One Euro 4 / 0.5 / 1. Best score on the recording (report_2026_10_20)."""
+    return SampleFiltered(1.0, 4.0, 0.5, 1.0, 1.5, 30.0)
+
+
+def report_2026_10_19():
+    """(Overturned the next day by a real recording, see report_2026_10_20: this noise model missed that the camera gets
+    3-5x noisier while the hand moves and when it is unsure, and that refitting a curve jumps.)
+    2026-10-19, "the hands feel much better in Vishu! than in Pikturo!" and "reduce the stutter". The earlier reports
+    measured every cursor in the hand zone; here each is drawn where its game draws it (Vishu!: the framed camera
+    picture, 327 px per torso; Pikturo's paper: the zone, 600 x 415 px per torso, so camera noise is 1.8x / 1.3x larger
+    on the screen), with the laptop's real frame timing (a 60 fps camera of which main.py --preview used every 2nd or
+    3rd frame), MediaPipe's own filter on the joints, and the same with the preview off the camera loop (60 fps).
+    Tried and dropped: linear interpolation on raw samples (less lag, twice the jitter), cubic Hermite curves (no
+    better than linear), the rope alone (still wobbles while moving), lines (degree 1) and longer windows (overshoot
+    at stops), sampling every packet instead of the newest one per frame (no measurable change), MediaPipe getting
+    capture vs detection timestamps (no measurable change)."""
+    keep = ("jitter px/frame", "stutter px/frame", "worst px", "lag ms", "overshoot px", "short px")
+    schemes = {
+        "Vishu! cursor (mirror)": ("mirror", HandTimeline),
+        "Pikturo free hand = BodyHands (zone)": ("zone", HandTimeline),
+        "Pikturo brush until 2026-10-19 (zone)": ("zone", lambda: HandTimeline(1.0, 4.0, 1.0, 1.0, 0.0, "f")),
+        "  raw samples, linear, 1/4/2": ("zone", lambda: HandTimeline(1.0, 1.0, 4.0, 2.0, 0.0, "raw")),
+        "  + rope 6 px": ("zone", lambda: Rope(HandTimeline(1.0, 1.0, 4.0, 2.0, 0.0, "raw"), 6)),
+        "  parabola through 250 ms, 2/4/2": ("zone", lambda: FitTimeline(1.0, 2.0, 4.0, 2.0, 0.0, "raw", degree=2, window=0.25)),
+        "Pikturo brush now (+ rope 6 px)": ("zone", PikturoBrush),
+        "per-sample brush (2026-10-20, reverted)": ("zone", PerSampleBrush),
+    }
+    rooms = {
+        "laptop, main.py --preview until 2026-10-19 (~30 poses/s)": LAPTOP,
+        "laptop, preview off the camera loop (60 poses/s)": dict(LAPTOP, LOOP_EXTRA=0.002, LOOP_EXTRA_JITTER=0.0005),
+        "box-like (30 fps camera)": BOX,
+    }
+    for room, settings in rooms.items():
+        saved = conditions(**settings)
+        try:
+            print(f"\n{room}:")
+            for name, (where, make) in schemes.items():
+                old = conditions(MAP=where)
+                try:
+                    print(line(name, score(make, ("rest", "paint", "stopgo", "zigzag")), keep))
+                finally:
+                    globals().update(old)
+        finally:
+            globals().update(saved)
+
+
 def main():
+    report_2026_10_19()
+    print()
+    print("(2026-10-09)")
     report_2026_10_09()
     print()
     print("(2026-10-09 morning)")
@@ -858,9 +1206,14 @@ COCO = {"ls": 5, "rs": 6, "lh": 11, "rh": 12}
 ARMS = {"right": (8, 10), "left": (7, 9)}          # (elbow, wrist)
 
 
-def load_recording(path, hand):
+HK = {"left": (0, 1), "right": (3, 4)}            # hk indices of (pinky, index) per hand
+
+
+def load_recording(path, hand, palm=False):
     """A main.py --record session as packets for one hand: (arrival, capture, joints, wrist visibility), in view space
-    like BodyTracker (mirrored, y up, image heights), times from 0. Arrival = capture + inference + 2 ms."""
+    like BodyTracker (mirrored, y up, image heights), times from 0. Arrival = capture + inference + 2 ms.
+    palm: the hand point is the middle of wrist, index and pinky (the pose model's hand points, "hk", recorded since
+    2026-10-19), pushed on along wrist -> palm, instead of the wrist pushed along the forearm."""
     out = []
     with open(path, encoding="utf-8") as f:
         for line in f:
@@ -872,78 +1225,142 @@ def load_recording(path, hand):
             elbow, wrist = ARMS[hand]
             joints = {n: joint(i) for n, i in COCO.items()}
             joints["elbow"], joints["wrist"] = joint(elbow), joint(wrist)
+            hk = p["people"][0].get("hk")
+            if palm:
+                if not hk:
+                    raise SystemExit(f"{path} has no hand points (hk): record it again with main.py --record")
+                w = joints["wrist"]
+                pts = [((1 - hk[i * 4]) * aspect, 1 - hk[i * 4 + 1]) for i in HK[hand]]
+                c = ((w[0] + pts[0][0] + pts[1][0]) / 3, (w[1] + pts[0][1] + pts[1][1]) / 3)
+                joints["elbow"], joints["wrist"] = w, c
             capture = p["t"] / 1000
             out.append((capture + p.get("inf", 30) / 1000 + 0.002, capture, joints, k[wrist * 4 + 3]))
     t0 = out[0][1]
     return [(a - t0, c - t0, j, v) for a, c, j, v in out]
 
 
-def replay(path):
-    """What the camera really delivers (timing, wrist visibility) and how each cursor copes with it. No ground truth
-    here: "accel" (RMS of the per-frame change of the cursor's step, px/frame^2) and "worst" (its largest value) show
-    stutter and snaps; lag is measured against the raw samples' path."""
-    schemes = {
-        "Fruta before (frame-timed)": FrameTimedHands,
-        "Fruta now (raw, camera clock)": HandTimeline,
-        "Pikturo brush before": lambda: HandTimeline(1.0, 4.0, 1.0, 1.0, 0.0, "f", robust=False),
-        "Pikturo brush now": lambda: HandTimeline(1.0, 4.0, 1.0, 1.0, 0.0, "f"),
-    }
+def reference_path(packets):
+    """Where the hand really went, as well as the samples can tell: a parabola through the raw samples of +-150 ms
+    around each moment (Gaussian weights, sd 60 ms; unsure samples, visibility < 0.3, left out), every 5 ms. Smoothed
+    both ways in time, so it has no lag; a cursor is scored against it at the cursor's own lag."""
+    tr, probe, raw = Tracker(), HandTimeline(), []
+    for _, c, j, v in packets:
+        tr.update(j, c, v)
+        if v >= 0.3:
+            raw.append((c, to_screen(hand_zone(probe, tr, "raw"))))
+    times = [q[0] for q in raw]
+    grid, t = {}, packets[0][1]
+    while t < packets[-1][1]:
+        lo, hi = bisect.bisect_left(times, t - 0.15), bisect.bisect_right(times, t + 0.15)
+        win = raw[lo:hi]
+        if len(win) >= 5 and win[0][0] <= t - 0.05 and win[-1][0] >= t + 0.05:
+            rows = [[(q[0] - t) ** e for e in range(3)] for q in win]
+            w = [math.exp(-0.5 * ((q[0] - t) / 0.06) ** 2) for q in win]
+            ata = [[sum(wk * r[i] * r[j] for wk, r in zip(w, rows)) for j in range(3)] for i in range(3)]
+            grid[round(t * 200)] = tuple(solve(ata, [sum(wk * r[i] * q[1][k] for wk, r, q in zip(w, rows, win))
+                                                     for i in range(3)])[0] for k in range(2))
+        t += 0.005
+
+    def at(t):
+        i = t * 200
+        k = math.floor(i)
+        p, q = grid.get(k), grid.get(k + 1)
+        if p is None or q is None:
+            return None
+        return p[0] + (q[0] - p[0]) * (i - k), p[1] + (q[1] - p[1]) * (i - k)
+    return at
+
+
+def score_on_recording(packets, ref, make):
+    """A cursor on a recording at 60 frames a second, against the reference path: stutter = RMS of the cursor's
+    per-frame acceleration minus the reference's (px/frame^2), jolts = frames where that is > 25, wobble = RMS distance
+    to the reference (px), lag = the time shift that fits best (ms), hidden = frames without a cursor."""
+    tr, hands, k, frames = Tracker(), make(), 0, []
+    frame_t, prev = packets[0][0], None
+    while frame_t < packets[-1][0]:
+        new = False
+        while k < len(packets) and packets[k][0] <= frame_t:
+            _, c, j, v = packets[k]
+            tr.update(j, c, v)
+            k, new = k + 1, True
+        p = hands.frame(tr, frame_t, 0.0, frame_t - prev if prev is not None else 0.0, new)
+        frames.append((frame_t, None if p is None else to_screen(p)))
+        prev, frame_t = frame_t, frame_t + 1 / GAME_FPS
+    best = None
+    for lag_ms in range(40, 221, 5):
+        errs = [math.dist(p, r) for t, p in frames[::2] if p and (r := ref(t - lag_ms / 1000))]
+        e = math.sqrt(statistics.fmean(x * x for x in errs))
+        if best is None or e < best[1]:
+            best = (lag_ms, e)
+    lag = best[0] / 1000
+    excess = []
+    for a, b, c in zip(frames, frames[1:], frames[2:]):
+        if not (a[1] and b[1] and c[1]):
+            continue                                       # a hand coming back after it was lost is not a jump
+        ra, rb, rc = ref(a[0] - lag), ref(b[0] - lag), ref(c[0] - lag)
+        if ra and rb and rc:
+            excess.append(math.dist((c[1][0] - 2 * b[1][0] + a[1][0], c[1][1] - 2 * b[1][1] + a[1][1]),
+                                    (rc[0] - 2 * rb[0] + ra[0], rc[1] - 2 * rb[1] + ra[1])))
+    return {"stutter": rms(excess), "jolts": sum(x > 25 for x in excess), "wobble": best[1], "lag": best[0],
+            "hidden": sum(p is None for _, p in frames)}
+
+
+REPLAY_SCHEMES = {
+    "hand cursor (BodyHands, Vishu!)": HandTimeline,
+    "Pikturo brush until 2026-10-19": lambda: HandTimeline(1.0, 4.0, 1.0, 1.0, 0.0, "f"),
+    "Pikturo brush now (fit + rope, 2026-10-19)": PikturoBrush,
+    "per-sample brush (2026-10-20, reverted)": PerSampleBrush,
+}
+
+
+def replay(path, palm=False, schemes=None):
+    """What the camera really delivers (timing, wrist visibility) and how each cursor copes with it, scored against
+    the path the samples make when smoothed both ways in time (reference_path, score_on_recording)."""
     for hand in ("right", "left"):
-        packets = load_recording(path, hand)
+        packets = load_recording(path, hand, palm)
         caps = [c for _, c, _, _ in packets]
         gaps = [b - a for a, b in zip(caps, caps[1:])]
         vis = [v for *_, v in packets]
-        torso = statistics.median(math.dist(mid(j["ls"], j["rs"]), mid(j["lh"], j["rh"])) for _, _, j, _ in packets)
-        fast = [math.dist(packets[i][2]["wrist"], packets[i - 1][2]["wrist"]) / max(gaps[i - 1], 1e-3) > 4 * torso
-                for i in range(1, len(packets))]
-        dips = [v < 0.5 for v in vis[1:]]
         print(f"\n{hand} hand: {len(packets)} samples in {caps[-1]:.0f} s, median gap {1000 * statistics.median(gaps):.0f} ms, "
-              f"gaps > 50 ms: {sum(g > 0.05 for g in gaps)}, longest {1000 * max(gaps):.0f} ms")
-        print(f"    wrist visibility < 0.5 in {100 * sum(v < 0.5 for v in vis) / len(vis):.1f}% of samples "
-              f"(< 0.3: {100 * sum(v < 0.3 for v in vis) / len(vis):.1f}%), while the hand moves fast "
-              f"(> 4 torsos/s): {100 * sum(d for d, f in zip(dips, fast) if f) / max(1, sum(fast)):.1f}% of {sum(fast)}")
+              f"gaps > 50 ms: {sum(g > 0.05 for g in gaps)}, longest {1000 * max(gaps):.0f} ms; wrist visibility "
+              f"< 0.5 in {100 * sum(v < 0.5 for v in vis) / len(vis):.1f}% of samples (< 0.3: {100 * sum(v < 0.3 for v in vis) / len(vis):.1f}%)")
+        ref = reference_path(packets)
+        for name, make in (schemes or REPLAY_SCHEMES).items():
+            m = score_on_recording(packets, ref, make)
+            print(f"    {name:44s} stutter {m['stutter']:5.2f}  jolts {m['jolts']:3d}  wobble {m['wobble']:5.1f} px  "
+                  f"lag {m['lag']:3d} ms  hidden {m['hidden']} frames")
 
-        # the raw path (zone, as the new cursor sees it) to measure lag against
-        tr, probe, path_pts = Tracker(), HandTimeline(), []
-        for _, c, j, v in packets:
-            tr.update(j, c, v)
-            path_pts.append((c, to_screen(hand_zone(probe, tr, "raw"))))
 
-        def raw_at(t):
-            i = next((i for i in range(1, len(path_pts)) if path_pts[i][0] >= t), None)
-            if i is None:
-                return None
-            (t0, a), (t1, b) = path_pts[i - 1], path_pts[i]
-            k = (t - t0) / max(t1 - t0, 1e-6)
-            return a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k
-
-        for name, make in schemes.items():
-            tr, hands, k, frames = Tracker(), make(), 0, []
-            frame_t, prev = packets[0][0], None
-            while frame_t < packets[-1][0]:
-                new = False
-                while k < len(packets) and packets[k][0] <= frame_t:
-                    _, c, j, v = packets[k]
-                    tr.update(j, c, v)
-                    k, new = k + 1, True
-                p = hands.frame(tr, frame_t, 0.0, frame_t - prev if prev is not None else 0.0, new)
-                frames.append((frame_t, None if p is None else to_screen(p)))
-                prev, frame_t = frame_t, frame_t + 1 / GAME_FPS
-            shown = [(t, p) for t, p in frames if p is not None]
-            acc = [math.dist((c[0] - 2 * b[0] + a[0], c[1] - 2 * b[1] + a[1]), (0, 0))
-                   for (_, a), (_, b), (_, c) in zip(shown, shown[1:], shown[2:])]
-            best = None
-            for lag_ms in range(0, 301, 5):
-                errs = [math.dist(p, r) for t, p in shown[::3] if (r := raw_at(t - lag_ms / 1000)) is not None]
-                e = statistics.fmean(errs) if errs else float("inf")
-                if best is None or e < best[1]:
-                    best = (lag_ms, e)
-            print(f"    {name:30s} accel {rms(acc):.1f}, worst {max(acc):.0f} px/frame^2, lag {best[0]} ms, "
-                  f"hidden {len(frames) - len(shown)} frames")
+def report_2026_10_20(path="motion-service-py/sessions/paint.jsonl"):
+    """2026-10-20: the user's painting session (2.7 min at the laptop, the webcam at 20 fps in a dim room). The
+    simulator had ranked the 2026-10-19 brush as smooth as the old one; the recording didn't (3.45 vs 2.51). What it
+    showed: the hand point's noise 0.5-0.9 % of a torso length still, 2.4-3 % moving slowly, 8-15 % fast (DIM_ROOM),
+    3-5x more in frames the camera is unsure of (VIS_BANDS); a curve refitted at every sample jumps. The old shape
+    (smooth each sample, straight lines between) scored best, with these numbers better than the old brush on every
+    count. But the user tried it and preferred the 2026-10-19 brush: this score misses how much ~10-20 ms of lag is
+    felt. Weigh lag more next time, and let the user's feel decide."""
+    schemes = {
+        "Pikturo brush until 2026-10-19": lambda: HandTimeline(1.0, 4.0, 1.0, 1.0, 0.0, "f"),
+        "Pikturo brush now (fit + rope, 2026-10-19)": PikturoBrush,
+        "per sample 1.5/12, out 4/1": lambda: SampleFiltered(1.0, 4.0, 1.0, 1.0, 1.5, 12.0),
+        "per sample 1.5/30, out 4/1": lambda: SampleFiltered(1.0, 4.0, 1.0, 1.0, 1.5, 30.0),
+        "per sample 1.5/30, out 4/0.5 (best score)": PerSampleBrush,
+        "per sample 1.5/120, out 4/0.5": lambda: SampleFiltered(1.0, 4.0, 0.5, 1.0, 1.5, 120.0),
+        "per sample 1.5/30, margin 0.5": lambda: SampleFiltered(0.5, 4.0, 0.5, 1.0, 1.5, 30.0),
+        "best score + rope 6": lambda: Rope(PerSampleBrush(), 6),
+    }
+    replay(path, schemes=schemes)
 
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     args.add_argument("--recording", help="replay a main.py --record session (.jsonl) instead of the simulations")
+    args.add_argument("--palm", action="store_true", help="with --recording: the hand point from the palm (needs hk)")
+    args.add_argument("--tune", action="store_true", help="with --recording: the 2026-10-20 settings search")
     args = args.parse_args()
-    replay(args.recording) if args.recording else main()
+    if args.recording and args.tune:
+        report_2026_10_20(args.recording)
+    elif args.recording:
+        replay(args.recording, args.palm)
+    else:
+        main()

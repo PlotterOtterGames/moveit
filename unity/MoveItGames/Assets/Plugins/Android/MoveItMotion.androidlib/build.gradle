@@ -22,6 +22,9 @@ android {
             java.srcDirs = ['src/main/java']
             // Pose models are copied here from motion-service-py/models by MoveIt > Box > Build Android APK.
             assets.srcDirs = ['src/main/assets']
+            // The NPU pose engine (tools/npu/build_native.py builds libtundupose.so from src/main/cpp) and Rockchip's
+            // runtime librknnrt.so (RKNN 2.3.2, its notice in jniLibs/RKNN-LICENSE.txt).
+            jniLibs.srcDirs = ['src/main/jniLibs']
         }
     }
 }

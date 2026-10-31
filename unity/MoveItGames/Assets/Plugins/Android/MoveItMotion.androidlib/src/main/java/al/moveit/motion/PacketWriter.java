@@ -1,19 +1,14 @@
 package al.moveit.motion;
 
-import com.google.mediapipe.tasks.components.containers.Landmark;
-import com.google.mediapipe.tasks.components.containers.NormalizedLandmark;
-import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult;
-
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
 
 /**
- * Builds Motion Protocol v1.1 datagrams (docs/protocol.md) from MediaPipe results and sends them over UDP to the
- * game on the same device. Same format as the PC service (motion-service-py/protocol.py), so the game's MoveSDK
- * doesn't know or care where the skeleton came from.
+ * Builds Motion Protocol v1.1 datagrams (docs/protocol.md) from pose results (the NPU's or MediaPipe's) and sends them
+ * over UDP to the game on the same device. Same format as the PC service (motion-service-py/protocol.py), so the
+ * game's MoveSDK doesn't know or care where the skeleton came from.
  */
 final class PacketWriter {
     /** MediaPipe Pose (33 landmarks) index for each COCO-17 joint. Same table as motion-service-py/skeleton.py. */
@@ -32,7 +27,7 @@ final class PacketWriter {
         this.port = port;
     }
 
-    void send(PoseLandmarkerResult result, String src, String model, long captureWallMs, int width, int height,
+    void send(Pose pose, String src, String model, long captureWallMs, int width, int height,
               float fps, float inferenceMs, float cameraFps) {
         sb.setLength(0);
         sb.append("{\"v\":1,\"src\":\"").append(src).append("\",\"t\":").append(captureWallMs)
@@ -42,35 +37,30 @@ final class PacketWriter {
         sb.append(",\"cam\":"); fixed(cameraFps, 10);
         sb.append(",\"model\":\"").append(model).append("\",\"people\":[");
 
-        List<List<NormalizedLandmark>> people = result != null ? result.landmarks() : null;
-        List<List<Landmark>> world = result != null ? result.worldLandmarks() : null;
-        if (people != null) {
-            for (int p = 0; p < people.size(); p++) {
-                List<NormalizedLandmark> lms = people.get(p);
-                if (p > 0) sb.append(',');
-                float score = 0f;
-                for (int t : TORSO) score += visibility(lms.get(MEDIAPIPE_TO_COCO17[t]));
-                sb.append("{\"id\":").append(p).append(",\"score\":"); fixed(score / TORSO.length, 1000);
-                sb.append(",\"k\":[");
+        if (pose != null && pose.found) {
+            float[] lms = pose.landmarks;
+            float score = 0f;
+            for (int t : TORSO) score += lms[MEDIAPIPE_TO_COCO17[t] * 5 + 3];
+            sb.append("{\"id\":0,\"score\":"); fixed(score / TORSO.length, 1000);
+            sb.append(",\"k\":[");
+            for (int j = 0; j < MEDIAPIPE_TO_COCO17.length; j++) {
+                int i = MEDIAPIPE_TO_COCO17[j] * 5;
+                if (j > 0) sb.append(',');
+                fixed(lms[i], 10000); sb.append(','); fixed(lms[i + 1], 10000); sb.append(',');
+                fixed(lms[i + 2], 10000); sb.append(','); fixed(lms[i + 3], 1000);
+            }
+            sb.append(']');
+            if (pose.hasWorld) {
+                sb.append(",\"wk\":[");
                 for (int j = 0; j < MEDIAPIPE_TO_COCO17.length; j++) {
-                    NormalizedLandmark lm = lms.get(MEDIAPIPE_TO_COCO17[j]);
+                    int i = MEDIAPIPE_TO_COCO17[j] * 3;
                     if (j > 0) sb.append(',');
-                    fixed(lm.x(), 10000); sb.append(','); fixed(lm.y(), 10000); sb.append(',');
-                    fixed(lm.z(), 10000); sb.append(','); fixed(visibility(lm), 1000);
+                    fixed(pose.world[i], 10000); sb.append(','); fixed(pose.world[i + 1], 10000); sb.append(',');
+                    fixed(pose.world[i + 2], 10000);
                 }
                 sb.append(']');
-                if (world != null && p < world.size()) {
-                    List<Landmark> w = world.get(p);
-                    sb.append(",\"wk\":[");
-                    for (int j = 0; j < MEDIAPIPE_TO_COCO17.length; j++) {
-                        Landmark lm = w.get(MEDIAPIPE_TO_COCO17[j]);
-                        if (j > 0) sb.append(',');
-                        fixed(lm.x(), 10000); sb.append(','); fixed(lm.y(), 10000); sb.append(','); fixed(lm.z(), 10000);
-                    }
-                    sb.append(']');
-                }
-                sb.append('}');
             }
+            sb.append('}');
         }
         sb.append("]}");
 
@@ -84,10 +74,6 @@ final class PacketWriter {
 
     void close() {
         socket.close();
-    }
-
-    private static float visibility(NormalizedLandmark lm) {
-        return lm.visibility().isPresent() ? lm.visibility().get() : 0f;
     }
 
     /** Appends a number rounded to 1/scale, never in exponent notation and independent of the device's locale. */

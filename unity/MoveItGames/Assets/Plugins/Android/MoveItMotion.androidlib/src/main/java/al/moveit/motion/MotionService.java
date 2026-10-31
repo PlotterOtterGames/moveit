@@ -14,8 +14,7 @@ import androidx.lifecycle.Lifecycle;
 import androidx.lifecycle.LifecycleOwner;
 import androidx.lifecycle.LifecycleRegistry;
 
-import com.google.mediapipe.tasks.vision.poselandmarker.PoseLandmarkerResult;
-
+import java.nio.ByteBuffer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -33,6 +32,7 @@ public final class MotionService implements LifecycleOwner {
     private final LifecycleRegistry lifecycle;
     private final ExecutorService analysisThread = Executors.newSingleThreadExecutor();
     private final CameraSource camera = new CameraSource();
+    private final CameraTuner tuner = new CameraTuner();   // the USB camera's brightness in a dim room
     private final VideoStreamer video = new VideoStreamer();
     private long videoFrame;
     private final PoseEngine engine;
@@ -43,7 +43,11 @@ public final class MotionService implements LifecycleOwner {
     private volatile String cameraName = "";
     private volatile float fps, inferenceMs, cameraFps;
     private long lastResultAt, lastFrameAt, lastStatsLogAt;
+    /** Nobody seen for this long: the pose AI only looks every IDLE_INTERVAL_MS (~7 times a second). */
+    private static final long IDLE_AFTER_MS = 2000, IDLE_INTERVAL_MS = 150;
+    private long lastPersonAt, lastAiAt;   // analysis thread only
     private final float[] inference = new float[1];
+    private final Pose pose = new Pose();  // analysis thread only
     private Bitmap reusedFrame;  // analysis thread only
     private volatile boolean snapshotRequested;
 
@@ -108,6 +112,18 @@ public final class MotionService implements LifecycleOwner {
         if (s != null) s.video.request(port, width, on);
     }
 
+    /** Switches the pose model ("auto", "full" or "lite") while running; the engine re-opens on the analysis thread. */
+    public static void setModel(String model) {
+        MotionService s = instance;
+        if (s != null) s.analysisThread.execute(() -> {
+            try {
+                s.engine.setModel(model);
+            } catch (Throwable e) {
+                s.fail("model: " + e.getMessage());
+            }
+        });
+    }
+
     /**
      * Saves the next camera frame (exactly what the AI sees) as camera-snapshot.jpg in the app's files folder, for
      * checking camera framing and lighting. Only on request, overwritten each time, never sent anywhere.
@@ -144,6 +160,7 @@ public final class MotionService implements LifecycleOwner {
                         cameraName = description;
                         state = "running";
                         Log.i(TAG, "Camera " + description + " started");
+                        if ("USB".equals(description)) tuner.cameraStarted(camera.cameraId());
                     }
 
                     @Override
@@ -163,24 +180,44 @@ public final class MotionService implements LifecycleOwner {
         });
     }
 
-    /** CameraX analyzer, on the analysis thread. */
+    /**
+     * CameraX analyzer, on the analysis thread. Nobody seen for a couple of seconds: the pose AI only looks a few
+     * times a second ({@link #IDLE_INTERVAL_MS}), and when the game doesn't want the camera picture either, the thread
+     * sleeps in between, so CameraX doesn't even convert those frames: on the box the person detector on every frame
+     * kept the NPU ~80 % busy for an empty room (heat). On the NPU the frame is read straight from CameraX's buffer.
+     */
     private void analyze(@NonNull ImageProxy image) {
+        long now = SystemClock.elapsedRealtime();
+        boolean idle = now - lastPersonAt > IDLE_AFTER_MS;
+        boolean videoOn = video.streaming();
         try {
-            long now = SystemClock.elapsedRealtime();
             if (lastFrameAt > 0) cameraFps = smooth(cameraFps, 1000f / Math.max(1, now - lastFrameAt));
             lastFrameAt = now;
 
+            tuner.onFrame(image, now);
             if (now - lastStatsLogAt > 5000) {
                 lastStatsLogAt = now;
+                String detail = engine.detail(), light = tuner.describe();
                 Log.i(TAG, "stats: camera " + round(cameraFps) + " fps, AI " + round(fps) + " fps, "
-                        + round(inferenceMs) + " ms, " + engine.delegate() + " " + engine.model() + ", " + state);
+                        + round(inferenceMs) + " ms, " + engine.delegate() + " " + engine.model()
+                        + (detail.isEmpty() ? "" : " (" + detail + ")") + ", " + state + (idle ? " (idle)" : "")
+                        + ", frame " + image.getWidth() + "x" + image.getHeight() + (light.isEmpty() ? "" : ", " + light));
             }
-            Bitmap frame = toBitmap(image);
+            boolean runAi = !idle || now - lastAiAt >= IDLE_INTERVAL_MS;
+            ImageProxy.PlaneProxy plane = image.getPlanes()[0];
+            ByteBuffer rgba = plane.getBuffer();
             int rotation = image.getImageInfo().getRotationDegrees();
-            if (rotation != 0) {
-                Matrix m = new Matrix();
-                m.postRotate(rotation);
-                frame = Bitmap.createBitmap(frame, 0, 0, frame.getWidth(), frame.getHeight(), m, true);
+            // the camera's buffer as it is, when nothing needs it turned or as a Bitmap
+            boolean direct = rotation == 0 && plane.getPixelStride() == 4 && rgba.isDirect() && FrameShare.available();
+            boolean needBitmap = snapshotRequested || (!direct && (videoOn || runAi)) || (runAi && !engine.usesNpu());
+            Bitmap frame = null;
+            if (needBitmap) {
+                frame = toBitmap(image);
+                if (rotation != 0) {
+                    Matrix m = new Matrix();
+                    m.postRotate(rotation);
+                    frame = Bitmap.createBitmap(frame, 0, 0, frame.getWidth(), frame.getHeight(), m, true);
+                }
             }
             if (snapshotRequested) {
                 snapshotRequested = false;
@@ -191,13 +228,41 @@ public final class MotionService implements LifecycleOwner {
                 }
             }
             long captureWall = captureWallTime(image);
-            video.offer(frame, captureWall, videoFrame++);  // copies the frame and returns; encoded on its own thread
-            PoseLandmarkerResult result = engine.detect(frame, inference);  // blocking: the camera keeps only the newest frame meanwhile
-            if (result != null) onPoseResult(result, captureWall, frame.getWidth(), frame.getHeight(), inference[0]);
+            if (videoOn) {
+                rgba.rewind();
+                if (direct) FrameShare.offer(rgba, image.getWidth(), image.getHeight(), plane.getRowStride(),
+                        video.width(), captureWall, ++videoFrame);
+                else video.offer(frame, captureWall, videoFrame++);  // copies the frame; encoded on its own thread
+            }
+            if (!runAi) return;
+            lastAiAt = now;
+            long captureNs = image.getImageInfo().getTimestamp();   // the sensor's monotonic clock
+            // blocking: the camera keeps only the newest frame meanwhile
+            boolean ok;
+            int width, height;
+            if (frame == null) {
+                rgba.rewind();
+                width = image.getWidth();
+                height = image.getHeight();
+                ok = engine.detect(rgba, width, height, plane.getRowStride(), inference, captureNs, pose);
+            } else {
+                width = frame.getWidth();
+                height = frame.getHeight();
+                ok = engine.detect(frame, inference, captureNs, pose);
+            }
+            if (ok) {
+                if (pose.found) lastPersonAt = now;
+                onPoseResult(pose, captureWall, width, height, inference[0]);
+            }
         } catch (Throwable e) {
             Log.e(TAG, "Frame failed", e);
         } finally {
             image.close();
+        }
+        // idle with no picture wanted: wait for the next look (CameraX keeps only the newest frame meanwhile)
+        if (idle && !videoOn) {
+            long wait = lastAiAt + IDLE_INTERVAL_MS - SystemClock.elapsedRealtime();
+            if (wait > 0) SystemClock.sleep(Math.min(wait, IDLE_INTERVAL_MS));
         }
     }
 
@@ -225,15 +290,13 @@ public final class MotionService implements LifecycleOwner {
         return (ageMs >= 0 && ageMs < 1000) ? wall - ageMs : wall;  // some devices use another clock: ignore then
     }
 
-    private void onPoseResult(PoseLandmarkerResult result, long captureWallMs, int width, int height, float inf) {
+    private void onPoseResult(Pose result, long captureWallMs, int width, int height, float inf) {
         long now = SystemClock.elapsedRealtime();
         if (lastResultAt > 0) fps = smooth(fps, 1000f / Math.max(1, now - lastResultAt));
         lastResultAt = now;
         inferenceMs = smooth(inferenceMs, inf);
-        if (writer != null) {
-            String src = "android-mediapipe-" + engine.delegate().toLowerCase() + "-" + engine.model();
-            writer.send(result, src, engine.model(), captureWallMs, width, height, fps, inferenceMs, cameraFps);
-        }
+        if (writer != null)
+            writer.send(result, engine.source(), engine.model(), captureWallMs, width, height, fps, inferenceMs, cameraFps);
     }
 
     private void fail(String message) {

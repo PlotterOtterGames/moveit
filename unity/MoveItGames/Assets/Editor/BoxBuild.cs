@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using MoveIt.Games;
@@ -47,18 +48,25 @@ namespace MoveIt.EditorTools
 
         /// <summary>
         /// The pose models live once, in motion-service-py/models (used by the PC service). Copy them into the
-        /// Android motion library's assets so they ship inside the APK.
+        /// Android motion library's assets so they ship inside the APK: MediaPipe's, and the same models converted
+        /// for Rockchip NPUs (*.rknn, tools/npu/convert.py; the box uses those when its chip has a build).
         /// </summary>
         static void CopyPoseModels()
         {
             string source = Path.GetFullPath(Path.Combine(Application.dataPath, "..", ModelsSource));
             Directory.CreateDirectory(ModelsTarget);
-            foreach (string name in new[] { "pose_landmarker_full.task", "pose_landmarker_lite.task" })
+            var names = new List<string> { "pose_landmarker_full.task", "pose_landmarker_lite.task" };
+            names.AddRange(Directory.GetFiles(source, "*.rknn").Select(Path.GetFileName));
+            foreach (string name in names)
             {
                 string from = Path.Combine(source, name), to = Path.Combine(ModelsTarget, name);
                 if (!File.Exists(from)) throw new FileNotFoundException($"Pose model missing: {from}");
-                if (!File.Exists(to) || new FileInfo(to).Length != new FileInfo(from).Length) File.Copy(from, to, true);
+                if (!File.Exists(to) || new FileInfo(to).Length != new FileInfo(from).Length ||
+                    File.GetLastWriteTimeUtc(from) > File.GetLastWriteTimeUtc(to))
+                    File.Copy(from, to, true);
             }
+            foreach (string stale in Directory.GetFiles(ModelsTarget, "*.rknn"))
+                if (!names.Contains(Path.GetFileName(stale))) File.Delete(stale);
         }
 
         /// <summary>
@@ -77,9 +85,12 @@ namespace MoveIt.EditorTools
         static void ImportUncompressed(string path)
         {
             if (AssetImporter.GetAtPath(path) is not TextureImporter importer) return;
-            if (importer.textureCompression == TextureImporterCompression.Uncompressed && !importer.mipmapEnabled) return;
+            if (importer.textureCompression == TextureImporterCompression.Uncompressed && !importer.mipmapEnabled &&
+                importer.npotScale == TextureImporterNPOTScale.None) return;
             importer.textureCompression = TextureImporterCompression.Uncompressed;
             importer.mipmapEnabled = false;
+            // keep the file's own size: rounded to a power of two, the 320x180 TV banner became 256x128 (build warning)
+            importer.npotScale = TextureImporterNPOTScale.None;
             importer.SaveAndReimport();
         }
 
@@ -104,8 +115,11 @@ namespace MoveIt.EditorTools
         {
             ApplyBranding();
             PlayerSettings.SetScriptingBackend(NamedBuildTarget.Android, ScriptingImplementation.IL2CPP);
-            // "Faster (smaller) builds": less generated C++, so builds need less time and memory, and the APK is smaller.
-            PlayerSettings.SetIl2CppCodeGeneration(NamedBuildTarget.Android, Il2CppCodeGeneration.OptimizeSize);
+            // "Faster runtime": generic code over value types (List<Vector3>.Add, Dictionary lookups, HashCode) is generated
+            // for each type. "Faster (smaller) builds" ran it all through IL2CPP's slow fully shared path: 17 % of the home
+            // screen's main thread and 9 % of Vishu!'s on the X98K Pro's Cortex-A55 (simpleperf, 2026-10-31). Builds take a
+            // little longer and the APK grows a little.
+            PlayerSettings.SetIl2CppCodeGeneration(NamedBuildTarget.Android, Il2CppCodeGeneration.OptimizeSpeed);
             PlayerSettings.Android.targetArchitectures = AndroidArchitecture.ARM64;
             PlayerSettings.Android.minSdkVersion = AndroidSdkVersions.AndroidApiLevel28;  // Android 9: USB cameras supported
             PlayerSettings.Android.applicationEntry = AndroidApplicationEntry.Activity;     // matches Plugins/Android/AndroidManifest.xml
@@ -113,6 +127,13 @@ namespace MoveIt.EditorTools
             PlayerSettings.Android.forceInternetPermission = true;  // the motion service talks to the game over localhost UDP
             PlayerSettings.Android.startInFullscreen = true;        // no Android status/navigation bars
             PlayerSettings.Android.renderOutsideSafeArea = true;
+            PlayerSettings.enableFrameTimingStats = true;           // CPU and GPU time per frame in the [Perf] log (PerfLog)
+            // OpenGL ES first: on the X98K Pro (RK3566, Mali-G52) every scene ran as fast as or faster than with Vulkan
+            // (home screen 58 fps against 49, 3D games +1-3 fps; docs/hardware.md). Vulkan stays as the fallback.
+            PlayerSettings.SetUseDefaultGraphicsAPIs(BuildTarget.Android, false);
+            PlayerSettings.SetGraphicsAPIs(BuildTarget.Android,
+                new[] { UnityEngine.Rendering.GraphicsDeviceType.OpenGLES3, UnityEngine.Rendering.GraphicsDeviceType.Vulkan });
+            PlayerSettings.Android.optimizedFramePacing = true;     // even frame times when a game runs at 30 fps
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
             if (PlayerSettings.bundleVersion is "0.1" or "1.0") PlayerSettings.bundleVersion = "0.1.0";
             PlayerSettings.Android.bundleVersionCode = VersionCode(PlayerSettings.bundleVersion);
@@ -196,7 +217,8 @@ namespace MoveIt.EditorTools
             var summary = report.summary;
             if (summary.result == BuildResult.Succeeded)
             {
-                Debug.Log($"[BoxBuild] APK built: {apk} ({summary.totalSize / 1048576f:0.0} MB in {summary.totalTime.TotalMinutes:0.0} min), " +
+                // the file's size (summary.totalSize is the uncompressed content, ~8x larger)
+                Debug.Log($"[BoxBuild] APK built: {apk} ({new FileInfo(apk).Length / 1048576f:0.0} MB in {summary.totalTime.TotalMinutes:0.0} min), " +
                           $"version {PlayerSettings.bundleVersion} ({PlayerSettings.Android.bundleVersionCode}), " +
                           (PlayerSettings.Android.useCustomKeystore ? "release-signed" : "DEBUG-signed (not for publishing)"));
             }

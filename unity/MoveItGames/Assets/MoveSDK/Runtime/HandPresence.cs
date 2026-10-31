@@ -3,7 +3,7 @@ namespace MoveIt.Motion
     /// <summary>
     /// Is a hand seen? The camera AI rates every joint every frame ("visibility"), and a wrist's rating dips below
     /// 0.5 for single frames, more often during fast moves. Dropping the cursor on each dip made it vanish for a few
-    /// frames and snap back from a standing start (tools/motion/cursor_sim.py: Fruta's blade jumped ~270 px, Pikturo's
+    /// frames and snap back from a standing start (tools/motion/cursor_sim.py: the old Fruta game's blade jumped ~270 px, Pikturo's
     /// strokes broke apart). So, like the skeleton mirror: a hand is found at 0.5, kept down to 0.3, samples below that
     /// are skipped (the cursor glides on or waits), and it is lost only after <see cref="Grace"/> without a good one.
     /// </summary>
