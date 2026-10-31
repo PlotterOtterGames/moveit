@@ -49,7 +49,12 @@ namespace MoveIt.Motion
             public bool Matched;
         }
 
-        public void Update(MotionPacket packet, float now)
+        public void Update(MotionPacket packet, float now) => Update(packet, now, now);
+
+        /// <param name="now">Time.unscaledTime of the frame handling the packet.</param>
+        /// <param name="localNow">The same moment in double precision (Time.unscaledTimeAsDouble): the clock the bodies'
+        /// <see cref="Body.Shown"/> joints are timed on.</param>
+        public void Update(MotionPacket packet, float now, double localNow)
         {
             float aspect = packet.h > 0 ? (float)packet.w / packet.h : 16f / 9f;
             double sampleTime = packet.t / 1000.0;
@@ -67,7 +72,7 @@ namespace MoveIt.Motion
                     var best = Nearest(body.TorsoCenter, radius);
                     if (best == null) continue;
                     best.Matched = true;
-                    Apply(body, best, aspect, sampleTime, now);
+                    Apply(body, best, aspect, sampleTime, now, localNow);
                 }
             }
 
@@ -81,7 +86,7 @@ namespace MoveIt.Motion
                     body.FastFilters[i] = new OneEuroFilter3(FastMinCutoff, FastBeta, FastDerivativeCutoff);
                     body.WorldFilters[i] = new OneEuroFilter3(WorldMinCutoff, WorldBeta);
                 }
-                Apply(body, c, aspect, sampleTime, now);
+                Apply(body, c, aspect, sampleTime, now, localNow);
                 _bodies.Add(body);
             }
 
@@ -156,7 +161,7 @@ namespace MoveIt.Motion
             }
         }
 
-        static void Apply(Body body, Candidate c, float aspect, double sampleTime, float now)
+        static void Apply(Body body, Candidate c, float aspect, double sampleTime, float now, double localNow)
         {
             float dt = body.SampleTime > 0 ? (float)(sampleTime - body.SampleTime) : 0f;
             // Body size for the filters: follows the torso slowly, so a jump or a crouch doesn't change it much.
@@ -171,6 +176,7 @@ namespace MoveIt.Motion
                 body.Visibility[i] = c.Visibility[i];
                 if (c.HasWorld) body.World[i] = body.WorldFilters[i].Filter(c.World[i], dt, body.WorldFilterScale);
             }
+            body.ShownTimeline.Add(sampleTime, body.Joints, localNow);
             body.HasWorld = c.HasWorld;
             body.Score = c.Score;
             body.Aspect = aspect;

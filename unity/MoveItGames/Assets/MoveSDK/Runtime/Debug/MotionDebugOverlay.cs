@@ -138,8 +138,11 @@ namespace MoveIt.Motion
             GUI.Label(new Rect(22, 1080 - 40, 900, 30), "F1 hide/show   |   keyboard: arrows/A-D lanes, Space jump, Down crouch, Enter confirm", _label);
         }
 
+        /// <summary>The skeleton as it is this frame (<see cref="Body.Shown"/>: interpolated on the camera's clock; the
+        /// newest pose as it arrived moved in 30 Hz steps, uneven ones on a 30 fps screen).</summary>
         void DrawBody(Rect view, Body body, bool active)
         {
+            var shown = body.Shown;
             foreach (var (a, b) in Skeleton.Bones)
             {
                 if (!body.IsVisible(a, 0.3f) || !body.IsVisible(b, 0.3f)) continue;
@@ -147,13 +150,13 @@ namespace MoveIt.Motion
                     : Skeleton.IsLeft(a) && Skeleton.IsLeft(b) ? LeftColor
                     : Skeleton.IsRight(a) && Skeleton.IsRight(b) ? RightColor
                     : MidColor;
-                DrawLine(ToGui(view, body, body[a]), ToGui(view, body, body[b]), color, fullScreen ? 6f : 3f);
+                DrawLine(ToGui(view, body, shown[(int)a]), ToGui(view, body, shown[(int)b]), color, fullScreen ? 6f : 3f);
             }
             for (int i = 0; i < Skeleton.JointCount; i++)
             {
                 var j = (Joint)i;
                 if (!body.IsVisible(j, 0.3f)) continue;
-                var p = ToGui(view, body, body[j]);
+                var p = ToGui(view, body, shown[i]);
                 float s = fullScreen ? 12f : 6f;
                 GUI.color = active ? Color.white : InactiveColor;
                 GUI.DrawTexture(new Rect(p.x - s / 2, p.y - s / 2, s, s), Texture2D.whiteTexture);

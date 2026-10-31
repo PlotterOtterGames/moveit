@@ -98,7 +98,7 @@ namespace MoveIt.Games
         {
             GUI.depth = -1;  // on top of the full-screen skeleton (lower depth = drawn later)
             float w = GameHud.Begin();
-            var panel = new Rect(w - 620, 20, 600, 620);
+            var panel = new Rect(w - 620, 20, 600, AndroidMotionService.IsSupported ? 700 : 620);
             GameHud.Box(panel, new Color(0f, 0f, 0f, 0.75f));
             float x = panel.x + 24, y = panel.y + 18;
 
@@ -115,6 +115,14 @@ namespace MoveIt.Games
             Row(ref y, x, T("AI fps", "AI fps"), connected ? $"{_motion.ServiceFps:0}" : "-");
             Row(ref y, x, T("AI koha", "AI time"), connected ? $"{_motion.InferenceMs:0} ms" : "-");
             Row(ref y, x, T("Vonesa", "Latency"), connected ? $"{_motion.LatencyMs:0} ms" : "-");
+            if (AndroidMotionService.IsSupported)
+            {
+                // what makes the skeleton jerky on the box, counted by the camera service over its last 5 s
+                Row(ref y, x, T("Kuadro pa AI", "Frames skipped"),
+                    android.skipped >= 0 ? T($"{android.skipped} në 5 s", $"{android.skipped} in 5 s") : "-");
+                Row(ref y, x, T("Trupi u humb", "Person lost"),
+                    android.lost >= 0 ? T($"{android.lost} herë në 5 s", $"{android.lost} times in 5 s") : "-");
+            }
 
             y += 10;
             DrawGraph(new Rect(x, y, 552, 110));

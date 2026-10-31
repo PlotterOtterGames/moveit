@@ -117,7 +117,8 @@ def generate():
         files = sources(folder, folders)
         if not files:
             continue
-        if needs_editor(files):
+        # needs UnityEditor itself, or references an assembly that does (its tests): can't be built here
+        if needs_editor(files) or any(r in skipped for r in data.get("references", [])):
             skipped.append(name)
             continue
         refs, packages = [], []

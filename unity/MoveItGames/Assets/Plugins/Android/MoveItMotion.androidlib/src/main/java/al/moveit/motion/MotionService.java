@@ -51,6 +51,19 @@ public final class MotionService implements LifecycleOwner {
     private Bitmap reusedFrame;  // analysis thread only
     private volatile boolean snapshotRequested;
 
+    // Stutter diagnostics, counted between stats lines (analysis thread; tools/motion/frame_timing_sim.py): camera frames
+    // the AI never saw (a gap between the capture times of two analysed frames, in camera frame intervals; the camera
+    // keeps only the newest frame while the AI is busy), people lost (a frame with a person, the next without: the
+    // detector runs again, ~43 ms on the box's NPU, and the smoothing starts over), and the slowest frame.
+    private long lastAnalysedNs;
+    private boolean lastAnalysedIdle = true, lastFound;
+    private float frameIntervalMs, shortestGapMs;   // the camera's frame interval: the shortest gap between analysed frames
+    private int skippedFrames, peopleLost;
+    private float worstMs;
+    private volatile int lastSkipped = -1, lastLost = -1;   // the last stats window's counts, for getStatus()
+    private volatile float frameAgeMs;                       // capture to the start of the analysis, smoothed
+    private volatile String frameClock = "";                 // the clock the camera stamps frames on (captureWallTime)
+
     private MotionService(Activity activity, int port, String model) {
         this.activity = activity;
         this.lifecycle = new LifecycleRegistry(this);
@@ -98,7 +111,9 @@ public final class MotionService implements LifecycleOwner {
         if (s == null) return "{\"state\":\"" + statusWithoutInstance + "\"}";
         return "{\"state\":\"" + s.state + "\",\"camera\":\"" + s.cameraName + "\",\"delegate\":\"" + s.engine.delegate()
                 + "\",\"model\":\"" + s.engine.model() + "\",\"fps\":" + round(s.fps) + ",\"inf\":" + round(s.inferenceMs)
-                + ",\"cam\":" + round(s.cameraFps) + ",\"error\":\"" + s.error.replace("\"", "'") + "\"}";
+                + ",\"cam\":" + round(s.cameraFps) + ",\"skipped\":" + s.lastSkipped + ",\"lost\":" + s.lastLost
+                + ",\"age\":" + round(s.frameAgeMs) + ",\"clock\":\"" + s.frameClock
+                + "\",\"error\":\"" + s.error.replace("\"", "'") + "\"}";
     }
 
     private static volatile String statusWithoutInstance = "stopped";
@@ -201,7 +216,15 @@ public final class MotionService implements LifecycleOwner {
                 Log.i(TAG, "stats: camera " + round(cameraFps) + " fps, AI " + round(fps) + " fps, "
                         + round(inferenceMs) + " ms, " + engine.delegate() + " " + engine.model()
                         + (detail.isEmpty() ? "" : " (" + detail + ")") + ", " + state + (idle ? " (idle)" : "")
-                        + ", frame " + image.getWidth() + "x" + image.getHeight() + (light.isEmpty() ? "" : ", " + light));
+                        + ", frame " + image.getWidth() + "x" + image.getHeight() + (light.isEmpty() ? "" : ", " + light)
+                        + ", gaps: " + skippedFrames + " camera frames skipped, " + peopleLost + " lost, worst "
+                        + round(worstMs) + " ms, frame age " + round(frameAgeMs) + " ms (" + frameClock + " clock)");
+                lastSkipped = skippedFrames;
+                lastLost = peopleLost;
+                if (shortestGapMs > 0) frameIntervalMs = shortestGapMs;
+                shortestGapMs = 0;
+                skippedFrames = peopleLost = 0;
+                worstMs = 0;
             }
             boolean runAi = !idle || now - lastAiAt >= IDLE_INTERVAL_MS;
             ImageProxy.PlaneProxy plane = image.getPlanes()[0];
@@ -251,6 +274,7 @@ public final class MotionService implements LifecycleOwner {
                 ok = engine.detect(frame, inference, captureNs, pose);
             }
             if (ok) {
+                countGaps(captureNs, idle, pose.found, inference[0]);
                 if (pose.found) lastPersonAt = now;
                 onPoseResult(pose, captureWall, width, height, inference[0]);
             }
@@ -283,11 +307,57 @@ public final class MotionService implements LifecycleOwner {
         return reusedFrame;
     }
 
-    /** Converts the sensor timestamp to Unix ms, so the game can measure capture-to-screen latency. */
-    private static long captureWallTime(ImageProxy image) {
-        long ageMs = (SystemClock.elapsedRealtimeNanos() - image.getImageInfo().getTimestamp()) / 1_000_000L;
+    /** The stutter diagnostics for one analysed frame (see the fields). Gaps count only between frames analysed while
+     *  someone was being followed (not idle: then the AI looks every {@link #IDLE_INTERVAL_MS} on purpose). */
+    private void countGaps(long captureNs, boolean idle, boolean found, float ms) {
+        if (!idle && !lastAnalysedIdle && lastAnalysedNs > 0) {
+            float gapMs = (captureNs - lastAnalysedNs) / 1e6f;
+            if (gapMs > 0 && gapMs < 250) {
+                shortestGapMs = shortestGapMs <= 0 ? gapMs : Math.min(shortestGapMs, gapMs);
+                float interval = frameIntervalMs > 0 ? frameIntervalMs : shortestGapMs;
+                skippedFrames += Math.max(0, Math.round(gapMs / interval) - 1);
+            }
+            if (lastFound && !found) peopleLost++;
+            worstMs = Math.max(worstMs, ms);
+        }
+        lastAnalysedNs = captureNs;
+        lastAnalysedIdle = idle;
+        lastFound = found;
+    }
+
+    /**
+     * Converts the frame's sensor timestamp to Unix ms: the game times the samples on this clock (the hand cursors, the
+     * figures and the skeleton are drawn between samples by their capture times) and measures capture-to-screen latency.
+     * Cameras whose timestamp source is REALTIME stamp frames on the boot clock (SystemClock.elapsedRealtimeNanos); with
+     * source UNKNOWN (likely the external camera HAL that runs the TV boxes' USB cameras) Android only promises "roughly
+     * uptimeMillis", the monotonic clock (System.nanoTime). The two are the same until the device first sleeps; after
+     * that only the right one gives an age under a second (the stats line and the log say which one it is).
+     * Before 2026-10-31 only the boot clock was tried, and on a miss every frame counted as captured "now", which times
+     * the samples by when their analysis started (it moves with the AI's time: uneven motion between samples).
+     */
+    private long captureWallTime(ImageProxy image) {
+        long timestamp = image.getImageInfo().getTimestamp();
         long wall = System.currentTimeMillis();
-        return (ageMs >= 0 && ageMs < 1000) ? wall - ageMs : wall;  // some devices use another clock: ignore then
+        long boot = (SystemClock.elapsedRealtimeNanos() - timestamp) / 1_000_000L;
+        long monotonic = (System.nanoTime() - timestamp) / 1_000_000L;
+        long ageMs;
+        String clock;
+        if (boot >= 0 && boot < 1000) {
+            ageMs = boot;
+            clock = "boot";
+        } else if (monotonic >= 0 && monotonic < 1000) {
+            ageMs = monotonic;
+            clock = "monotonic";
+        } else {
+            ageMs = 0;
+            clock = "unknown";  // neither: count the frame as captured now
+        }
+        if (!clock.equals(frameClock)) {
+            Log.i(TAG, "Camera frames are stamped on the " + clock + " clock (frame age " + ageMs + " ms)");
+            frameClock = clock;
+        }
+        frameAgeMs = smooth(frameAgeMs, ageMs);
+        return wall - ageMs;
     }
 
     private void onPoseResult(Pose result, long captureWallMs, int width, int height, float inf) {

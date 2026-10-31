@@ -174,6 +174,15 @@ namespace UnityEngine.InputSystem
         public static void DisableDevice(InputDevice device) { }
         public static void QueueStateEvent<TState>(InputDevice device, TState state, double time = -1) where TState : struct { }
         public static void Update() { }
+        public static IObservable<InputControl> onAnyButtonPress => null;
+    }
+}
+
+namespace UnityEngine.InputSystem.Utilities
+{
+    public static class Observable
+    {
+        public static IDisposable Call<TValue>(this IObservable<TValue> source, Action<TValue> action) => null;
     }
 }
 

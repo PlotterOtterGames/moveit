@@ -644,6 +644,34 @@ The user writes informal English, wants clear recommendations rather than option
   700 MHz from ~40 % load, a small passive box. **Not yet**: INT8 pose models (the NPU is the biggest heat lever left
   in the app), CameraX delivering YUV to the NPU path (its RGBA conversion is ~6 % of a core), a longer idle level
   (screen saver, camera off), the user's feel of the 30 fps home screen and of lite.
+- **Stutter (2026-10-31 evening, cloud session; user: "why does my model stutter so much, but something like the link
+  app on steam has perfect tracking?")**. Which Steam app is meant wasn't found (Steam Link with a Quest's hand
+  tracking, Driver4VR's webcam mode, XR Animator...: ask). Findings: the pose AI itself isn't it (the box runs
+  MediaPipe's own models, within 0.5 px of MediaPipe); what differs is everything around it. (1) **The skeleton mirror
+  (the corner mirror in the menu and games, Settings → Kamera) drew the newest pose as it arrived**:
+  `tools/motion/frame_timing_sim.py` on the box's timing gives a 30 Hz staircase at 60 fps (every frame of a move a
+  stall or a double step) and ~9 % stalls/jumps at 30 fps from the camera's and the game's clocks beating (~32 % when
+  the AI loses the person twice a second). **Fixed**: `Body.Shown`, the smooth joints interpolated on the camera clock
+  by `JointTimeline` (`HandInterpolator`'s timing for all joints: half a camera frame behind, gliding up to 80 ms),
+  updated by `MotionSystem` every frame; `MotionDebugOverlay` draws it (< 1 % in the sim). The cursors, Shpata!'s
+  ghost, `BodyPuppet` and Vishu!'s clothes were already timed this way: their jerks can only come from the poses
+  themselves. (2) **Tracking losses** (the landmark model's presence < 0.5): no pose from that frame, the detector
+  (~43 ms) on the next, MediaPipe's smoothing starting over (a jump). Never counted: the stats line now ends in
+  `gaps: N camera frames skipped, M lost, worst X ms, frame age Y ms (boot|monotonic clock)` (per 5 s), and the camera
+  test screen shows "Kuadro pa AI" / "Trupi u humb" (new Albanian: review). The old "camera fps" counted the
+  analyser's calls, so it could never show the AI falling behind; "skipped" can. (3) **Lite is noisier than full**
+  (`tools/motion/model_jitter.py`, still frames with camera noise: smoothed, lite moves 0.06-0.27 % of a torso per
+  frame vs full 0.01-0.07 % in good light, 0.13-0.46 vs 0.06-0.20 dim; real cameras are far noisier) and the box runs
+  lite since the heat work. (4) **30 fps**: the HAL drops the camera's 60/120 fps modes (USB camera section); a PC app
+  with a 60 fps webcam gets half the step and half the blur. (5) **Capture clock**: `captureWallTime` only tried the
+  boot clock; a camera whose timestamp source is UNKNOWN (likely the external camera HAL's) stamps frames on the
+  monotonic one (the two differ once the box has slept), and a miss timed every sample by when its analysis started. Now it picks the clock that gives an age under a second and
+  logs which. (6) The camera picture (Vishu!, Pikturo!'s camera mode) shows the newest frame each game frame: 3-8 %
+  of the frames repeated or skipped at 30 fps in the sim, ~0.8 % if held half a frame behind (not done: it costs
+  picture latency; the user's call). Also: the cloud compile check was red since 308bc2b (stand-ins out of date, Fly's
+  `#if UNITY_EDITOR` code made its test assemblies fail): fixed. **Not yet**: the user's look on the box (the
+  mirror, the new `gaps:` numbers with someone moving in front, in their usual light; then lite vs full with
+  PerfLab `model=`), a recording from the camera test screen (OK) to replay, the HAL's `FpsList` for 640x480@60.
 - **Git: on GitHub since 2026-10-10** (https://github.com/PlotterOtterGames/moveit, branch main, first commit
   be51fc6, the user asked for it). Commit and push only when the user asks.
 
@@ -654,7 +682,7 @@ The user writes informal English, wants clear recommendations rather than option
 without a break for 2.5 min) |
 | `docs/protocol.md` | **Motion Protocol v1.1**: UDP JSON to 127.0.0.1:5005; 17 COCO joints `k` (+ optional world joints `wk`, `cam`, `model`) |
 | `unity/MoveItGames/` | Unity **6000.3.9f1** project (URP), **active platform: Android**. Editor at `D:\Unity\6000.3.9f1` |
-| `Assets/MoveSDK/Runtime` | Motion SDK: `CameraFeed` (camera picture for AR modes, on request; on the box raw frames from libtundupose, else JPEG over UDP), `MotionSystem` (UDP receiver, feeds every packet in order), `BodyTracker` (smooth + fast low-lag tracks with body-relative One Euro filters, velocity, world joints, 1.5 s dropout continuity), `BodyGestures` (lanes with look-ahead, jump at take-off incl. from a knee dip, crouch at onset, hands up), `BodyHands` (hand cursors in a body-relative zone), `PlacementCheck` (is the player where the game's `PlayArea` needs them: step back / move left / move right / come closer), `HandInterpolator` (the one cursor engine: camera clock, interpolation or a least-squares fit, glide), `CursorRope` (string stabilizer), `UnderhandThrowDetector` (bowling, world depth + backswing), `PunchDetector` (punches in any direction, 3D with world joints, tested on simulated arms), `BodyInput` (body + keyboard merged), `Android/AndroidMotionService.cs` (starts the Java service, camera permission, status) |
+| `Assets/MoveSDK/Runtime` | Motion SDK: `CameraFeed` (camera picture for AR modes, on request; on the box raw frames from libtundupose, else JPEG over UDP), `MotionSystem` (UDP receiver, feeds every packet in order), `BodyTracker` (smooth + fast low-lag tracks with body-relative One Euro filters, velocity, world joints, 1.5 s dropout continuity), `BodyGestures` (lanes with look-ahead, jump at take-off incl. from a knee dip, crouch at onset, hands up), `BodyHands` (hand cursors in a body-relative zone), `PlacementCheck` (is the player where the game's `PlayArea` needs them: step back / move left / move right / come closer), `HandInterpolator` (the one cursor engine: camera clock, interpolation or a least-squares fit, glide), `JointTimeline` (the same timing for a whole body: `Body.Shown`, what the skeleton mirror draws), `CursorRope` (string stabilizer), `UnderhandThrowDetector` (bowling, world depth + backswing), `PunchDetector` (punches in any direction, 3D with world joints, tested on simulated arms), `BodyInput` (body + keyboard merged), `Android/AndroidMotionService.cs` (starts the Java service, camera permission, status) |
 | `Assets/Plugins/Android/MoveItMotion.androidlib` | **Java camera AI plugin**: CameraX 1.6.2, the pose AI **synchronous** on the CameraX analysis thread: **Rockchip NPU first** (`NpuPose` → `src/main/cpp/pose_npu.cpp` in `jniLibs/arm64-v8a/libtundupose.so`, Rockchip's `librknnrt.so` 2.3.2 beside it), else MediaPipe tasks-vision 1.0.0 in VIDEO mode, GPU→CPU fallback; auto full→lite, `Pose` = one result format, sends protocol packets to localhost, on-demand camera snapshot; nobody in view for 2 s = the AI looks every 150 ms and the thread sleeps between looks; on the NPU frames are read straight from CameraX's buffer; the camera picture for the game goes through `FrameShare` (`src/main/cpp/frame_share.cpp`: raw RGBA in the process, read by `CameraFeed`), the JPEG `VideoStreamer` only as the fallback; `CameraTuner` + `CameraControls` brighten the USB camera in a dim room through its own UVC controls (V4L2 node or root). Models (`.task`, `.rknn`) copied in at build time from `motion-service-py/models` (gitignored there); `libtundupose.so` is committed (rebuild with `tools/npu/build_native.py` after changing the C++) |
 | `tools/npu/` | **The NPU pose path as code**: `convert.py` (MediaPipe's models → RKNN float16 per chip, in WSL: the detector's sparse weights densified, the landmark models without the segmentation mask and with the heatmap channels first), `blazepose.py` (MediaPipe's pose steps in Python, the reference for the C++), `mp_reference.py` (MediaPipe's own answers, PC venv), `compare.py` (TFLite / RKNN simulator / box dumps vs MediaPipe, px and cm), `build_native.py` (NDK build of `libtundupose.so` and `out/pose_npu_test`, the shell test for the box) |
 | `Assets/Plugins/Android/AndroidManifest.xml` | Registers the app as the box's **HOME launcher** (`singleTask`); entry point = Activity; asks the TV for game mode (`preferMinimalPostProcessing`) |
@@ -669,6 +697,7 @@ without a break for 2.5 min) |
 | `Assets/Games/Paint` | Pikturo!: `PaintGame` (modes, toolbars, hands, photos), `PaintCanvas` (premultiplied RenderTexture, wet paint, undo, bucket), `PaintBrush` (tools along smoothed strokes), `PaintPen` (pen rule), `PaintArt` (brush atlas and icons drawn in code), shader `Tundu/Brush`. Pages in `Assets/Resources/Paint/Pages` (alpha-only import: `Editor/PaintPageImport.cs`) |
 | `tools/logic-tests/` | .NET 8 + NUnit 3 project that links the engine-free game rules and their EditMode tests from the Unity project and compiles them against `UnityShim/` (cloud sessions: `dotnet test tools/logic-tests`) |
 | `tools/compile-check/` | `check.py`: compiles every asmdef except MoveIt.Editor as its own .NET project (same sources, defines, references) against Unity's UnityEngine reference assemblies (NuGet `UnityEngine.Modules` 2021.3) and `Stubs/` (Input System, test runner), for the Android player and the editor. Names Unity 6 added are listed in `UNITY6_ONLY` |
+| `tools/motion/frame_timing_sim.py`, `model_jitter.py` | How evenly a joint or the camera picture moves on the TV with the box's timing (newest pose vs the camera-clock timeline; camera, NPU, KEEP_ONLY_LATEST, game frames), and how much MediaPipe's lite and full models shake on still frames with camera noise (needs MediaPipe + a photo) |
 | `tools/motion/cursor_sim.py` | Hand-cursor and Pikturo-pen simulator (mirrors OneEuroFilter, BodyTracker, BodyHands, HandInterpolator, the game loop; MediaPipe's own landmark filter, the laptop's recorded frame timing, noise measured from a real session by speed and visibility, each game's screen mapping): stutter, shake, lag, overshoot, swipe speed, when the brush goes down. `--recording <file> [--palm] [--tune]` scores the cursors on a real session against the path its samples make when smoothed both ways in time; the score under-weighs lag, and **the user's feel outranks both** (2026-10-20: the best-scoring brush felt worse and was reverted). Run it before changing cursor or pen numbers |
 | `Assets/Games/Fly` | Fluturo!: `FlyRun` (all rules of the endless run: flight, drone swarms, rushes, clashes, the boss, districts, `DistrictSettings`; no scene, tested with simulated players), `FlyProgress` (stars, outfits, missions, bests between runs; tested), `FlyTheme` (time of day per district), `FlyRoute` (the street grid and the turns; no scene, tested), `FlyGame` (body/keys to steering, turns and punches, draws the run, HUD, perf log), `Hero` and `RobotView` (merged-part meshes, cape cloth), `FlyWorld` (blocks around the hero, the city turned and moved around it, clouds), `CityBuilder` (a block's geometry: houses, streets, parks), `FlyArt` (ring, star, heart, arrow; `PartMesh` moved to Games/Common), `FlyStrings`. `Art/fly_city.png` = the city's texture array |
 | `tools/fly/city_textures.py` | The city's 16 tiles as code (PIL, drawn at 4x): facades, shop fronts, roof, road, crossroads, pavement, grass, cobbles, water, leaves. Alpha = material (wall / fixed / glass). `--preview` writes `tools/fly/out/` |
@@ -773,7 +802,9 @@ without a break for 2.5 min) |
   with `scene=`, not with remote keys: key presses get ahead of the game when frames stall and the script ends up in
   the wrong game. Don't switch post-processing effects mid-scene on OpenGL ES (colour grading without bloom ran at
   18 fps in Vrapo!). The camera AI's own numbers: `adb logcat -s MoveItMotion` (a stats line every 5 s: camera and AI
-  fps, ms, NPU/GPU, the NPU's detector and landmark times, the frame size, "(idle)" while nobody is in view).
+  fps, ms, NPU/GPU, the NPU's detector and landmark times, the frame size, "(idle)" while nobody is in view, then
+  `gaps:` camera frames the AI never saw, times it lost the person, the slowest frame, how old frames are when their
+  analysis starts and the camera's clock).
   **Measuring tools** (Git Bash, `tools/dev/`): `box-scenes.sh Menu Runner Dress ...` (a line per scene: fps, frames
   late, main/render thread ms, Tundu's CPU, GPU clock and load, NPU load, temperature), `box-heat.sh <label> <minutes>
   [scene]` (the same every ~20 s, for heat), `box-profile.sh -t UnityMain <name>` (simpleperf with symbols: where a
@@ -804,7 +835,7 @@ without a break for 2.5 min) |
   game rules that need no engine (`BowlingScore`, `SwordMoves`, `FlyRun`, `FlyProgress`, `PunchDetector`, `HandInterpolator`,
   `HandPresence`, `OneEuroFilter`, `Body`, `Joint`, Vishu!'s `DressCatalog`, `DressLook`, `OutfitRig`, `PoseTimeline`,
   `ShowRules`, Tenis!'s `TennisMatch`, `TennisScore`, `TennisBall`, `TennisLevel`, `SwingDetector`) and their EditMode
-  tests (84 tests; `PaintCanvasTests` need the
+  tests (153 tests on 2026-10-31, incl. `JointTimelineTests`; `PaintCanvasTests` need the
   GPU), compiled as C# 9 against `tools/logic-tests/UnityShim` (Vector2/3, Mathf, Time with Unity's exact formulas, Debug),
   and **`python3 tools/compile-check/check.py`**: all the game C# (MonoBehaviours, PlayMode tests) against Unity's
   reference assemblies. Also here: **`cd server && npm run test:all`** (Worker + CLI) and

@@ -25,6 +25,13 @@ namespace MoveIt.Motion
             public float fps;
             public float inf;
             public float cam;
+            /// <summary>Over the last ~5 s: camera frames the AI never saw (busy with the one before), -1 before the first count.</summary>
+            public int skipped = -1;
+            /// <summary>Over the last ~5 s: times the AI lost the person it followed (it then runs the person detector again).</summary>
+            public int lost = -1;
+            /// <summary>How old a frame is when its analysis starts (ms), and the clock the camera stamps frames on.</summary>
+            public float age;
+            public string clock = "";
             public string error = "";
         }
 

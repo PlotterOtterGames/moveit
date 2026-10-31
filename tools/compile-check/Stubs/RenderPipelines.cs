@@ -32,7 +32,7 @@ namespace UnityEngine.Rendering.Universal
         public float renderScale { get; set; }
         public int mainLightShadowmapResolution { get; set; }
         public float shadowDistance { get; set; }
-        protected override RenderPipeline CreatePipeline() => null;
+        public override RenderPipeline CreatePipeline() => null;   // public in the 2021.3 reference assemblies
     }
 
     public class UniversalAdditionalCameraData : MonoBehaviour
