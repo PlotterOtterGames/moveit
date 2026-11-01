@@ -102,8 +102,8 @@ are within 0.13–0.53 px mean of MediaPipe's own (3.5 px worst, 1000 px picture
 NPU's time) and the games, the SoC reached **81–82 °C, past its first passive trip point (75 °C; the next 85, critical
 115)**: GPU 700 → 600 MHz, CPU 1.8 → 1.6 GHz. Vrapo! still held 29.8–29.9 fps. Earlier, the games alone stayed at
 69 °C. **Next**: run the detector less often while nobody is in view (it only has to notice someone arriving); a person
-tracked in a game, with light (speed and feel); INT8 quantization (the NPU's native precision: needs calibration
-pictures and an accuracy check); the detector's file (29.5 MB: MediaPipe's depth-to-space layers become large
+tracked in a game, with light (speed and feel); INT8 quantization (tried 2026-11-01: twice as fast, not accurate
+enough, see "INT8 pose models" below); the detector's file (29.5 MB: MediaPipe's depth-to-space layers become large
 transposed convolutions); the box's cooling for long sessions.
 
 ### USB camera on the X98K Pro (2026-10-30)
@@ -198,6 +198,63 @@ the cooling is a small passive box. No thermal throttling was active at 75–77 
 85 °C, cooling states 0). Rockchip's power HAL only knows "interactive" and a performance boost, so Android's
 sustained-performance hint would raise clocks.
 
+### INT8 pose models on the X98K Pro (2026-11-01): not accurate enough
+
+The NPU's work matters for heat (lite instead of full: NPU 64 → 34 %, SoC 77 → 75 °C), and the RK3566's NPU is built
+for 8-bit numbers, so the pose models were quantized to INT8 (RKNN-Toolkit2 2.3.2, w8a8: 8-bit weights per channel,
+8-bit activations per tensor), to be adopted only if they stayed as accurate as the float16 ones. **They don't: the
+box keeps float16.**
+
+**Calibration**: 200 snapshots from the box camera in the evening (the living room, people sitting with a guitar,
+standing, walking past; the camera tuner at level 4), one every ~2 s from the camera test screen. Every 4th was held out
+for testing; the other 150 (+ one darker evening photo) became what each model really sees (`tools/npu/calibration.py`,
+made with `blazepose.py`): the detector's letterboxed 224 x 224 frame of the whole picture and the landmark model's
+tracking crop, each also mirrored and with other light, the crops also moved a little (as when the person moves between
+frames): 453 detector frames, 157 lite and 155 full crops. The pictures stay on the laptop (`D:\rknn\calib`).
+
+**How it was judged**: 25 held-out pictures with a person (20 snapshots, MediaPipe's test picture and 4 turned or
+mirrored copies). End to end, through the tracking, even the float16 build lands ~10 px from MediaPipe on the dim
+snapshots (a tiny difference moves the next crop and the uncertain model answers differently), while it stays
+0.2–0.5 px on the clean test picture. So each model was run on **exactly the crop the original model sees**
+(`compare.py --crops`, `pose_npu_test --crop`) and compared with the original model's answer: picture pixels and cm.
+
+| Lite landmark model | Box NPU per tracked frame | Landmarks (mean / worst picture) | World joints |
+|---|---|---|---|
+| float16 (today) | 18.7 ms (NPU 12.3) | **0.30 px** / 0.76 | **0.25 cm** |
+| INT8, RKNN's "normal" ranges | 12.1 ms (NPU 7.4) | 12.5 px / 29.8 (clean picture 1.4–2.4) | 10.3 cm |
+| INT8, "mmse" / "kl" ranges (simulator, end to end, clean picture) | — | 3.4–4.9 / 54–89 px | 16 / 135 cm (output ranges clipped) |
+| INT8 with 16-bit activations (w8a16) | — | not available for the RK3566 | |
+| Rockchip's automatic hybrid, drifting layers float16 (simulator) | — | 11.3 px | 7.5 cm |
+| float16 for the first third + output heads, INT8 the rest | 16.7 ms (NPU 10.6) | 4.8 px / 10.9 | 3.5 cm |
+| float16 for the first two thirds + heads | 18.1 ms (NPU 11.9) | 3.2 px / 7.8 | 1.8 cm |
+| float16 for the last two thirds + heads (simulator) | — | 11.1 px | 7.8 cm |
+
+The full model: float16 26.4 ms (0.24 px, 0.14 cm), INT8 15.6 ms (13.7 px, 10.9 cm). Every layer alone loses little
+(Rockchip's per-layer analysis: cosine > 0.999), but the error builds up over the whole backbone; quantizing any third
+of it costs more than the whole budget (float16's 0.3 px). Rows without "simulator" were measured on the box (where
+both were run, Rockchip's simulator agreed within ~0.2 px). Timings: the box with no app running, ~50 °C.
+
+**The person detector** (it runs while nobody is followed: every 150 ms on an empty room, and when someone arrives):
+float16 32.2 ms (NPU 28.0), INT8 18.4 ms (NPU 14.3), 29.5 → 15 MB. With the same float16 landmark model after it, on
+all 205 pictures: the INT8 detector never missed a person the float16 one found, but found people in 17 of the 50
+held-out snapshots where float16 found nobody (70 of the 150 calibration ones). Many were the real guitar player,
+sitting in the dim light, that float16 (and in most of these frames MediaPipe) misses; some were **ghosts**: a guitar
+and cushions on the empty couch, which the landmark model then "followed". A ghost keeps the AI tracking at 30 fps,
+the opposite of what INT8 was for. Where both found someone, the INT8 detector's first crop was ~5 % of its size off in
+position and size and ~9° in turn (the tracking corrects it from the next frame). With float16 output heads (23 ms):
+11 of 50, the same crop errors.
+
+**Heat it could have saved** (estimated from the lite switch, not measured, since nothing passed): INT8 landmarks
+would take ~15 % off the NPU's load while someone is followed (~1 °C), the INT8 detector ~10 % while nobody is in view
+(~0.5 °C).
+
+**What's kept**: the tool chain (`calibration.py`, `convert.py --quant normal --calibration <dir>` →
+`<name>.rk3566.int8.rknn`, `compare.py --crops`, `pose_npu_test --crop`) and INT8 support in the engine (it writes the
+NPU's own 8-bit input codes, the landmark crop as `colour - 128`, and dequantizes INT8 outputs itself with their zero
+point and scale; `PoseEngine` only ever loads the float16 files). **What could work later**: a pose model trained for
+8 bits (quantization-aware training), or a chip whose NPU takes 16-bit activations (RKNN's w8a16 on newer chips); judge
+it with `compare.py --crops` on held-out camera pictures first.
+
 ## Recognition benchmarks (fill in as devices are tested)
 
 | Device | Backend | Model | Camera fps | AI fps | AI time | Capture→game latency | Notes |
@@ -205,7 +262,7 @@ sustained-performance hint would raise clocks.
 | Laptop (Ryzen 7 7840HS, CPU) | py-mediapipe | full | 30 (20 in a dim room) | 30 | 15 ms | ~17 ms to send | 2026-10-05 |
 | MuMu Player (emulator, x86 + ARM translation) | android-mediapipe GPU | lite (auto) | 30 | 30 | 12–14 ms | 14 ms (full model, earlier run) | 2026-10-07. Works end to end: body tracked, Fruta playable. First GPU frame takes ~15 s to set up |
 | MuMu Player (same) | android-mediapipe GPU | full (auto kept it) | 30 (AE range [30, 30]) | 29.9 | 9.7 ms | | 2026-10-08, after the motion polish: frame-rate floor, reused frame buffer. ALLM: not supported (emulator) |
-| RK3566 box (X98K Pro, HD USB Camera at 1024x768) | **android-rknn NPU** (float16) | full, auto → lite past 34 ms | 30 offered, ~20.5 analysed while detecting | ~20.5 (nobody in view) | detector 41 ms; tracking lite 25.5 / full 34.4 ms (box, no game) | not measured yet | 2026-10-30. Vrapo! a steady 30 beside it. Landmarks within 0.13–0.53 px of MediaPipe's |
+| RK3566 box (X98K Pro, HD USB Camera at 1024x768) | **android-rknn NPU** (float16) | full, auto → lite past 34 ms | 30 offered, ~20.5 analysed while detecting | ~20.5 (nobody in view) | detector 41 ms; tracking lite 25.5 / full 34.4 ms (box, no game) | not measured yet | 2026-10-30. Vrapo! a steady 30 beside it. Landmarks within 0.13–0.53 px of MediaPipe's. 2026-11-01, the box idle at ~50 °C: lite 18.7, full 26.4, detector 32.2 ms; INT8 would be 12.1 / 15.6 / 18.4 but isn't accurate enough ("INT8 pose models" above) |
 | RK3566 box (X98K Pro, HD USB Camera at 1024x768) | android-mediapipe GPU | full, auto → lite after 10 s | 30 offered, 10–11 analysed | 10–11 | 86 ms with a person (lite), 90–113 ms without (the detector) | ~170 ms | 2026-10-30, a very dark room. The game drawn at 10 fps didn't make it faster; Vrapo! fell to 22 fps beside it |
 | RK3576 box | android-mediapipe / rknn | | | | | | |
 

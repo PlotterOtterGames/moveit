@@ -4,6 +4,11 @@ and RK3568; RK3576 / RK3588 need their own build). Float16, no quantization (no 
 numbers as MediaPipe's GPU path). The inputs become uint8 RGB with the normalization inside the model: the detector
 (x - 127.5) / 127.5, the landmarks x / 255.
 
+--quant builds INT8 instead (<name>.<platform>.int8.rknn, calibrated on calibration.py's pictures; pose_npu.cpp runs
+them, PoseEngine doesn't pick them). On the RK3566 (2026-11-01) INT8 halved the NPU time but was far less accurate:
+landmarks ~12 px off the original model where float16 is 0.3 px, the detector finding people float16 doesn't (some of
+them cushions). docs/hardware.md "INT8 pose models".
+
 Needs Rockchip's RKNN-Toolkit2 (Linux x86-64 only). On the laptop it lives in WSL, on D: (C: is full):
     wsl -d Ubuntu -- bash -lc ". /mnt/d/rknn/venv/bin/activate && cd /mnt/d/Projects/moveit && python tools/npu/convert.py"
 The runtime on the box must match the toolkit's version (2.3.2: MoveItMotion.androidlib/src/main/jniLibs).
@@ -21,7 +26,9 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..')
 
 
 # INT8 (--quant): RKNN's w8a8 (8-bit weights per channel and activations per tensor), the ranges calibrated on pictures
-# of what each model really sees (calibration.py), with RKNN's way of choosing the ranges.
+# of what each model really sees (calibration.py), with RKNN's way of choosing the ranges. On the RK3566 'normal' was the
+# least bad; 'mmse' and 'kl' clip the outputs' ranges (world joints 16 and 135 cm off). 'w8a16' (16-bit activations)
+# isn't available for the RK3566 (the toolkit refuses it), maybe for a newer chip.
 QUANT = {
     'normal': dict(quantized_dtype='w8a8', quantized_algorithm='normal', quantized_method='channel'),
     'mmse': dict(quantized_dtype='w8a8', quantized_algorithm='mmse', quantized_method='channel'),

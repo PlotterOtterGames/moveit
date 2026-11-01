@@ -8,7 +8,9 @@ the original (TFLite) model's answer: a converted model's own error, without the
 tiny difference moves the next crop, and the answers drift apart far more than the models do). --write-crops <dir>
 saves those crops for pose_npu_test --crop.
 
-    python tools/npu/compare.py --reference images/mp_reference.json --images images [--rknn models/npu] [--box dumps]
+    python tools/npu/compare.py --reference images/mp_reference.json --images images --tflite <.task contents>
+        [--rknn [--quant normal --calibration <calibration.py folder>]] [--box dumps --box-labels {model},{model}-int8]
+        [--frames 2] [--crops [--write-crops <dir>]]
 """
 import argparse
 import json
@@ -100,8 +102,10 @@ IN_CROP = (blazepose.LM_SIZE / 2, blazepose.LM_SIZE / 2, float(blazepose.LM_SIZE
 
 
 def box_pose(path):
+    """A pose_npu_test dump."""
     d = json.load(open(path))
-    return dict(xy=np.array(d['xy']), world=np.array(d['world']), visibility=np.array(d['visibility']), score=d['score'])
+    return dict(xy=np.array(d['xy']), world=np.array(d['world']), visibility=np.array(d['visibility']),
+                score=d['score'], found=d.get('found', False))
 
 
 def crops(args, model, runners, refs):
@@ -162,12 +166,13 @@ def main():
     ap.add_argument('--images', required=True)
     ap.add_argument('--tflite', default=None, help='folder with lite/ and full/ (the .task contents)')
     ap.add_argument('--rknn', action='store_true', help='also run the RKNN conversion in the simulator')
-    ap.add_argument('--quant', default=None, choices=['normal', 'mmse', 'kl', 'w8a16'], help='--rknn: INT8 (convert.QUANT)')
+    ap.add_argument('--quant', default=None, help='--rknn: INT8, one of convert.QUANT (normal, mmse, kl, ...)')
     ap.add_argument('--calibration', default=None, help='--quant: calibration.py output folder')
     ap.add_argument('--quantized', default='detector,landmarks', help='--quant: which models (the others float16)')
     ap.add_argument('--models', default='lite,full')
     ap.add_argument('--box', default=None, help='folder with the box NPU dumps (<picture>.<label>.json)')
-    ap.add_argument('--box-labels', default='{model}', help='pose_npu_test labels to compare, e.g. {model},{model}-int8')
+    ap.add_argument('--box-labels', default='{model}',
+                    help='the pose_npu_test labels to compare, e.g. {model},{model}-int8')
     ap.add_argument('--no-tflite', action='store_true', help='skip the original models (box dumps only)')
     ap.add_argument('--frames', type=int, default=1, help='2 = compare the tracking crop (mp_reference --frames=2)')
     ap.add_argument('--crops', action='store_true', help='the landmark model alone on the same crops (see above)')
@@ -175,7 +180,9 @@ def main():
     args = ap.parse_args()
     refs = json.load(open(args.reference))
     for model in args.models.split(','):
-        runners = {} if args.no_tflite and not args.crops else {'tflite': tflite_runner(os.path.join(args.tflite, model))}
+        runners = {}
+        if args.crops or not args.no_tflite:
+            runners['tflite'] = tflite_runner(os.path.join(args.tflite, model))
         if args.rknn:
             runners['rknn simulator'] = rknn_runner(args.tflite, model, args.quant, args.calibration,
                                                     args.quantized.split(','))
@@ -195,11 +202,8 @@ def main():
             for label in args.box_labels.format(model=model).split(',') if args.box else ():
                 dump = os.path.join(args.box, f"{picture}.{label}.json")
                 if os.path.exists(dump):
-                    d = json.load(open(dump))
-                    pose = None if not d.get('found') else dict(
-                        xy=np.array(d['xy']), world=np.array(d['world']), visibility=np.array(d['visibility']),
-                        score=d['score'])
-                    report(f'box {label}', pose, by_model[model], size, totals)
+                    pose = box_pose(dump)
+                    report(f'box {label}', pose if pose['found'] else None, by_model[model], size, totals)
         print(f"--- {model}: all pictures")
         summary(totals)
 

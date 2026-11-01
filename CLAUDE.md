@@ -613,9 +613,9 @@ The user writes informal English, wants clear recommendations rather than option
   CPU (1.8 GHz) aren't the limit. **Heat**: after ~1.5 h of the camera AI nonstop (nobody in view = the detector every
   frame) plus games, the SoC was at 81–82 °C, past its first passive trip point (75 °C; then 85): GPU 700 → 600 MHz,
   CPU 1.8 → 1.6 GHz; Vrapo! still ~29.9 fps (since 2026-10-31 the detector runs every 150 ms while nobody is in
-  view: "Heat and frame rate" below). **Not yet**: a person tracked in a game (speed, feel), INT8 quantization (needs calibration pictures; the NPU is built for 8-bit),
-  the detector's 29.5 MB RKNN file (its depth-to-space layers grow into big transposed convolutions; it only runs
-  while nobody is tracked), the APK grew 64 → 77 MB.
+  view: "Heat and frame rate" below). **Not yet**: a person tracked in a game (speed, feel), the detector's 29.5 MB
+  RKNN file (its depth-to-space layers grow into big transposed convolutions; it only runs while nobody is tracked),
+  the APK grew 64 → 77 MB. INT8 models: tried 2026-11-01, not accurate enough ("INT8 pose models" below).
 - **Heat and frame rate (2026-10-31, user: "fully optimize everything, reduce the heat and increase the fps")**.
   Measured first (simpleperf with the build's symbols: `tools/dev/box-profile.sh`; `top -H`; `tools/dev/box-heat.sh`,
   `box-scenes.sh`), details in docs/hardware.md "Heat and frame rate with the camera on". Changes: the camera picture
@@ -641,9 +641,35 @@ The user writes informal English, wants clear recommendations rather than option
   (someone was playing, so more AI work: not a clean test, but no gain). The power allocator holds the SoC near its
   set point by itself and hands freed GPU power to the CPU. **The rest is
   firmware** (docs/box-os.md item 20): the CPU governor holds 1.8 GHz for any game's frame bursts, the GPU governor
-  700 MHz from ~40 % load, a small passive box. **Not yet**: INT8 pose models (the NPU is the biggest heat lever left
-  in the app), CameraX delivering YUV to the NPU path (its RGBA conversion is ~6 % of a core), a longer idle level
-  (screen saver, camera off), the user's feel of the 30 fps home screen and of lite.
+  700 MHz from ~40 % load, a small passive box. **Not yet**: CameraX delivering YUV to the NPU path (its RGBA
+  conversion is ~6 % of a core), a longer idle level (screen saver, camera off), the user's feel of the 30 fps home
+  screen and of lite. INT8 pose models were the NPU's lever: not accurate enough (below).
+- **INT8 pose models (2026-10-31/11-01, from the heat session: "quantize to INT8, adopt only if as accurate as
+  float16"): not accurate enough, float16 stays.** INT8 halves the NPU's time on the RK3566 (the box with no app
+  running: lite tracking frame 18.7 → 12.1 ms, NPU 12.3 → 7.4; full 26.4 → 15.6; the detector 32.2 → 18.4, NPU
+  28.0 → 14.3; files 3.1 → 1.9, 6.8 → 3.8, 29.5 → 15.0 MB) but loses far too much. Calibration: 200 snapshots from
+  the box camera (the family's living room in the evening, people sitting and standing; `D:\rknn\calib`, not in git),
+  every 4th held out; `tools/npu/calibration.py` turns pictures into what each model sees (the detector's letterboxed
+  frame, the landmark model's tracking crop; also mirrored, other light, the crop moved): 453 detector frames, 157 / 155
+  crops. Judged on 25 held-out pictures (20 snapshots, MediaPipe's test picture and 4 copies) with **`compare.py
+  --crops`**: every runtime's landmark model on exactly the crop the original model sees. (End to end, on a hard
+  picture even float16 lands ~10 px from MediaPipe, because a tiny difference moves the next crop; the clean test
+  picture stays at 0.2–0.5 px.) On the box, float16: lite 0.30 px mean / 0.25 cm, full 0.24 px / 0.14 cm. INT8 (w8a8,
+  RKNN's "normal" ranges): lite 12.5 px / 10.3 cm, full 13.7 px / 10.9 cm (1.4–2.4 px and ~3 cm on the clean picture,
+  5–30 px on the living-room ones). The "mmse" and "kl" ranges are worse (they clip the outputs: world joints 16 and
+  135 cm off); 16-bit activations (w8a16) don't exist for the RK3566; Rockchip's automatic hybrid (layers that drift
+  stay float16) 11.3 px; float16 for the first third of the network and the output heads 4.8 px / 3.5 cm at 16.7 ms,
+  the first two thirds 3.2 px / 1.8 cm at 18.1 ms (float16's time). Every layer alone loses little (Rockchip's
+  per-layer analysis): the error builds up over the whole backbone. The INT8 **detector** never missed a person
+  float16 found, but found people in 17 of 50 held-out frames where float16 found nobody: often the real guitar
+  player (sitting, dim), but also ghosts (a guitar and cushions on the empty couch, which the landmark model then
+  "tracked": a ghost keeps the AI at 30 fps, the opposite of saving heat); where both found someone, its first crop
+  was ~5 % off in position and size and ~9° in turn. With float16 output heads: 11 of 50, the same crop errors. Heat it
+  could have saved, estimated from the full → lite switch (NPU 64 → 34 %, SoC 77 → 75 °C), not measured: ~1 °C with
+  someone tracked, ~0.5 °C with nobody in view. Kept: the tool chain (`convert.py --quant --calibration`,
+  `calibration.py`, `compare.py --crops`, `pose_npu_test --crop`) and the engine's INT8 path (it writes the NPU's 8-bit
+  input codes and dequantizes INT8 outputs itself), which `PoseEngine` never gets a model for. What could work later: a
+  model trained for 8 bits (quantization-aware), or a chip with 16-bit activations; check with `compare.py --crops`.
 - **Git: on GitHub since 2026-10-10** (https://github.com/PlotterOtterGames/moveit, branch main, first commit
   be51fc6, the user asked for it). Commit and push only when the user asks.
 
@@ -656,7 +682,7 @@ without a break for 2.5 min) |
 | `unity/MoveItGames/` | Unity **6000.3.9f1** project (URP), **active platform: Android**. Editor at `D:\Unity\6000.3.9f1` |
 | `Assets/MoveSDK/Runtime` | Motion SDK: `CameraFeed` (camera picture for AR modes, on request; on the box raw frames from libtundupose, else JPEG over UDP), `MotionSystem` (UDP receiver, feeds every packet in order), `BodyTracker` (smooth + fast low-lag tracks with body-relative One Euro filters, velocity, world joints, 1.5 s dropout continuity), `BodyGestures` (lanes with look-ahead, jump at take-off incl. from a knee dip, crouch at onset, hands up), `BodyHands` (hand cursors in a body-relative zone), `PlacementCheck` (is the player where the game's `PlayArea` needs them: step back / move left / move right / come closer), `HandInterpolator` (the one cursor engine: camera clock, interpolation or a least-squares fit, glide), `CursorRope` (string stabilizer), `UnderhandThrowDetector` (bowling, world depth + backswing), `PunchDetector` (punches in any direction, 3D with world joints, tested on simulated arms), `BodyInput` (body + keyboard merged), `Android/AndroidMotionService.cs` (starts the Java service, camera permission, status) |
 | `Assets/Plugins/Android/MoveItMotion.androidlib` | **Java camera AI plugin**: CameraX 1.6.2, the pose AI **synchronous** on the CameraX analysis thread: **Rockchip NPU first** (`NpuPose` → `src/main/cpp/pose_npu.cpp` in `jniLibs/arm64-v8a/libtundupose.so`, Rockchip's `librknnrt.so` 2.3.2 beside it), else MediaPipe tasks-vision 1.0.0 in VIDEO mode, GPU→CPU fallback; auto full→lite, `Pose` = one result format, sends protocol packets to localhost, on-demand camera snapshot; nobody in view for 2 s = the AI looks every 150 ms and the thread sleeps between looks; on the NPU frames are read straight from CameraX's buffer; the camera picture for the game goes through `FrameShare` (`src/main/cpp/frame_share.cpp`: raw RGBA in the process, read by `CameraFeed`), the JPEG `VideoStreamer` only as the fallback; `CameraTuner` + `CameraControls` brighten the USB camera in a dim room through its own UVC controls (V4L2 node or root). Models (`.task`, `.rknn`) copied in at build time from `motion-service-py/models` (gitignored there); `libtundupose.so` is committed (rebuild with `tools/npu/build_native.py` after changing the C++) |
-| `tools/npu/` | **The NPU pose path as code**: `convert.py` (MediaPipe's models → RKNN float16 per chip, in WSL: the detector's sparse weights densified, the landmark models without the segmentation mask and with the heatmap channels first), `blazepose.py` (MediaPipe's pose steps in Python, the reference for the C++), `mp_reference.py` (MediaPipe's own answers, PC venv), `compare.py` (TFLite / RKNN simulator / box dumps vs MediaPipe, px and cm), `build_native.py` (NDK build of `libtundupose.so` and `out/pose_npu_test`, the shell test for the box) |
+| `tools/npu/` | **The NPU pose path as code**: `convert.py` (MediaPipe's models → RKNN float16 per chip, in WSL: the detector's sparse weights densified, the landmark models without the segmentation mask and with the heatmap channels first; `--quant` INT8 with `--calibration`, not accurate enough on the RK3566), `calibration.py` (INT8 calibration pictures: what each model sees, from camera pictures), `blazepose.py` (MediaPipe's pose steps in Python, the reference for the C++), `mp_reference.py` (MediaPipe's own answers, PC venv), `compare.py` (TFLite / RKNN simulator / box dumps vs MediaPipe, px and cm; `--crops`: each model alone on the same crops, against the original model), `build_native.py` (NDK build of `libtundupose.so` and `out/pose_npu_test`, the shell test for the box) |
 | `Assets/Plugins/Android/AndroidManifest.xml` | Registers the app as the box's **HOME launcher** (`singleTask`); entry point = Activity; asks the TV for game mode (`preferMinimalPostProcessing`) |
 | `Assets/Games/Common` | Shared game code: `GameHud` (IMGUI helpers, temporary), `CommonStrings` (Albanian/English, persisted), `PlayerGate`, `RemoteInput` (TV remote mapping), `AndroidDevice` (volume, Wi-Fi screen), `Brand` (reads `Assets/Resources/brand.json`), `RecognitionLab` (camera test screen), `DevCapture`, `BoxRuntime` (60 fps, no sleep), `BoxGraphics` (render scale, post-processing and target fps per scene on Android players: the box settings measured on the X98K Pro; a 60 fps scene nobody uses for 10 s runs at 30, `BoxGraphics.Idle`: the home screen counts only the remote, Bowling/Pikturo!/the camera test also a player in view), `PerfLog` (a `[Perf]` line every 10 s in every scene: fps against the target and the share of frames shown late, worst frame, share over 20 / 34 ms, main thread / present wait / render thread ms from frame timing stats (switched on by BoxBuild; GPU ms aren't reliable on the X98K Pro), GC, memory), `PerfLab` (players only: render settings switched on the box from a pushed file: HDR, scale, shadows, shadow distance/resolution, casters off by name (`nocast`), post, bloom/vignette/grade, sky, fps, hide renderers by name/kind, disable scripts by class (a game's HUD), load a scene, start an activity game's event (`activity=sprint|football|volley`); lines tagged in `[Perf]`), `SkyNoise` (the noise texture Tundu/Sky's clouds read), `PartMesh` (primitives merged into one vertex-coloured mesh: Fluturo!, Tenis!), `Activities/` (`ActivityGame`: a game of short activities with medals; `SportHud`: the broadcast-style HUD pieces), `BodyPuppet` + `ToyPoses` (the player's body in metres, keys standing in for it), `GameFx`, `ArtShapes` |
 | `Assets/Games/Tennis` | Tenis! (singles): rules without the engine (`TennisMatch`: the body → the court (`BodyToCourt`) and the assist, serve, rally, where the ball is met, timing → aim, the computer player, practice; `TennisScore`; `TennisBall`: `Court`, `BallPhysics` (exact steps, prediction, `Aim`); `TennisLevel` (the ladder); `SwingDetector`), drawing (`TennisGame`: flow, swings from the camera, ball, shadow, ring, effects, calls, scoreboard; `TennisPlayerView`; `TennisStadium`; `TennisArt`), `TennisStrings` |
@@ -792,7 +818,16 @@ without a break for 2.5 min) |
   `out/*.json` and compare with MediaPipe: `mp_reference.py` (PC venv) then `compare.py --box <dir>` (WSL).
   `TUNDU_NPU_INPUT=uint8` makes the engine use RKNN's uint8 input instead of writing float16 itself. MediaPipe's test
   picture (`pose.jpg` from storage.googleapis.com/mediapipe-assets) and turned copies were the test set; the box's own
-  evening photo was too dark for MediaPipe too.
+  evening photo was too dark for MediaPipe too. **INT8 builds** (2026-11-01, see the status bullet): pictures from the
+  box camera (Settings → Kamera, → saves `camera-snapshot.jpg`; or PerfLab `scene=MotionDebug` + `input keyevent 22`
+  in a loop) → `calibration.py --tflite <.task contents> --out <dir> <pictures>` → `convert.py --quant normal
+  --calibration <dir> --out <dir>` (`<name>.rk3566.int8.rknn`, never into `models/` unless adopted) → `compare.py
+  --crops --write-crops <dir>` (the held-out pictures' crops as RGBA) → on the box `pose_npu_test <det> <landmarks>
+  <label> out <crops> --crop` → `compare.py --crops --box out --box-labels {model},{model}-int8`.
+  `TUNDU_NPU_OUTPUT=float` makes the runtime dequantize INT8 outputs instead of the engine. For clean NPU timings the
+  app's camera AI must be off: Tundu pauses it when another activity is in front (`am start -a
+  android.settings.SETTINGS`); back with `am start -n al.tundu.games/com.unity3d.player.UnityPlayerActivity` (HOME
+  shows a launcher chooser on this box, two home apps: never pick "Always").
 - **Laptop vs cloud tooling:** this laptop has no .NET SDK, so `tools/logic-tests` and `tools/compile-check` (cloud
   stand-ins for Unity) don't run here; Unity runs the same tests. Server tests: `cd server && npm ci && npm run
   test:all` (Node 24 here). Java tests need JDK 21+ (`$env:PATH = "$env:USERPROFILE\.jdks\corretto-22.0.2\bin;" +
@@ -870,6 +905,11 @@ without a break for 2.5 min) |
   (append a TRANSPOSE to NCHW in the TFLite: the two cancel), float16 models get their uint8 input converted on the CPU
   (write the native float16 input yourself; on the RK3566 it's NHWC, `RKNN_QUERY_NATIVE_INPUT_ATTR`). Check every
   step against MediaPipe on pictures (`compare.py`): a half-pixel crop convention difference showed up as ~2 px.
+- **Judge a converted pose model on fixed crops, not through tracking** (2026-11-01): on dim living-room pictures even
+  the float16 build ended ~10 px from MediaPipe end to end (a tiny difference moves the next crop, then everything),
+  while on the same crops it is 0.3 px off: `compare.py --crops`. RKNN's quantization reads `.npy` calibration inputs
+  channels first (3, h, w) whatever the model's layout; `quantized_algorithm` "kl" / "mmse" clip a regression output's
+  range (world joints 135 / 16 cm off): look at every output, not only the cosine of the whole.
 - **Stopping a background task doesn't stop a script it started** (2026-10-30): TaskStop ended the tool's shell but
   `bash round3.sh` kept driving the box, so two scripts fought over it (overwritten switches, cleared logs, keys) and
   the numbers were wrong. Stop such scripts by PID (`Get-CimInstance Win32_Process -Filter "name='bash.exe'"`, match
