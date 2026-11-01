@@ -53,6 +53,7 @@
     <Compile Include="$(UnityAssets)/MoveSDK/Runtime/Body.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Runtime/CursorRope.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Runtime/HandInterpolator.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/MoveSDK/Runtime/JointTimeline.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Runtime/HandPresence.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Runtime/Joint.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Runtime/OneEuroFilter.cs" Link="Rules/%(Filename)%(Extension)" />
@@ -75,6 +76,7 @@
     <Compile Include="$(UnityAssets)/Games/Tennis/Tests/Editor/TennisMatchTests.cs" Link="Tests/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Tennis/Tests/Editor/TennisScoreTests.cs" Link="Tests/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Tests/Editor/HandCursorTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/MoveSDK/Tests/Editor/JointTimelineTests.cs" Link="Tests/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Tests/Editor/PlacementCheckTests.cs" Link="Tests/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Tests/Editor/PunchDetectorTests.cs" Link="Tests/%(Filename)%(Extension)" />
   </ItemGroup>

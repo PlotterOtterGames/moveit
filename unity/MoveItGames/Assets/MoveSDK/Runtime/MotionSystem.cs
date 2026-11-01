@@ -171,9 +171,11 @@ namespace MoveIt.Motion
             }
 
             float now = Time.unscaledTime;
+            double localNow = Time.unscaledTimeAsDouble;
             if (_handling.Count == 0)
             {
                 if (!IsConnected && Tracker.Bodies.Count > 0) Tracker.Clear();
+                UpdateShown(localNow);
                 return;
             }
 
@@ -190,10 +192,17 @@ namespace MoveIt.Motion
                 float latency = nowMs - packet.t;
                 LatencyMs = LatencyMs <= 0f ? latency : Mathf.Lerp(LatencyMs, latency, 0.1f);
 
-                Tracker.Update(packet, now);
+                Tracker.Update(packet, now, localNow);
                 PacketReceived?.Invoke(packet);
             }
             _handling.Clear();
+            UpdateShown(localNow);
+        }
+
+        /// <summary>Every frame, before the games' Update: where each body is drawn now (<see cref="Body.Shown"/>).</summary>
+        void UpdateShown(double localNow)
+        {
+            foreach (var body in Tracker.Bodies) body.UpdateShown(localNow);
         }
     }
 }

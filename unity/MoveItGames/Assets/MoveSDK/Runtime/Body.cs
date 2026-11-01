@@ -42,6 +42,13 @@ namespace MoveIt.Motion
         public readonly Vector3[] FastVelocity = new Vector3[Skeleton.JointCount];
         /// <summary>The latest camera sample, unfiltered: for cursors that do their own smoothing (<see cref="HandInterpolator"/>).</summary>
         public readonly Vector3[] Raw = new Vector3[Skeleton.JointCount];
+        /// <summary>
+        /// <see cref="Joints"/> as they should be drawn this frame: interpolated on the camera's clock
+        /// (<see cref="JointTimeline"/>), so the body moves evenly every frame instead of in camera-rate steps. Updated by
+        /// <see cref="MotionSystem"/> at the start of every frame. For drawing only: gestures read the samples themselves.
+        /// </summary>
+        public readonly Vector3[] Shown = new Vector3[Skeleton.JointCount];
+        internal readonly JointTimeline ShownTimeline = new JointTimeline();
         public readonly float[] Visibility = new float[Skeleton.JointCount];
 
         /// <summary>
@@ -58,6 +65,12 @@ namespace MoveIt.Motion
         internal float FilterScale, WorldFilterScale;
 
         public Vector3 this[Joint j] => Joints[(int)j];
+
+        /// <summary>Places <see cref="Shown"/> for the frame at <paramref name="localNow"/> (Time.unscaledTimeAsDouble).</summary>
+        public void UpdateShown(double localNow)
+        {
+            if (!ShownTimeline.Evaluate(localNow, Shown)) System.Array.Copy(Joints, Shown, Skeleton.JointCount);
+        }
 
         public bool IsVisible(Joint j, float min = 0.5f) => Visibility[(int)j] >= min;
 

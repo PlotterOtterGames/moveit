@@ -146,6 +146,51 @@ it, else as root on test boxes (this firmware's `su` serves any app), else not a
 the box maker opening the node to our app, or the camera's own power-on defaults from its supplier. A camera with a
 low-light sensor (Sony STARVIS IMX307 / IMX462 / IMX291, `docs/sourcing.md`) is the hardware fix.
 
+### The camera, and why the skeleton shakes (2026-11-01)
+
+The user: "the camera should be more than enough to read the pose correctly, there shouldn't be any stutter; The Link
+(Steam) gets a perfect skeleton with just a laptop camera."
+
+**The camera** is an ELP-USBFHD01M (USB 32e4:9230, the id OctoPi's issue tracker gives that model): OmniVision's
+**OV2710**, 1/2.7", 2 MP, 3.0 µm pixels, 3300–3700 mV/lux·s, signal-to-noise 39–40 dB. Laptop webcams have
+1.1–1.4 µm pixels, so the hardware is indeed enough. Beyond the controls above it has sharpness 0..6 (2: sharpening also
+sharpens the noise), hue, automatic white balance, and a vendor extension unit; at power-up its exposure priority is on.
+Measured on the box with `v4l2-ctl` while Tundu was paused (night, MJPEG): 1280x720 **58.7–59.3 fps**, 640x480 87–93
+(asked 120, buffers dropped), 800x600 49, 1024x768 29.8, 1920x1080 29.7, with exposure priority on or off. **The fast
+modes are crops**: 1280x720 is the middle 1280 x 720 pixels of the sensor taken 1:1 (things look 1.5x bigger than in
+the 1080p picture; OmniVision's own launch note: "cropped 720p 60 fps"), and 800x600 and 640x480 come from that crop;
+1024x768, what Android hands us, keeps the sensor's full height (4:3, the sides cut). So 60 fps costs a third of the
+view each way: ~42° vertical instead of ~60°, a standing adult then needs ~3 m to fit head to toe instead of ~2.2 m.
+This box's `FpsList` (Rockchip's format: several rates per size) does list 1280x720 at 60, yet Android drops the mode,
+probably because the camera's rate is a hair over 60.0; a bound of 61 would let it through (needs `/vendor`
+writable: the ODM, or `adb disable-verity` on this test box).
+
+**How much the pose model shakes on this camera's pictures** (`tools/npu/shake.py`: a still picture made into frames
+with the same camera-like noise, sigma 3 levels + JPEG 85, tracked like the box tracks; the raw frame-to-frame
+step of the joints before any smoothing, % of the torso, median over pictures). The 20 held-out evening snapshots (people
+sitting with a guitar, ~4 m away, the camera tuner's gain on) against MediaPipe's test photo, also shrunk to the same
+person size:
+
+| | Wrist | Elbow | Shoulder | Hip | Knee |
+|---|---|---|---|---|---|
+| Lite, clean photo (full size / same size as the snapshots) | 1.4 / 0.7 | 0.6 / 0.4 | 0.9 / 0.5 | 0.7 / 0.4 | 0.7 / 1.1 |
+| **Lite, evening snapshots** | **12.4** | **7.7** | **3.6** | **5.7** | **11.4** |
+| Full, evening snapshots | 9.3 | 4.5 | 2.2 | 3.4 | 7.6 |
+| Lite, the crop also run mirrored, both averaged | 9.0 | 6.5 | 3.3 | 4.6 | 8.9 |
+| Full, mirrored and averaged | 6.6 | 3.1 | 1.6 | 2.8 | 8.2 |
+
+The same model shakes 10–20x more on those pictures than on the clean photo, and it isn't the person's size (the
+shrunk photo stays steady): it's the picture (dim and boosted, grey clothes against white walls and a grey couch, a
+guitar in front of the body, people sitting). The standing snapshots shook less (shoulders and hips 1–2.6 %). Shrinking
+the picture by area averaging before the crop (instead of bilinear samples) didn't help. MediaPipe's smoothing on the
+box calms the raw steps several times, but what is left is what the user sees. **The Link** (Masonx, Steam 1285430)
+almost certainly runs MediaPipe Pose too (its settings: "pose detection confidence and tracking confidence, both default
+0.5"; CPU only), on a PC with a 720p 60 fps webcam (its advice), in a bright room in its screenshots, draws the
+skeleton on the very frame it came from ("MFPS 38" in its tracking window), and fires keys from held poses with a gap
+between "on" and "off" (90 % / 30–50 % similarity): its job hides shake. **Not measured yet**: the real use case, a
+player standing at TV distance with the lights on (a recording from Settings → Kamera, then `cursor_sim.py
+--recording`), lite against full.
+
 ### Heat and frame rate with the camera on (2026-10-31)
 
 The user: "fully optimize everything, reduce the heat and increase the fps". With the USB camera and the pose AI running
