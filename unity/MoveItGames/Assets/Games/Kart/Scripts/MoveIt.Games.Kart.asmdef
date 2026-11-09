@@ -1,0 +1,23 @@
+{
+    "name": "MoveIt.Games.Kart",
+    "rootNamespace": "MoveIt.Games.Kart",
+    "references": [
+        "MoveIt.Motion",
+        "MoveIt.Games.Common",
+        "MoveIt.Games.Tennis",
+        "MoveIt.Games.Sports",
+        "MoveIt.Games.Fly",
+        "Unity.InputSystem",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

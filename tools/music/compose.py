@@ -677,7 +677,38 @@ def jingle_gameover():
     return s
 
 
-SONGS = {f.__name__: f for f in (menu, runner, dress, runway, bowling, paint, sword, fly, tennis, sports, track, football, volley,
+def kart():
+    """Gara! 'Tundu Grand Prix': a bright, bouncy kart race, whistle and xylophone over pizzicato and electric piano, a
+    bouncing bass, driving drums with a tambourine (an engine's putter in the hats)."""
+    s = Song("kart", "Tundu Grand Prix", 150,
+             "G | Em7 | C | D | G | Bm7 | C | D7 | Em7 | C | Am7 | D | G Em7 | Am7 D7 | G | D7sus4 D7", seed=83)
+    lead = s.track("Whistle", 0, WHISTLE, 104, 58, 45)
+    xylo = s.track("Xylophone", 1, XYLOPHONE, 78, 80, 40)
+    ep = s.track("Electric piano", 2, EPIANO, 64, 44, 35)
+    pizz = s.track("Pizzicato", 3, PIZZ, 72, 70, 25)
+    bass = s.track("Bass", 4, FINGER_BASS, 102, 64, 15)
+    kit = s.track("Drums", 9, 0, 96, 64, 20)
+    a = M("D5:1 G5:1 B5:2 A5:1 G5:1 D5:2 | E5:1 G5:1 B5:2 D6:2 B5:2 | C6:2 E5:1 G5:1 C6:2 E6:2 | D6:3 C6:1 A5:2 F#5:2 | "
+          "G5:1 B5:1 D6:2 B5:1 G5:1 D5:2 | F#5:2 B5:1 D6:1 F#6:2 D6:2 | E6:2 C6:1 G5:1 E5:2 G5:2 | F#5:4 r:2 D5:1 F#5:1")
+    b = M("E6:2 D6:1 B5:1 G5:2 B5:2 | C6:2 E6:1 G6:1 E6:2 C6:2 | A5:2 C6:1 E6:1 G6:2 E6:2 | F#6:2 D6:1 A5:1 F#5:2 A5:2 | "
+          "B5:1 D6:1 G6:2 E6:2 B5:2 | C6:2 A5:2 F#6:2 D6:2 | G6:3 F#6:1 D6:2 B5:2 | C6:2 r:2 D5:1 F#5:1 A5:1 C6:1")
+    end = s.melody(lead, a, velocity=102, legato=0.78)
+    s.melody(lead, b, velocity=106, legato=0.78, start=end)
+    s.melody(xylo, b, octave_shift=-1, velocity=64, legato=0.6, start=end)    # the xylophone joins in the second half
+    s.comp(ep, [(0.5, 0.25), (1.5, 0.25), (2.5, 0.25), (3.5, 0.25)], low=pitch("D3"), high=pitch("C5"), velocity=56, size=3)
+    s.comp(pizz, [(0, 0.25), (2, 0.25)], low=pitch("G3"), high=pitch("E5"), velocity=60, size=3)
+    s.bass(bass, "bounce", low=pitch("E1"), velocity=98)
+    s.drums(kit, {
+        KICK:     "x.....x.x.......",
+        SNARE:    "....x.......x..." + "....x.......x.xx",
+        HAT:      "xxxxxxxxxxxxxxxx",
+        TAMB:     "..o...o...o...o.",
+        CRASH:    "x..............." + "................" * 7,
+    })
+    return s
+
+
+SONGS = {f.__name__: f for f in (menu, runner, dress, runway, bowling, paint, sword, fly, tennis, sports, track, football, volley, kart,
                                   jingle_win, jingle_gameover)}
 
 

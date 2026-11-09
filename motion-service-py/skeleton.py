@@ -40,10 +40,11 @@ class Person:
     world joints (x, y, z) in metres, origin at the hips, MediaPipe axes (x image-right, y down, z toward camera = -),
     and optional hand points (MEDIAPIPE_HAND_POINTS, like the joints)."""
 
-    __slots__ = ("joints", "world", "hands", "score")
+    __slots__ = ("joints", "world", "hands", "score", "track")
 
-    def __init__(self, joints, score=None, world=None, hands=None):
+    def __init__(self, joints, score=None, world=None, hands=None, track=0):
         self.joints = joints
         self.world = world
         self.hands = hands
+        self.track = track   # the sender's track id (protocol "tid"), 0 = none
         self.score = score if score is not None else sum(joints[i][3] for i in TORSO) / len(TORSO)

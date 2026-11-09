@@ -23,7 +23,15 @@ namespace MoveIt.Games
     /// <c>hide</c> (comma-separated: <c>particles</c>, <c>skinned</c>, <c>transparent</c>, or part of a GameObject's or
     /// a parent's name; those renderers are switched off), <c>bloom</c> / <c>vignette</c> / <c>grade</c> 0 (that
     /// post-processing effect off in every volume), <c>disable</c> (comma-separated script class names, e.g. a game's
-    /// class to drop its IMGUI HUD; their Update stops too), <c>model</c> (the pose model: auto, full or lite). A missing
+    /// class to drop its IMGUI HUD; their Update stops too), <c>model</c> (the pose model: auto, full or lite),
+    /// <c>camera</c> (the camera frame size the pose AI asks for, e.g. 1280x1024; the camera restarts), <c>people</c>
+    /// (1 or 2 followed whatever the game asks), <c>npurate</c> (the NPU's landmark runs per second shared by two people,
+    /// 0 = both every frame), <c>twin</c> 1 (one person's landmarks run twice: a second player's cost), <c>npubench</c> 1
+    /// (with <c>people</c>: that many fixed crops run like people, their cost with nobody in front of the camera),
+    /// <c>res</c> (a factor of the screen's own resolution: the game draws that many pixels straight into the screen's
+    /// buffer and the TV's display hardware scales it up, instead of URP's render scale and a copy; use with
+    /// <c>scale=1</c>), <c>boxres</c> 0/1 (<see cref="BoxGraphics"/>' own choice of the two, off or on), and
+    /// switches games read themselves (<see cref="PerfSwitches"/>: Tenis!'s <c>split</c> 1). A missing
     /// key means the build's setting (BoxGraphics' for the scene); deleting the file restores everything. Players only:
     /// in the editor it would change the project's URP asset on disk.
     /// </summary>
@@ -113,17 +121,32 @@ namespace MoveIt.Games
 
             void Apply()
             {
+                // the screen's resolution first (BoxGraphics' own, unless res= or boxres= say otherwise), then the render
+                // scale on top of it
+                BoxGraphics.ScreenOverride = _settings.ContainsKey("res") ? Number("res", 1f)
+                    : _settings.ContainsKey("boxres") ? (Flag("boxres", true) ? -1f : 1f) : 0f;
+                BoxGraphics.ApplyScreen();
                 if (_urp != null)
                 {
                     _urp.supportsHDR = Flag("hdr", _hdr);
-                    _urp.renderScale = Number("scale", BoxGraphics.Current.Scale);
+                    _urp.renderScale = Number("scale", BoxGraphics.RenderScale);
                     _urp.mainLightShadowmapResolution = (int)Number("shadowres", _shadowRes);
                     _urp.shadowDistance = Number("shadowdist", _shadowDistance);
                 }
                 if (_settings.ContainsKey("fps")) Application.targetFrameRate = (int)Number("fps", BoxGraphics.Current.Fps);
                 else BoxGraphics.RestoreFps();  // the scene's own rate, idle or not
                 string model = Text("model");
-                MoveIt.Motion.AndroidMotionService.SetModel(model == "" ? "auto" : model);
+                MoveIt.Motion.AndroidMotionService.SetModel(model == "" ? BoxGraphics.Current.Model : model);
+                MoveIt.Motion.AndroidMotionService.SetCameraSize(Text("camera"));   // e.g. camera=1280x1024
+                // two players: people=2 follows up to two whatever the game asks, npurate= the NPU's landmark runs per
+                // second shared by them (0 = both every frame), twin=1 runs one person's landmarks twice (their cost)
+                if (_settings.ContainsKey("people") || _settings.ContainsKey("npurate") || _settings.ContainsKey("twin") ||
+                    _settings.ContainsKey("npubench"))
+                    MoveIt.Motion.AndroidMotionService.PeopleOverride = ((int)Number("people", 2f),
+                        Number("npurate", BoxGraphics.Current.TwoPlayerRuns), Flag("twin", false), Flag("npubench", false));
+                else
+                    MoveIt.Motion.AndroidMotionService.PeopleOverride = null;
+                PerfSwitches.Set(_settings);
 
                 foreach (var cam in Camera.allCameras)
                 {
@@ -181,10 +204,12 @@ namespace MoveIt.Games
                 }
 
                 string tag = Text("tag");
-                Debug.Log($"[PerfLab] {(tag == "" ? "build settings" : tag)}: hdr {_urp?.supportsHDR}, scale {_urp?.renderScale:0.00}, " +
+                Debug.Log($"[PerfLab] {(tag == "" ? "build settings" : tag)}: screen {Screen.width}x{Screen.height} (asked {BoxGraphics.ScreenSize}), " +
+                          $"hdr {_urp?.supportsHDR}, scale {_urp?.renderScale:0.00}, " +
                           $"shadows {Text("shadows", "as built")}, post {Text("post", "as built")}, sky {Flag("sky", true)}, " +
                           $"fps {Application.targetFrameRate}, hide '{Text("hide")}', bloom {Flag("bloom", true)}, " +
-                          $"vignette {Flag("vignette", true)}, grade {Flag("grade", true)}, disabled {_disabled.Count} '{Text("disable")}'");
+                          $"vignette {Flag("vignette", true)}, grade {Flag("grade", true)}, disabled {_disabled.Count} '{Text("disable")}', " +
+                          $"people {Text("people", "as the game asks")} npurate {Text("npurate", "-")} twin {Text("twin", "0")}");
                 PerfLog.Restart(tag);
             }
 

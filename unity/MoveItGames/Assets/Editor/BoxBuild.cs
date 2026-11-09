@@ -134,6 +134,15 @@ namespace MoveIt.EditorTools
             PlayerSettings.SetGraphicsAPIs(BuildTarget.Android,
                 new[] { UnityEngine.Rendering.GraphicsDeviceType.OpenGLES3, UnityEngine.Rendering.GraphicsDeviceType.Vulkan });
             PlayerSettings.Android.optimizedFramePacing = true;     // even frame times when a game runs at 30 fps
+            // Draw straight into the screen's buffer when the device allows it. "Always" (the project's default until
+            // 2026-11-06) rendered every frame into an extra offscreen buffer and copied it to the screen: one more
+            // full-screen 1080p copy a frame (on top of URP's own for a render scale under 1) on a GPU whose limit is
+            // memory traffic (docs/hardware.md "Tenis!'s frame on the box").
+            PlayerSettings.Android.blitType = AndroidBlitType.Auto;
+            // Skinning on the GPU (compute, batched): skinning on the CPU was tried on the X98K Pro (Tenis!, 2026-11-06)
+            // and the four chibis cost the GPU just as much (7.6 against 8.1 ms a frame at the hot box's 200-250 MHz),
+            // while it would have taken CPU time from the pose AI (docs/hardware.md "Tenis!'s frame on the box").
+            PlayerSettings.meshDeformation = MeshDeformation.GPUBatched;
             PlayerSettings.defaultInterfaceOrientation = UIOrientation.LandscapeLeft;
             if (PlayerSettings.bundleVersion is "0.1" or "1.0") PlayerSettings.bundleVersion = "0.1.0";
             PlayerSettings.Android.bundleVersionCode = VersionCode(PlayerSettings.bundleVersion);

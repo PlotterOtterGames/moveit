@@ -47,8 +47,9 @@ UTF-8 JSON, one object per datagram, no newline. A frame is sent **even when nob
 | `w`, `h` | int | Camera image size in pixels. **Needed to undo the aspect ratio** (x and y are normalized separately). |
 | `fps` | float | Pipeline throughput (frames processed per second). |
 | `inf` | float | Pose inference time for this frame, ms. |
-| `people` | array | Detected people, best first. Maximum set by the service (`--num-poses`). |
+| `people` | array | Detected people, best first. Maximum set by the service (`--num-poses`; on the box the game asks: `MotionService.setPeople`). |
 | `people[].id` | int | Index within **this** frame only. Not stable across frames. Stable tracking is the SDK's job. |
+| `people[].tid` | int | *v1.1, optional (2026-11-05).* The service's track: the same id while it follows this person, a new one after it lost them (0 or missing = not known: the PC service, MediaPipe gives none). The box's NPU engine follows up to two people and, sharing its NPU, runs the pose model on them in turns, so **a packet may carry only one of two people**; the SDK matches bodies by `tid` first (`BodyTracker`), by position only for people without one or after a loss. |
 | `people[].score` | float | 0..1 confidence (mean visibility of the torso joints). |
 | `people[].k` | float[68] | 17 joints × `[x, y, z, visibility]`, flat, in the joint order below. |
 | `cam` | float | *v1.1, optional.* Frames per second the camera actually delivers (a dim room lowers it). |
@@ -88,6 +89,13 @@ The SDK mirrors x so the screen behaves like a mirror.
 ## Size and rate
 About 650 bytes per person (~1.3 KB with `wk` and `hk`) at 30-60 fps, well under one UDP datagram (no fragmentation). A binary v2 can
 replace JSON later if profiling on the box shows parsing cost.
+
+**Two people on the box** (2026-11-05): with two followed, the NPU's landmark runs are shared (the game's budget, e.g. 30
+a second: each person ~15 poses a second, every packet carries the one whose turn it was, with its own capture time `t`);
+the person detector looks for a missing second person every 0.5 s. Each person's samples then come ~66 ms apart, and the
+SDK's interpolation on the camera clock (`HandInterpolator`, `JointTimeline`) draws them smoothly between. The PC service
+sends both people in every packet (`main.py --num-poses 2`); `fake_sender.py --script tennis_duo [--alternate]` plays two
+scripted people (`--alternate`: one per packet, with track ids, like the box).
 
 ## Camera preview stream (v1.1, optional)
 

@@ -1,0 +1,26 @@
+{
+    "name": "MoveIt.Games.Volley.Tests",
+    "rootNamespace": "MoveIt.Games.Volley.Tests",
+    "references": [
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
+        "MoveIt.Games.Volley",
+        "MoveIt.Games.Tennis",
+        "MoveIt.Motion"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

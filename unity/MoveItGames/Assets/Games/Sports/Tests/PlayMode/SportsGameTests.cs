@@ -14,7 +14,7 @@ namespace MoveIt.Games.Sports.Tests
     /// <summary>
     /// Sporte! in the editor. Every event builds and plays without a camera (screenshots unity/captures/sports_*.png).
     /// Then the scripted player (fake_sender.py) plays them with the body: running on the spot through a 100 m (--script
-    /// sp_run), kicks at the passes (sp_kick), volleyball arm swings (sp_volley).
+    /// sp_run), kicks at the passes (sp_kick).
     /// </summary>
     public class SportsGameTests
     {
@@ -124,30 +124,6 @@ namespace MoveIt.Games.Sports.Tests
             Log($"football: {football.KicksSeen} kicks seen, {kicked} met the ball, goals {football.Match.Goals}, round {football.Match.Round}");
             Assert.GreaterOrEqual(football.KicksSeen, 10, "the scripted kicks were seen");
             Assert.GreaterOrEqual(kicked, 2, "kicks met the passes");
-        }
-
-        [UnityTest, Timeout(150000)]
-        public IEnumerator Volleyball_ArmSwingsPlayTheBall()
-        {
-            _game.StartActivity(IndexOf("volley"));
-            var volley = (VolleyActivity)_game.Playing;
-            int bumps = 0, spikes = 0;
-            bool shot = false, point = false;
-            volley.Match.Events += e =>
-            {
-                if (e == VolleyEvent.Bump) bumps++;
-                if (e is VolleyEvent.Spike or VolleyEvent.PerfectSpike) spikes++;
-            };
-            yield return RunFakePlayer(() =>
-            {
-                if (_game.Current != ActivityGame.Phase.Playing) return null;
-                if (!shot && volley.Match.Stroke == VolleyStroke.OurSet && volley.Match.UntilAct < 0.3f) { shot = true; return "sports_volley_set.png"; }
-                if (!point && volley.Match.Phase == VolleyPhase.Point && volley.Match.PhaseTime > 0.5f) { point = true; return "sports_volley_point.png"; }
-                return null;
-            }, "sp_volley", 55f);
-            var m = volley.Match;
-            Log($"volley: {volley.Moves} arm moves, {bumps} bumps, {spikes} spikes, score {m.Us}-{m.Them}");
-            Assert.GreaterOrEqual(bumps + spikes, 3, "arm swings bump and spike the ball");
         }
 
         static void Log(string text) => UnityEngine.Debug.Log($"[Test] {text}");

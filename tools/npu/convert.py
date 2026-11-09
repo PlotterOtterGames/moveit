@@ -122,16 +122,43 @@ def prune(src, dst, drop_shapes):
     print(f'{os.path.basename(src)}: {dropped} operations only for {sorted(drop_shapes)} removed')
 
 
-def channels_first(src, dst, shape):
-    """A copy whose output of this NHWC shape comes out NCHW (a TRANSPOSE appended). The NPU computes channels first,
-    so the toolkit had appended a transpose back to NHWC that the box ran on its CPU (~10 ms for the 64 x 64 x 39
-    heatmap); the two transposes cancel out in the toolkit's optimizer."""
+def drop_output_reshapes(src, dst):
+    """A copy whose outputs made by a RESHAPE of a (1, 1, 1, n) tensor are that tensor itself (the RESHAPE goes). The
+    landmark model's landmarks (195), world landmarks (117) and presence (1) come out of convolutions as 1 x 1 x n and
+    are only reshaped to (1, n); RKNN ran each of those reshapes on the CPU, ~0.35 ms apiece in every frame (RK3566,
+    2026-11-01). The numbers and their order stay the same."""
+    from tensorflow.lite.python import schema_py_generated as schema
+    from tensorflow.lite.tools import flatbuffer_utils
+    model = flatbuffer_utils.read_model(src)
+    graph = model.subgraphs[0]
+    codes = [max(c.builtinCode, c.deprecatedBuiltinCode) for c in model.operatorCodes]
+    producer = {o: op for op in graph.operators for o in op.outputs}
+    used = {i for op in graph.operators for i in op.inputs}
+    shapes = []
+    for k, o in enumerate(graph.outputs):
+        op = producer.get(o)
+        if op is None or codes[op.opcodeIndex] != schema.BuiltinOperator.RESHAPE or o in used:
+            continue
+        before = tuple(graph.tensors[op.inputs[0]].shape)
+        if len(before) != 4 or before[:3] != (1, 1, 1):
+            continue
+        graph.outputs[k] = op.inputs[0]
+        graph.operators.remove(op)
+        shapes.append(before)
+    flatbuffer_utils.write_model(model, dst)
+    print(f'{os.path.basename(src)}: outputs {shapes} no longer reshaped')
+    return shapes
+
+
+def channels_first(src, dst, shapes):
+    """A copy whose outputs of these NHWC shapes come out NCHW (a TRANSPOSE appended to each). The NPU computes
+    channels first, so the toolkit had appended a transpose back to NHWC that the box ran on its CPU (~10 ms for the
+    64 x 64 x 39 heatmap); the two transposes cancel out in the toolkit's optimizer."""
     import numpy as np
     from tensorflow.lite.python import schema_py_generated as schema
     from tensorflow.lite.tools import flatbuffer_utils
     model = flatbuffer_utils.read_model(src)
     graph = model.subgraphs[0]
-    index = next(o for o in graph.outputs if tuple(graph.tensors[o].shape) == shape)
     codes = [max(c.builtinCode, c.deprecatedBuiltinCode) for c in model.operatorCodes]
     if schema.BuiltinOperator.TRANSPOSE not in codes:
         code = schema.OperatorCodeT()
@@ -150,17 +177,19 @@ def channels_first(src, dst, shape):
         return len(graph.tensors) - 1
 
     perm = [0, 3, 1, 2]
-    source = graph.tensors[index]
-    name = source.name.decode() if isinstance(source.name, bytes) else source.name
-    perm_index = tensor(f'{name}_to_nchw_perm', [4], schema.TensorType.INT32, np.array(perm, np.int32))
-    out_index = tensor(f'{name}_nchw', [shape[p] for p in perm], source.type)
-    op = schema.OperatorT()
-    op.opcodeIndex = codes.index(schema.BuiltinOperator.TRANSPOSE)
-    op.inputs, op.outputs = [index, perm_index], [out_index]
-    op.builtinOptionsType = schema.BuiltinOptions.TransposeOptions
-    op.builtinOptions = schema.TransposeOptionsT()
-    graph.operators.append(op)
-    graph.outputs = [out_index if o == index else o for o in graph.outputs]
+    for shape in shapes:
+        index = next(o for o in graph.outputs if tuple(graph.tensors[o].shape) == shape)
+        source = graph.tensors[index]
+        name = source.name.decode() if isinstance(source.name, bytes) else source.name
+        perm_index = tensor(f'{name}_to_nchw_perm', [4], schema.TensorType.INT32, np.array(perm, np.int32))
+        out_index = tensor(f'{name}_nchw', [shape[p] for p in perm], source.type)
+        op = schema.OperatorT()
+        op.opcodeIndex = codes.index(schema.BuiltinOperator.TRANSPOSE)
+        op.inputs, op.outputs = [index, perm_index], [out_index]
+        op.builtinOptionsType = schema.BuiltinOptions.TransposeOptions
+        op.builtinOptions = schema.TransposeOptionsT()
+        graph.operators.append(op)
+        graph.outputs = [out_index if o == index else o for o in graph.outputs]
     flatbuffer_utils.write_model(model, dst)
 
 
@@ -170,7 +199,8 @@ HEATMAP = (1, 64, 64, 39)
 
 def prepare(src, name):
     """The TFLite file the toolkit can read and the NPU runs well: the detector with its sparse weights stored dense,
-    the landmark models without the segmentation mask and with the heatmap channels first."""
+    the landmark models without the segmentation mask, their small outputs not reshaped, and every output channels
+    first."""
     litert_interpreter()
     if name == 'detector':
         dense = src.replace('.tflite', '.dense.tflite')
@@ -178,8 +208,10 @@ def prepare(src, name):
         return dense
     pruned = src.replace('.tflite', '.pruned.tflite')
     prune(src, pruned, {SEGMENTATION})
+    flat = src.replace('.tflite', '.flat.tflite')
+    small = drop_output_reshapes(pruned, flat)
     ready = src.replace('.tflite', '.npu.tflite')
-    channels_first(pruned, ready, HEATMAP)
+    channels_first(flat, ready, [HEATMAP] + small)
     return ready
 
 

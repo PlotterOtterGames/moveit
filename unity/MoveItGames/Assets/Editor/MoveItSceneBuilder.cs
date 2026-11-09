@@ -3,11 +3,13 @@ using MoveIt.Games;
 using MoveIt.Games.Bowling;
 using MoveIt.Games.Dress;
 using MoveIt.Games.Fly;
+using MoveIt.Games.Kart;
 using MoveIt.Games.Paint;
 using MoveIt.Games.Runner;
 using MoveIt.Games.Sports;
 using MoveIt.Games.Sword;
 using MoveIt.Games.Tennis;
+using MoveIt.Games.Volley;
 using MoveIt.Motion;
 using MoveIt.Shell;
 using UnityEditor;
@@ -41,6 +43,11 @@ namespace MoveIt.EditorTools
         const string TennisScenePath = "Assets/Games/Tennis/Tennis.unity";
         const string TennisMaterialsDir = "Assets/Games/Tennis/Materials";
         const string SportsScenePath = "Assets/Games/Sports/Sports.unity";
+        const string VolleyScenePath = "Assets/Games/Volley/Volley.unity";
+        const string VolleyMaterialsDir = "Assets/Games/Volley/Materials";
+        const string KartScenePath = "Assets/Games/Kart/Kart.unity";
+        const string KartMaterialsDir = "Assets/Games/Kart/Materials";
+        const string KartArtDir = "Assets/Games/Kart/Art";
         const string SportsMaterialsDir = "Assets/Games/Sports/Materials";
         const string RunnerMaterialsDir = "Assets/Games/Runner/Materials";
         const string RunnerArtDir = "Assets/Games/Runner/Art";
@@ -63,6 +70,8 @@ namespace MoveIt.EditorTools
             BuildSwordScene();
             BuildFlyScene();
             BuildTennisScene();
+            BuildVolleyScene();
+            BuildKartScene();
             BuildSportsScene();
             EditorBuildSettings.scenes = new[]
             {
@@ -74,6 +83,8 @@ namespace MoveIt.EditorTools
                 new EditorBuildSettingsScene(SwordScenePath, true),
                 new EditorBuildSettingsScene(FlyScenePath, true),
                 new EditorBuildSettingsScene(TennisScenePath, true),
+                new EditorBuildSettingsScene(VolleyScenePath, true),
+                new EditorBuildSettingsScene(KartScenePath, true),
                 new EditorBuildSettingsScene(SportsScenePath, true),
                 new EditorBuildSettingsScene(MotionDebugScenePath, true),
             };
@@ -81,7 +92,7 @@ namespace MoveIt.EditorTools
             BoxBuild.ApplyBranding();
             AssetDatabase.SaveAssets();
             EditorSceneManager.OpenScene(MenuScenePath);
-            Debug.Log("[MoveIt] Built Menu, Runner, Dress, Bowling, Paint, Sword, Fly, Tennis, Sports and MotionDebug scenes.");
+            Debug.Log("[MoveIt] Built Menu, Runner, Dress, Bowling, Paint, Sword, Fly, Tennis, Volley, Kart, Sports and MotionDebug scenes.");
         }
 
         [MenuItem("MoveIt/Build Menu Scene")]
@@ -423,38 +434,53 @@ namespace MoveIt.EditorTools
         public static void BuildTennisScene()
         {
             EnsureFolder(TennisMaterialsDir);
-            var horizon = Hex("#D2EEF6");
+            // Wii Sports Tennis's look: a calm sunny day, soft haze, a sun that doesn't burn the colours out (the stadium's
+            // colours count on a sunlit surface being ~15 % brighter than its colour: TennisStadium.LightGain)
+            var horizon = Hex("#DCE9EC");
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-            RenderSettings.skybox = SkyMat(horizon, TennisMaterialsDir);
+            RenderSettings.skybox = SkyMat(horizon, TennisMaterialsDir, top: Hex("#8EC3E6"), bottom: Hex("#CBDDC2"));
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.Linear;
             RenderSettings.fogColor = horizon;
-            RenderSettings.fogStartDistance = 55f;
-            RenderSettings.fogEndDistance = 150f;
+            RenderSettings.fogStartDistance = 45f;
+            RenderSettings.fogEndDistance = 160f;
             RenderSettings.ambientMode = AmbientMode.Flat;
-            RenderSettings.ambientLight = new Color(0.62f, 0.66f, 0.74f);
-            CreateLight(Quaternion.Euler(52f, -28f, 0f), 1.15f, shadows: true);
-            Object.FindAnyObjectByType<Light>().color = new Color(1f, 0.96f, 0.88f);
+            RenderSettings.ambientLight = new Color(0.47f, 0.5f, 0.55f);
+            // no real-time shadows (the box can't afford them: TennisFx and the stadium draw the sun's shadows as soft
+            // shapes on the grass, the same in the editor)
+            CreateLight(Quaternion.Euler(50f, -30f, 0f), 1f, shadows: false);
+            Object.FindAnyObjectByType<Light>().color = new Color(1f, 0.97f, 0.92f);
 
             var cam = CreateCamera(horizon);
             cam.clearFlags = CameraClearFlags.Skybox;
-            cam.nearClipPlane = 0.1f;
+            cam.nearClipPlane = 0.3f;
             cam.farClipPlane = 220f;
-            cam.fieldOfView = 46f;
-            // high behind the player's baseline: their back player near the bottom, the far pair across the net
-            cam.transform.position = new Vector3(0f, 5.4f, -22f);
-            cam.transform.LookAt(new Vector3(0f, 0.2f, -0.5f));
+            // the classic view (TennisGame.CameraViews[0]; the game places the camera every frame): a little higher and
+            // steeper than Wii's camera (measured from a match: 6.5 m up, 12.3 m behind the baseline, 17 degrees down, 32
+            // degrees of view), the back player low in the picture, the whole court and the far pair above them
+            var view = TennisGame.CameraViews[0];
+            cam.fieldOfView = view.Fov;
+            cam.transform.SetPositionAndRotation(new Vector3(0f, view.Height, -(Court.HalfLength + view.Behind)), Quaternion.Euler(view.Pitch, 0f, 0f));
             cam.GetUniversalAdditionalCameraData().renderPostProcessing = true;
             var post = new GameObject("Post Processing").AddComponent<Volume>();
             post.isGlobal = true;
-            post.sharedProfile = PostProfile("Assets/Games/Tennis/TennisPost.asset");
+            post.sharedProfile = PostProfile("Assets/Games/Tennis/TennisPost.asset", contrast: 6f, saturation: 0f, exposure: 0f, vignette: 0.16f);
 
             CreateMotionRig(fullScreenOverlay: false);
 
             var game = new GameObject("Tennis").AddComponent<TennisGame>();
             Set(game, "cam", cam);
-            Set(game, "actorMaterial", TennisToon("Actor", gloss: 0.9f, rim: 0.28f));
-            Set(game, "stadiumMaterial", TennisToon("Stadium", gloss: 0.25f, rim: 0f));
+            Set(game, "actorMaterial", TennisToon("Actor", gloss: 0.6f, rim: 0.18f));
+            // the court fills the picture: Tundu/Toon's simple path (sky light per vertex, no rim or gloss) costs the TV
+            // box's GPU far less per pixel and looks the same on flat grass; the grass's detail is tiled over the world
+            // (_WORLD_DETAIL: the one texture sample the palette took anyway)
+            var stadium = TennisToon("Stadium", gloss: 0f, rim: 0f, simple: true);
+            stadium.EnableKeyword("_WORLD_DETAIL");
+            stadium.SetTexture("_BaseMap", TennisGrassDetail());
+            stadium.SetFloat("_DetailScale", 0.22f);
+            stadium.SetFloat("_DetailStrength", 0.14f);
+            EditorUtility.SetDirty(stadium);
+            Set(game, "stadiumMaterial", stadium);
             Set(game, "netMaterial", FxMat("Net", null, Color.white, folder: TennisMaterialsDir));
             var ball = TennisToon("Ball", gloss: 0f, rim: 0.45f, vertex: false);
             ball.SetColor("_BaseColor", Hex("#DDF23A"));
@@ -464,12 +490,245 @@ namespace MoveIt.EditorTools
             Set(game, "sparkMaterial", FxMat("Spark", "fx_star.png", Color.white, folder: TennisMaterialsDir));
             Set(game, "dotMaterial", FxMat("Dot", "fx_dot.png", Color.white, folder: TennisMaterialsDir));
             Set(game, "trailMaterial", FxMat("Trail", null, Color.white, additive: true, folder: TennisMaterialsDir));
-            Set(game, "markerMaterial", FxMat("Marker", null, Color.white, folder: TennisMaterialsDir, onTop: true));
+            Set(game, "shadowMaterial", FxMat("Shadow", null, Color.white, folder: TennisMaterialsDir));
+            Set(game, "glowMaterial", FxMat("Glow", "fx_dot.png", Color.white, additive: true, folder: TennisMaterialsDir));
 
             EditorSceneManager.SaveScene(scene, TennisScenePath);
         }
 
-        /// <summary>Sporte!: one scene for its three events (each builds its own world in code and sets the sky, fog and
+        /// <summary>The grass's detail texture (<see cref="TennisArt.GrassDetail"/>, drawn in code) as an asset the stadium's
+        /// material can keep (one channel, mipmapped, tiling).</summary>
+        static Texture2D TennisGrassDetail()
+        {
+            string path = $"{TennisMaterialsDir}/GrassDetail.asset";
+            var tex = TennisArt.GrassDetail();
+            var old = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (old == null) AssetDatabase.CreateAsset(tex, path);
+            else
+            {
+                EditorUtility.CopySerialized(tex, old);   // the same asset (and the material's reference) with new pixels
+                Object.DestroyImmediate(tex);
+                EditorUtility.SetDirty(old);
+            }
+            AssetDatabase.SaveAssets();
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
+
+        /// <summary>
+        /// Volejboll!: Sporte!'s beach (the venue, its crowd and the sea, a children's net) with Tenis!'s look and settings:
+        /// no real-time shadows (VolleyFx draws the sun's as soft shapes on the sand), gentle post-processing (the box has
+        /// none), the camera high behind the near team (the game places it every frame). The game sets the beach's daylight
+        /// at runtime (Daylight.Beach).
+        /// </summary>
+        [MenuItem("MoveIt/Build Volley Scene")]
+        public static void BuildVolleyScene()
+        {
+            EnsureFolder(VolleyMaterialsDir);
+            var horizon = Hex("#CBEFFA");
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            var sky = SkyMat(horizon, VolleyMaterialsDir, top: Hex("#1F7FE6"), bottom: Hex("#7FC9E0"));
+            RenderSettings.skybox = sky;
+            RenderSettings.fog = true;
+            RenderSettings.fogMode = FogMode.Linear;
+            RenderSettings.fogColor = Hex("#D7F1FA");
+            RenderSettings.fogStartDistance = 150f;
+            RenderSettings.fogEndDistance = 1300f;
+            RenderSettings.ambientMode = AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(0.62f, 0.66f, 0.74f);
+            CreateLight(Quaternion.Euler(40f, 205f, 0f), 1.4f, shadows: false);
+            var sun = Object.FindAnyObjectByType<Light>();
+            sun.color = Hex("#FFEBC2");
+
+            var cam = CreateCamera(horizon);
+            cam.clearFlags = CameraClearFlags.Skybox;
+            cam.nearClipPlane = 0.3f;
+            cam.farClipPlane = 1500f;
+            var view = VolleyGame.CameraViews[0];
+            cam.fieldOfView = view.Fov;
+            cam.transform.SetPositionAndRotation(new Vector3(0f, view.Height, -(VolleyMatch.HalfLength + view.Behind)), Quaternion.Euler(view.Pitch, 0f, 0f));
+            cam.GetUniversalAdditionalCameraData().renderPostProcessing = true;
+            var post = new GameObject("Post Processing").AddComponent<Volume>();
+            post.isGlobal = true;
+            post.sharedProfile = PostProfile("Assets/Games/Volley/VolleyPost.asset", contrast: 6f, saturation: 4f, exposure: 0f, vignette: 0.16f);
+
+            CreateMotionRig(fullScreenOverlay: false);
+
+            var game = new GameObject("Volley").AddComponent<VolleyGame>();
+            Set(game, "cam", cam);
+            Set(game, "sun", sun);
+            Set(game, "actorMaterial", ToonIn(VolleyMaterialsDir, "Actor", gloss: 0.6f, rim: 0.18f, vertex: true));
+            Set(game, "sparkMaterial", FxMat("Spark", "fx_star.png", Color.white, folder: VolleyMaterialsDir));
+            Set(game, "dotMaterial", FxMat("Dot", "fx_dot.png", Color.white, folder: VolleyMaterialsDir));
+            Set(game, "trailMaterial", FxMat("Trail", null, Color.white, additive: true, folder: VolleyMaterialsDir));
+            Set(game, "shadowMaterial", FxMat("Shadow", null, Color.white, folder: VolleyMaterialsDir));
+            Set(game, "glowMaterial", FxMat("Glow", "fx_dot.png", Color.white, additive: true, folder: VolleyMaterialsDir));
+            Set(game, "skyMaterial", sky);
+            Set(game, "waterMaterial", ShaderMat(VolleyMaterialsDir, "Water", "Tundu/Water"));
+            SetSportsArt(game, VolleyMaterialsDir);
+            EditorSceneManager.SaveScene(scene, VolleyScenePath);
+        }
+
+        /// <summary>
+        /// Gara!: the track is built by the game from code (KartWorld: the road, the ground, the scenery from art/kart's
+        /// props and Vrapo!'s dino valley), its daylight set per track. Tenis!'s look and settings: no real-time shadows
+        /// (KartFx draws soft ones), gentle post-processing (the box has none), the chase camera placed every frame.
+        /// </summary>
+        [MenuItem("MoveIt/Build Kart Scene")]
+        public static void BuildKartScene()
+        {
+            EnsureFolder(KartMaterialsDir);
+            var horizon = Hex("#CBEFFA");
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            var sky = SkyMat(horizon, KartMaterialsDir, top: Hex("#1F7FE6"), bottom: Hex("#7FC9E0"));
+            RenderSettings.skybox = sky;
+            RenderSettings.fog = true;
+            RenderSettings.fogMode = FogMode.Linear;
+            RenderSettings.fogColor = Hex("#D7F1FA");
+            RenderSettings.fogStartDistance = 140f;
+            RenderSettings.fogEndDistance = 700f;
+            RenderSettings.ambientMode = AmbientMode.Flat;
+            RenderSettings.ambientLight = new Color(0.62f, 0.66f, 0.74f);
+            CreateLight(Quaternion.Euler(42f, 205f, 0f), 1.35f, shadows: false);
+            var sun = Object.FindAnyObjectByType<Light>();
+            sun.color = Hex("#FFEBC2");
+
+            var cam = CreateCamera(horizon);
+            cam.clearFlags = CameraClearFlags.Skybox;
+            cam.nearClipPlane = 0.3f;
+            cam.farClipPlane = 900f;
+            cam.fieldOfView = KartGame.CameraViews[0].Fov;
+            cam.transform.SetPositionAndRotation(new Vector3(0f, 3f, -10f), Quaternion.Euler(10f, 90f, 0f));
+            cam.GetUniversalAdditionalCameraData().renderPostProcessing = true;
+            var post = new GameObject("Post Processing").AddComponent<Volume>();
+            post.isGlobal = true;
+            post.sharedProfile = PostProfile("Assets/Games/Kart/KartPost.asset", contrast: 6f, saturation: 6f, exposure: 0f, vignette: 0.14f);
+
+            CreateMotionRig(fullScreenOverlay: false);
+
+            var game = new GameObject("Kart").AddComponent<KartGame>();
+            Set(game, "cam", cam);
+            Set(game, "sun", sun);
+            Set(game, "skyMaterial", sky);
+            Set(game, "sparkMaterial", FxMat("Spark", "fx_star.png", Color.white, folder: KartMaterialsDir));
+            Set(game, "dotMaterial", FxMat("Dot", "fx_dot.png", Color.white, folder: KartMaterialsDir));
+            Set(game, "shadowMaterial", FxMat("Shadow", null, Color.white, folder: KartMaterialsDir));
+            Set(game, "actorMaterial", ToonIn(KartMaterialsDir, "Actor", gloss: 0.6f, rim: 0.18f, vertex: true));
+
+            // the track: the road and the ground in vertex colours on Tundu/Toon's simple path (they fill the screen), the
+            // ground with the grass's detail tiled over the world
+            var road = ToonIn(KartMaterialsDir, "Road", gloss: 0f, rim: 0f, vertex: true);
+            road.SetFloat("_Ambient", 0.26f);
+            road.SetColor("_ShadeColor", new Color(0.62f, 0.64f, 0.82f));
+            road.EnableKeyword("_TOON_SIMPLE");
+            EditorUtility.SetDirty(road);
+            Set(game, "world.road", road);
+            var ground = ToonIn(KartMaterialsDir, "Ground", gloss: 0f, rim: 0f, vertex: true);
+            ground.SetFloat("_Ambient", 0.26f);
+            ground.EnableKeyword("_TOON_SIMPLE");
+            ground.EnableKeyword("_WORLD_DETAIL");
+            ground.SetTexture("_BaseMap", KartGrassDetail());
+            ground.SetFloat("_DetailScale", 0.12f);
+            ground.SetFloat("_DetailStrength", 0.2f);
+            EditorUtility.SetDirty(ground);
+            Set(game, "world.ground", ground);
+            var props = ToonIn(KartMaterialsDir, "Props", gloss: 0f, rim: 0.08f, vertex: false);
+            props.SetTexture("_BaseMap", AssetDatabase.LoadAssetAtPath<Texture2D>($"{KartArtDir}/tundu_palette.png"));
+            props.SetFloat("_Ambient", 0.3f);
+            props.EnableKeyword("_TOON_SIMPLE");
+            EditorUtility.SetDirty(props);
+            Set(game, "world.props", props);
+            var stars = ToonIn(KartMaterialsDir, "Stars", gloss: 0.9f, rim: 0.35f, vertex: false);
+            stars.SetColor("_BaseColor", Hex("#FFC93C"));
+            stars.SetColor("_EmissionColor", Hex("#FFC93C") * 0.35f);
+            EditorUtility.SetDirty(stars);
+            Set(game, "world.stars", stars);
+            Set(game, "world.pads", FxMat("Pads", null, Color.white, additive: true, folder: KartMaterialsDir));
+            Set(game, "world.water", ShaderMat(KartMaterialsDir, "Water", "Tundu/Water"));
+            var crowd = ShaderMat(KartMaterialsDir, "Crowd", "Tundu/Crowd");
+            crowd.SetTexture("_BaseMap", AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/Games/Sports/Art/crowd_atlas.png"));
+            Set(game, "world.crowd", crowd);
+            Set(game, "world.kartProps", AssetDatabase.LoadAssetAtPath<GameObject>($"{KartArtDir}/KartProps.fbx"));
+            SetArray(game, "world.dinoProps", new[] { "Fern1", "Fern2", "Cycad1", "Cycad2", "Rock1", "Rock2", "Boulders", "Volcano" }
+                .Select(n => (Object)AssetDatabase.LoadAssetAtPath<GameObject>($"{RunnerArtDir}/{n}.fbx")).ToArray());
+            Set(game, "world.dino", AssetDatabase.LoadAssetAtPath<GameObject>(DinoModelPath));
+            Set(game, "world.ptero", AssetDatabase.LoadAssetAtPath<GameObject>($"{RunnerArtDir}/Ptero.fbx"));
+            Set(game, "world.dinoController", AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>(DinoControllerPath));
+            Set(game, "world.pteroController", AssetDatabase.LoadAssetAtPath<RuntimeAnimatorController>($"{RunnerArtDir}/Ptero.controller"));
+
+            // the kart: art/kart's model, coloured by region with the chibis' shader (closed pieces: back faces culled)
+            Set(game, "models.kart", AssetDatabase.LoadAssetAtPath<GameObject>($"{KartArtDir}/Kart.fbx"));
+            var paint = AthleteMat(KartMaterialsDir);
+            paint.SetFloat("_Cull", (float)CullMode.Back);
+            EditorUtility.SetDirty(paint);
+            Set(game, "models.paint", paint);
+            Set(game, "models.glow", FxMat("Glow", "fx_dot.png", Color.white, additive: true, folder: KartMaterialsDir));
+            EditorSceneManager.SaveScene(scene, KartScenePath);
+        }
+
+        /// <summary>The ground's grass detail (Tenis!'s, drawn in code) as an asset its material keeps.</summary>
+        static Texture2D KartGrassDetail()
+        {
+            string path = $"{KartMaterialsDir}/GrassDetail.asset";
+            var tex = TennisArt.GrassDetail();
+            var old = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+            if (old == null) AssetDatabase.CreateAsset(tex, path);
+            else
+            {
+                EditorUtility.CopySerialized(tex, old);
+                Object.DestroyImmediate(tex);
+                EditorUtility.SetDirty(old);
+            }
+            AssetDatabase.SaveAssets();
+            return AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+        }
+
+        /// <summary>Sporte!'s venues and their materials on a game's serialized <c>art</c> (SportsArt): Sporte! and
+        /// Volejboll! (the beach).</summary>
+        static void SetSportsArt(Object game, string materials)
+        {
+            const string art = "Assets/Games/Sports/Art", tex = art + "/Textures", venues = art + "/Venues";
+            T Load<T>(string path) where T : Object => AssetDatabase.LoadAssetAtPath<T>(path);
+            Set(game, "art.football", Load<GameObject>(venues + "/Football.fbx"));
+            Set(game, "art.track", Load<GameObject>(venues + "/Track.fbx"));
+            Set(game, "art.beach", Load<GameObject>(venues + "/Beach.fbx"));
+            Set(game, "art.footballSeats", Load<TextAsset>(venues + "/Football_crowd.txt"));
+            Set(game, "art.trackSeats", Load<TextAsset>(venues + "/Track_crowd.txt"));
+            Set(game, "art.beachSeats", Load<TextAsset>(venues + "/Beach_crowd.txt"));
+            Set(game, "art.grassDetail", Load<Texture2D>(tex + "/grass_detail.png"));
+            Set(game, "art.trackDetail", Load<Texture2D>(tex + "/track_detail.png"));
+            Set(game, "art.sandDetail", Load<Texture2D>(tex + "/sand_detail.png"));
+            // the venues fill most of the screen: Tundu/Toon's simple path (no rim or gloss, sky light per vertex) saves the
+            // TV box's GPU a lot per pixel
+            var world = ToonIn(materials, "VenueWorld", gloss: 0f, rim: 0f, vertex: true);
+            world.SetFloat("_Ambient", 0.42f);
+            world.SetFloat("_ShadowStrength", 0.62f);
+            world.EnableKeyword("_TOON_SIMPLE");
+            Set(game, "art.world", world);
+            var ground = ToonIn(materials, "VenueGround", gloss: 0f, rim: 0f, vertex: true);
+            ground.SetTexture("_BaseMap", Load<Texture2D>(tex + "/grass_detail.png"));
+            ground.SetFloat("_Ambient", 0.42f);
+            ground.SetFloat("_ShadowStrength", 0.6f);
+            ground.EnableKeyword("_TOON_SIMPLE");
+            Set(game, "art.ground", ground);
+            var boards = ShaderMat(materials, "Boards", "Tundu/Screen");
+            boards.SetTexture("_BaseMap", Load<Texture2D>(tex + "/ads.png"));
+            boards.SetTextureScale("_BaseMap", new Vector2(1f / 24f, 1f));
+            boards.SetFloat("_Scroll", 0.012f);
+            boards.SetVector("_LedDensity", new Vector4(2400f, 100f, 0f, 0f));
+            Set(game, "art.boards", boards);
+            var screen = ShaderMat(materials, "BigScreen", "Tundu/Screen");
+            screen.SetTexture("_BaseMap", Load<Texture2D>(tex + "/screen.png"));
+            screen.SetVector("_LedDensity", new Vector4(330f, 150f, 0f, 0f));
+            Set(game, "art.screen", screen);
+            var net = ShaderMat(materials, "Net", "Tundu/Net");
+            net.SetTexture("_BaseMap", Load<Texture2D>(tex + "/net.png"));
+            Set(game, "art.net", net);
+            var crowd = ShaderMat(materials, "Crowd", "Tundu/Crowd");
+            crowd.SetTexture("_BaseMap", Load<Texture2D>(art + "/crowd_atlas.png"));
+            Set(game, "art.crowd", crowd);
+        }
+
+        /// <summary>Sporte!: one scene for its events (each builds its own world in code and sets the sky, fog and
         /// sun).</summary>
         [MenuItem("MoveIt/Build Sports Scene")]
         public static void BuildSportsScene()
@@ -483,46 +742,7 @@ namespace MoveIt.EditorTools
                 SetArray(game, "athleteClips", AssetDatabase.LoadAllAssetsAtPath(fbx).OfType<AnimationClip>()
                     .Where(c => !c.name.StartsWith("__preview__")).Cast<Object>().ToArray());
                 // the venues (art/sports/venues.py), their textures (tools/sports/textures.py) and materials
-                const string art = "Assets/Games/Sports/Art", tex = art + "/Textures", venues = art + "/Venues";
-                T Load<T>(string path) where T : Object => AssetDatabase.LoadAssetAtPath<T>(path);
-                Set(game, "art.football", Load<GameObject>(venues + "/Football.fbx"));
-                Set(game, "art.track", Load<GameObject>(venues + "/Track.fbx"));
-                Set(game, "art.beach", Load<GameObject>(venues + "/Beach.fbx"));
-                Set(game, "art.footballSeats", Load<TextAsset>(venues + "/Football_crowd.txt"));
-                Set(game, "art.trackSeats", Load<TextAsset>(venues + "/Track_crowd.txt"));
-                Set(game, "art.beachSeats", Load<TextAsset>(venues + "/Beach_crowd.txt"));
-                Set(game, "art.grassDetail", Load<Texture2D>(tex + "/grass_detail.png"));
-                Set(game, "art.trackDetail", Load<Texture2D>(tex + "/track_detail.png"));
-                Set(game, "art.sandDetail", Load<Texture2D>(tex + "/sand_detail.png"));
-                // the venues fill most of the screen: Tundu/Toon's simple path (no rim or gloss, sky light per vertex)
-                // saves the TV box's GPU a lot per pixel
-                var world = ToonIn(SportsMaterialsDir, "VenueWorld", gloss: 0f, rim: 0f, vertex: true);
-                world.SetFloat("_Ambient", 0.42f);
-                world.SetFloat("_ShadowStrength", 0.62f);
-                world.EnableKeyword("_TOON_SIMPLE");
-                Set(game, "art.world", world);
-                var ground = ToonIn(SportsMaterialsDir, "VenueGround", gloss: 0f, rim: 0f, vertex: true);
-                ground.SetTexture("_BaseMap", Load<Texture2D>(tex + "/grass_detail.png"));
-                ground.SetFloat("_Ambient", 0.42f);
-                ground.SetFloat("_ShadowStrength", 0.6f);
-                ground.EnableKeyword("_TOON_SIMPLE");
-                Set(game, "art.ground", ground);
-                var boards = ShaderMat(SportsMaterialsDir, "Boards", "Tundu/Screen");
-                boards.SetTexture("_BaseMap", Load<Texture2D>(tex + "/ads.png"));
-                boards.SetTextureScale("_BaseMap", new Vector2(1f / 24f, 1f));
-                boards.SetFloat("_Scroll", 0.012f);
-                boards.SetVector("_LedDensity", new Vector4(2400f, 100f, 0f, 0f));
-                Set(game, "art.boards", boards);
-                var screen = ShaderMat(SportsMaterialsDir, "BigScreen", "Tundu/Screen");
-                screen.SetTexture("_BaseMap", Load<Texture2D>(tex + "/screen.png"));
-                screen.SetVector("_LedDensity", new Vector4(330f, 150f, 0f, 0f));
-                Set(game, "art.screen", screen);
-                var net = ShaderMat(SportsMaterialsDir, "Net", "Tundu/Net");
-                net.SetTexture("_BaseMap", Load<Texture2D>(tex + "/net.png"));
-                Set(game, "art.net", net);
-                var crowd = ShaderMat(SportsMaterialsDir, "Crowd", "Tundu/Crowd");
-                crowd.SetTexture("_BaseMap", Load<Texture2D>(art + "/crowd_atlas.png"));
-                Set(game, "art.crowd", crowd);
+                SetSportsArt(game, SportsMaterialsDir);
             });
         }
 
@@ -628,7 +848,7 @@ namespace MoveIt.EditorTools
 
         /// <summary>Tundu/Toon for Tenis! (flat world): with vertex colours (alpha = gloss) for the merged players and
         /// stadium, or a plain colour.</summary>
-        static Material TennisToon(string name, float gloss, float rim, bool vertex = true)
+        static Material TennisToon(string name, float gloss, float rim, bool vertex = true, bool simple = false)
         {
             string path = $"{TennisMaterialsDir}/{name}.mat";
             var shader = Shader.Find("Tundu/Toon");
@@ -650,6 +870,8 @@ namespace MoveIt.EditorTools
             mat.SetFloat("_ShadowStrength", 0.55f);
             mat.SetColor("_RimColor", new Color(1f, 1f, 1f, rim));
             mat.SetColor("_EmissionColor", Color.black);
+            if (simple) mat.EnableKeyword("_TOON_SIMPLE");
+            else mat.DisableKeyword("_TOON_SIMPLE");
             mat.enableInstancing = false;
             EditorUtility.SetDirty(mat);
             return mat;
@@ -953,7 +1175,7 @@ namespace MoveIt.EditorTools
             return mat;
         }
 
-        static Material SkyMat(Color horizon, string folder = RunnerMaterialsDir)
+        static Material SkyMat(Color horizon, string folder = RunnerMaterialsDir, Color? top = null, Color? bottom = null)
         {
             string path = $"{folder}/Sky.mat";
             var shader = Shader.Find("Tundu/Sky");
@@ -964,9 +1186,9 @@ namespace MoveIt.EditorTools
                 AssetDatabase.CreateAsset(mat, path);
             }
             mat.shader = shader;
-            mat.SetColor("_TopColor", Hex("#5BB8F2"));
+            mat.SetColor("_TopColor", top ?? Hex("#5BB8F2"));
             mat.SetColor("_HorizonColor", horizon);
-            mat.SetColor("_BottomColor", Hex("#BDE3DC"));
+            mat.SetColor("_BottomColor", bottom ?? Hex("#BDE3DC"));
             EditorUtility.SetDirty(mat);
             return mat;
         }
@@ -974,18 +1196,18 @@ namespace MoveIt.EditorTools
         /// <summary>Colour grading, a soft vignette and a gentle bloom on the brightest bits (eggs, sparkles).</summary>
         static VolumeProfile RunnerPostProfile() => PostProfile("Assets/Games/Runner/RunnerPost.asset");
 
-        static VolumeProfile PostProfile(string path)
+        static VolumeProfile PostProfile(string path, float contrast = 14f, float saturation = 18f, float exposure = 0.1f, float vignette = 0.22f)
         {
             AssetDatabase.DeleteAsset(path);
             var profile = ScriptableObject.CreateInstance<VolumeProfile>();
             AssetDatabase.CreateAsset(profile, path);
             var color = profile.Add<ColorAdjustments>(true);
-            color.postExposure.Override(0.1f);
-            color.contrast.Override(14f);
-            color.saturation.Override(18f);
-            var vignette = profile.Add<Vignette>(true);
-            vignette.intensity.Override(0.22f);
-            vignette.smoothness.Override(0.45f);
+            color.postExposure.Override(exposure);
+            color.contrast.Override(contrast);
+            color.saturation.Override(saturation);
+            var vignetteFx = profile.Add<Vignette>(true);
+            vignetteFx.intensity.Override(vignette);
+            vignetteFx.smoothness.Override(0.45f);
             var bloom = profile.Add<Bloom>(true);
             bloom.threshold.Override(1.05f);
             bloom.intensity.Override(0.35f);

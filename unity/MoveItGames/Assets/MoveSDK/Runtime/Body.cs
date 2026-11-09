@@ -24,6 +24,8 @@ namespace MoveIt.Motion
         public const float MinSpeedInterval = 0.012f;
 
         public int Id { get; internal set; }
+        /// <summary>The motion service's track for this person (protocol <c>tid</c>), 0 if it doesn't send one.</summary>
+        public int ServiceTrack { get; internal set; }
         public float Score { get; internal set; }
         public float Aspect { get; internal set; } = 16f / 9f;
 

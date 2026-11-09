@@ -23,6 +23,8 @@ Shader "Tundu/Toon"
         _GlossPower ("Gloss Tightness", Range(4, 128)) = 32
         [HDR] _EmissionColor ("Emission", Color) = (0, 0, 0, 0)
         _FlashColor ("Flash (alpha = amount)", Color) = (1, 1, 1, 0)
+        _DetailScale ("World Detail Tiling (1/m, with _WORLD_DETAIL)", Float) = 0.25
+        _DetailStrength ("World Detail Strength", Range(0, 1)) = 0.12
     }
 
     SubShader
@@ -48,6 +50,8 @@ Shader "Tundu/Toon"
             half _GlossPower;
             half4 _EmissionColor;
             half4 _FlashColor;
+            float _DetailScale;
+            half _DetailStrength;
         CBUFFER_END
 
         float _TunduCurve;
@@ -73,6 +77,7 @@ Shader "Tundu/Toon"
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
             #pragma shader_feature_local _TOON_SIMPLE
+            #pragma shader_feature_local _WORLD_DETAIL
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
@@ -123,7 +128,15 @@ Shader "Tundu/Toon"
 
             half4 frag(Varyings i) : SV_Target
             {
+            #if defined(_WORLD_DETAIL)
+                // _BaseMap is a one-channel detail tiled over the world's x and z (Tenis!'s grass: soft patches and mowing
+                // streaks), on surfaces facing up only; the same one sample the palette texture costs
+                half detail = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, i.positionWS.xz * _DetailScale).r;
+                half up = saturate(i.normalWS.y * 3.0h - 1.5h);
+                half3 albedo = _BaseColor.rgb * i.color.rgb * (1.0h + (detail - 0.5h) * 2.0h * _DetailStrength * up);
+            #else
                 half3 albedo = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, i.uv).rgb * _BaseColor.rgb * i.color.rgb;
+            #endif
                 albedo = lerp(albedo, _FlashColor.rgb, _FlashColor.a);
                 float3 n = normalize(i.normalWS);
                 Light light = GetMainLight(TransformWorldToShadowCoord(i.positionWS));

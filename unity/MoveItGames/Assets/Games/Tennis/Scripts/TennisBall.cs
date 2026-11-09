@@ -4,15 +4,16 @@ using UnityEngine;
 namespace MoveIt.Games.Tennis
 {
     /// <summary>
-    /// A real court (metres; singles is played, the doubles alleys are drawn but out): the net along x at z = 0, the player's team (0) at z &lt; 0 facing +z, the other
-    /// team (1) at z &gt; 0 facing -z. x grows to the right as the player sees it (the camera is behind team 0).
+    /// A real court (metres; doubles is played: the alleys are in after the serve): the net along x at z = 0, the player's
+    /// team (0) at z &lt; 0 facing +z, the other team (1) at z &gt; 0 facing -z. x grows to the right as the player sees it
+    /// (the camera is behind team 0).
     /// </summary>
     public static class Court
     {
         public const float HalfLength = 11.885f;
-        /// <summary>The doubles sidelines (drawn; the net posts stand outside them).</summary>
+        /// <summary>The doubles sidelines (the net posts stand outside them).</summary>
         public const float HalfWidth = 5.485f;
-        /// <summary>The singles sidelines: the court that's played, and the service boxes' width.</summary>
+        /// <summary>The singles sidelines: the service boxes' width.</summary>
         public const float SinglesHalfWidth = 4.115f;
         /// <summary>The service line's distance from the net.</summary>
         public const float ServiceLine = 6.40f;
@@ -38,12 +39,13 @@ namespace MoveIt.Games.Tennis
         /// <summary>The team whose half <paramref name="z"/> is in.</summary>
         public static int TeamAt(float z) => z < 0f ? 0 : 1;
 
-        /// <summary>A bounce at <paramref name="p"/> is in <paramref name="team"/>'s half of the singles court (a ball
-        /// touching a line is in).</summary>
-        public static bool InCourt(Vector3 p, int team)
+        /// <summary>A bounce at <paramref name="p"/> is in <paramref name="team"/>'s half of the court (a ball touching a
+        /// line is in): the doubles court with its alleys, or the singles court.</summary>
+        public static bool InCourt(Vector3 p, int team, bool doubles = true)
         {
             float depth = p.z * Side(team);
-            return depth >= 0f && depth <= HalfLength + BallRadius && Mathf.Abs(p.x) <= SinglesHalfWidth + BallRadius;
+            float half = doubles ? HalfWidth : SinglesHalfWidth;
+            return depth >= 0f && depth <= HalfLength + BallRadius && Mathf.Abs(p.x) <= half + BallRadius;
         }
 
         /// <summary>A serve bouncing at <paramref name="p"/> is in the box of <paramref name="receiver"/>: the deuce
@@ -56,18 +58,30 @@ namespace MoveIt.Games.Tennis
         }
     }
 
-    /// <summary>The ball: where, how fast, and its spin (+1 = heavy topspin, -1 = slice).</summary>
+    /// <summary>The ball: where, how fast, its spin (+1 = heavy topspin, -1 = slice) and its pace.</summary>
     public struct BallState
     {
         public Vector3 Position, Velocity;
         public float Spin;
+        /// <summary>
+        /// How fast time runs for this ball (0 counts as 1): its gravity is <see cref="BallPhysics.GravityFor"/> times
+        /// the pace squared. A shot aimed with <see cref="BallPhysics.Aim"/> and launched with its velocity times the pace
+        /// flies exactly the same arc, bounces as high and lands on the same spot, only slower (below 1) or quicker: the
+        /// rally's pace (<see cref="TennisMatch.PaceFor"/>) changes the ball's speed without changing where a racket can
+        /// meet it.
+        /// </summary>
+        public float Pace;
 
-        public BallState(Vector3 position, Vector3 velocity, float spin = 0f)
+        public BallState(Vector3 position, Vector3 velocity, float spin = 0f, float pace = 1f)
         {
             Position = position;
             Velocity = velocity;
             Spin = spin;
+            Pace = pace;
         }
+
+        /// <summary><see cref="Pace"/>, a default (zero) one counting as 1.</summary>
+        public float TimeScale => Pace > 0f ? Pace : 1f;
     }
 
     /// <summary>What happened to the ball during one step.</summary>
@@ -85,7 +99,9 @@ namespace MoveIt.Games.Tennis
 
     /// <summary>
     /// The ball's flight: gravity (spin changes how fast it drops: topspin dips, slice floats), bounces that keep less
-    /// speed for a slice and kick on for topspin, the net. Fixed steps integrated exactly for constant gravity, so a path
+    /// speed for a slice and kick on for topspin, the net. There's no air drag, so slow balls come down steeper than real
+    /// ones: bounces keep half the fall (a real ball keeps ~0.74), so a ball reaches the player at a height a racket can
+    /// meet (with 0.74 a slow ball came to the baseline at up to 3.7 m). Fixed steps integrated exactly for constant gravity, so a path
     /// predicted ahead is the path the ball will fly (players run to where it will really be). No air drag: shots are
     /// aimed with <see cref="Aim"/>, which knows the same physics.
     /// </summary>
@@ -97,12 +113,22 @@ namespace MoveIt.Games.Tennis
         /// <summary>Gravity with spin: topspin pulls the ball down faster, slice holds it up a little.</summary>
         public static float GravityFor(float spin) => Gravity * (1f + (spin >= 0f ? 0.45f : 0.22f) * spin);
 
+        /// <summary>The gravity this ball flies under: its spin's, times its pace squared (<see cref="BallState.Pace"/>).</summary>
+        public static float GravityOf(in BallState b)
+        {
+            float pace = b.TimeScale;
+            return GravityFor(b.Spin) * pace * pace;
+        }
+
+        /// <summary>The ball is rolling (or lying) on the ground: no more bounces, gravity no longer pulls it.</summary>
+        public static bool Resting(in BallState b) => b.Position.y <= Court.BallRadius + 1e-4f && Mathf.Abs(b.Velocity.y) < 1e-3f;
+
         /// <summary>Advances the ball by <paramref name="dt"/> (at most one <see cref="Step"/> for exact bounces).</summary>
         public static BallEvent Advance(ref BallState b, float dt)
         {
             var before = b.Position;
             var velocityBefore = b.Velocity;
-            float g = b.Position.y <= Court.BallRadius + 1e-4f && Mathf.Abs(b.Velocity.y) < 1e-3f ? 0f : GravityFor(b.Spin);
+            float g = Resting(b) ? 0f : GravityOf(b);
             b.Position += b.Velocity * dt + Vector3.down * (0.5f * g * dt * dt);
             b.Velocity.y -= g * dt;
 
@@ -132,11 +158,11 @@ namespace MoveIt.Games.Tennis
                 b.Velocity = velocityBefore + Vector3.down * (g * s);
                 b.Position.y = Court.BallRadius;
                 float spin = b.Spin;
-                float bounce = spin < 0f ? 0.66f + 0.08f * spin : 0.74f + 0.04f * spin;   // slice stays low
+                float bounce = spin < 0f ? 0.44f + 0.08f * spin : 0.5f + 0.04f * spin;   // slice stays low
                 float keep = spin < 0f ? 0.76f + 0.06f * spin : 0.8f + 0.08f * spin;      // topspin kicks on
                 b.Velocity = new Vector3(b.Velocity.x * keep, -b.Velocity.y * bounce, b.Velocity.z * keep);
                 b.Spin *= 0.4f;
-                if (b.Velocity.y < 0.6f)
+                if (b.Velocity.y < 0.6f * b.TimeScale)   // (a slow ball's bounces are as high as a quick one's)
                 {
                     b.Velocity.y = 0f;     // rolling
                     b.Velocity *= 0.9f;

@@ -18,26 +18,31 @@ import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Arrays;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
- * The pose AI, one frame at a time, synchronously, on the camera analysis thread. The camera keeps only its latest
- * frame while we're busy, so every result is for the newest possible frame (lowest latency), and there are no
- * callbacks that could get lost. Where it runs:
+ * The pose AI on the camera analysis thread. The camera keeps only its latest frame while we're busy, so every result
+ * is for the newest possible frame (lowest latency). Where it runs:
  * <ul>
  * <li>A Rockchip NPU first (the TV boxes: the GPU stays free for the games; {@link NpuPose}), when the APK has the
- *     models built for this chip and the NPU runs them.</li>
- * <li>Otherwise MediaPipe Pose Landmarker in VIDEO mode: the GPU delegate, the CPU if the GPU can't be used or keeps
- *     failing.</li>
+ *     models built for this chip and the NPU runs them. While someone is followed it's pipelined ({@link #submit}):
+ *     this thread makes a frame's crop while the NPU still runs the frame before on its own thread, which sends each
+ *     pose as soon as it's done. The person detector (nobody followed) runs here, synchronously.</li>
+ * <li>Otherwise MediaPipe Pose Landmarker in VIDEO mode, synchronously: the GPU delegate, the CPU if the GPU can't be
+ *     used or keeps failing.</li>
  * <li>Auto model: starts with "full" (more accurate) and switches to "lite" once if full is too slow on this device.</li>
  * </ul>
  */
 final class PoseEngine {
     private static final String TAG = "MoveItMotion";
     private static final float SLOW_MS = 40f;      // MediaPipe: the full model couldn't keep ~25 fps
-    // NPU, while following someone: the full model keeps the NPU busy more than ~70 % of a 30 fps frame. Heat, not speed:
-    // on the RK3566 full took ~29 ms (it kept up) and lite ~19; switching to lite took the NPU load 64 → 34 % and the
-    // SoC 77 → 75 °C within minutes (2026-10-31). A faster NPU (RK3576) keeps full.
-    private static final float NPU_SLOW_MS = 24f;
+    // NPU, while following someone: the NPU's part of a frame (its run, outputs, smoothing; the crop runs beside it)
+    // can't keep up with a 30 fps camera any more. On the RK3566 full takes ~19 ms idle (2026-11-01: the crop pipelined,
+    // the output reshapes out of the model, the heatmap read as float16; before: ~29 ms serial in a game, so lite was
+    // kept for heat since 2026-10-31: NPU 64 % busy against 34 %, ~2 °C). The user chose full (The Link's model).
+    private static final float NPU_SLOW_MS = 31f;
     /** Chips with RKNN builds of the models in the APK (pose_detector.<chip>.rknn, pose_landmarks_<model>.<chip>.rknn). */
     private static final String[] NPU_CHIPS = {"rk3566"};
 
@@ -51,8 +56,30 @@ final class PoseEngine {
     private volatile String detail = "";
     private long lastTimestamp = -1;
     private float slowAverage = -1f;
+    // people to follow (1 or 2), the landmark model's shared budget on the NPU (runs per second, 0 = everyone every
+    // frame), and the twin measurement (setPeople)
+    private int maxPeople = 1;
+    private float runsPerSecond = 0f;
+    private boolean twin, bench;
+    private int mediaPipePoses = 1;   // what the MediaPipe landmarker was created with
     private int frames;
     private int gpuErrors, npuErrors;
+
+    // The pipelined NPU (submit): its thread, the frame it's running, what it reports back
+    private final ExecutorService npuThread = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "pose-npu");
+        t.setDaemon(true);
+        return t;
+    });
+    private Future<?> inFlight;                     // analysis thread
+    private volatile boolean jobFailed;
+    private volatile float lastRunMs;
+    private final Pose pipelinedPose = new Pose();  // the NPU thread's
+
+    /** A pipelined frame's pose, delivered on the NPU thread as soon as it's done. ms = its crop + its NPU part. */
+    interface PipelinedResult {
+        void onPose(Pose pose, float ms);
+    }
 
     /** Cleared when the GPU fails at runtime: the next open() uses the CPU. */
     volatile boolean gpuAllowed = true;
@@ -86,6 +113,35 @@ final class PoseEngine {
         return npu != null ? "android-rknn-" + model : "android-mediapipe-" + delegate.toLowerCase() + "-" + model;
     }
 
+    /**
+     * Up to how many people to follow (1 or 2; two-player games ask for 2), the NPU's landmark runs per second shared by
+     * them (0 = each one every frame; 30 = they take turns, each ~15 times a second, the same NPU load as one person),
+     * and twin (one person's landmarks run twice: a second person's cost, PerfLab). Fewer than followed: track keep
+     * (the NPU's id) stays followed. bench: the NPU runs that many fixed crops as if they were people (their cost with
+     * nobody there). Call on the analysis thread.
+     */
+    void setPeople(int max, float rate, boolean twin, int keep, boolean bench) throws Exception {
+        max = Math.max(1, Math.min(NpuPose.MAX_PEOPLE, max));
+        if (max == maxPeople && rate == runsPerSecond && twin == this.twin && bench == this.bench) return;
+        maxPeople = max;
+        runsPerSecond = rate;
+        this.twin = twin;
+        this.bench = bench;
+        Log.i(TAG, "People: up to " + max + (max > 1 ? ", " + (rate > 0 ? Math.round(rate) + " landmark runs/s" : "each every frame") : "")
+                + (twin ? ", twin" : "") + (bench ? ", bench (fixed crops, nobody there)" : ""));
+        if (npu != null) {
+            finish();   // not while a pipelined frame runs
+            if (npu != null) npu.setPeople(maxPeople, runsPerSecond, this.twin, keep, this.bench);
+        } else if (landmarker != null && max != mediaPipePoses) {
+            open();     // MediaPipe takes the number of poses when it's created
+        }
+    }
+
+    int maxPeople() { return maxPeople; }
+
+    /** The NPU runs fixed crops as if they were people (measuring): the service mustn't idle for lack of anyone. */
+    boolean bench() { return bench && npu != null; }
+
     /** Creates the engine. Call on the analysis thread. */
     void open() throws Exception {
         close();
@@ -93,6 +149,7 @@ final class PoseEngine {
         slowAverage = -1f;
         if (npuAllowed && openNpu()) {
             delegate = "NPU";
+            npu.setPeople(maxPeople, runsPerSecond, twin, 0, bench);
             Log.i(TAG, "Pose model " + model + " on the NPU");
             return;
         }
@@ -129,6 +186,7 @@ final class PoseEngine {
     }
 
     private PoseLandmarker create(Delegate d) throws Exception {
+        mediaPipePoses = maxPeople;
         BaseOptions base = BaseOptions.builder()
                 .setModelAssetBuffer(loadAsset("pose_landmarker_" + model + ".task"))
                 .setDelegate(d)
@@ -136,7 +194,7 @@ final class PoseEngine {
         PoseLandmarker.PoseLandmarkerOptions options = PoseLandmarker.PoseLandmarkerOptions.builder()
                 .setBaseOptions(base)
                 .setRunningMode(RunningMode.VIDEO)
-                .setNumPoses(1)
+                .setNumPoses(maxPeople)
                 .setMinPoseDetectionConfidence(0.5f)
                 .setMinPosePresenceConfidence(0.5f)
                 .setMinTrackingConfidence(0.5f)
@@ -175,6 +233,7 @@ final class PoseEngine {
      * starts varies.
      */
     boolean detect(Bitmap frame, float[] inferenceMs, long captureNs, Pose pose) throws Exception {
+        finish();  // a pipelined frame still on the NPU first
         long timestamp = Math.max(captureNs, lastTimestamp + 1_000_000L);  // must increase
         lastTimestamp = timestamp;
         if (npu != null) return detectNpu(frame, null, 0, 0, 0, inferenceMs, timestamp, pose);
@@ -209,10 +268,73 @@ final class PoseEngine {
     /** The NPU straight from the camera's RGBA buffer (direct), without copying it into a Bitmap first. */
     boolean detect(ByteBuffer rgba, int width, int height, int rowStride, float[] inferenceMs, long captureNs, Pose pose)
             throws Exception {
+        finish();  // a pipelined frame still on the NPU first
         long timestamp = Math.max(captureNs, lastTimestamp + 1_000_000L);  // must increase
         lastTimestamp = timestamp;
         if (npu == null) return false;
         return detectNpu(null, rgba, width, height, rowStride, inferenceMs, timestamp, pose);
+    }
+
+    /**
+     * The NPU while someone is followed, pipelined: this frame's crop is made here (the camera's buffer is read now,
+     * so the frame can be closed when this returns), then, once the NPU is done with the frame before, it runs this one
+     * on its own thread and hands the pose to result there. The crop uses the newest crop box: the frame before's when
+     * the NPU finished it in time (MediaPipe's own chain), else the one before that (checked on a recorded clip: no
+     * loss of accuracy, docs/hardware.md). Returns false when this frame needs {@link #detect} instead: nobody
+     * followed (the person detector), the NPU isn't used, or the frame before lost the person.
+     */
+    boolean submit(ByteBuffer rgba, int width, int height, int rowStride, long captureNs, PipelinedResult result)
+            throws Exception {
+        NpuPose engine = npu;
+        if (engine == null || (inFlight == null && !engine.tracking())) return false;
+        long timestamp = Math.max(captureNs, lastTimestamp + 1_000_000L);  // must increase
+        int slot = engine.prepare(rgba, width, height, rowStride, timestamp);   // beside the NPU's run of the frame before
+        finish();                                                               // that frame's pose is out
+        if (npu != engine || slot < 0 || !engine.tracking()) return false;      // re-opened or lost: the detector now
+        lastTimestamp = timestamp;
+        inFlight = npuThread.submit(() -> run(engine, slot, result));
+        return true;
+    }
+
+    /** The NPU thread's part of a pipelined frame. */
+    private void run(NpuPose engine, int slot, PipelinedResult result) {
+        boolean found;
+        try {
+            found = engine.run(slot);
+        } catch (Throwable e) {
+            Log.w(TAG, "Pose frame failed on the NPU: " + e.getMessage());
+            jobFailed = true;
+            return;
+        }
+        lastRunMs = engine.landmarkMs;
+        detail = "crop " + Math.round(engine.cropMs) + " ms, landmarks " + Math.round(engine.landmarkMs) + " ms (NPU "
+                + Math.round(engine.npuMs) + ", pipelined)" + people(engine);
+        pipelinedPose.set(engine);
+        result.onPose(pipelinedPose, engine.cropMs + engine.landmarkMs);
+    }
+
+    /** Waits for the pipelined frame on the NPU, if any (its pose is sent by then); its errors and the auto model are
+     *  handled here, on the analysis thread. */
+    private void finish() throws Exception {
+        Future<?> job = inFlight;
+        if (job == null) return;
+        inFlight = null;
+        try {
+            job.get();
+        } catch (Exception e) {
+            jobFailed = true;
+        }
+        if (jobFailed) {
+            jobFailed = false;
+            if (++npuErrors >= 3) {
+                Log.w(TAG, "NPU keeps failing, switching to MediaPipe");
+                npuAllowed = false;
+                open();
+            }
+            return;
+        }
+        npuErrors = 0;
+        if (npu != null && npu.tracking()) autoModel(lastRunMs, NPU_SLOW_MS);
     }
 
     private boolean detectNpu(Bitmap frame, ByteBuffer rgba, int width, int height, int rowStride, float[] inferenceMs,
@@ -232,10 +354,20 @@ final class PoseEngine {
         }
         inferenceMs[0] = npu.totalMs;
         detail = (npu.detected ? "detector " + Math.round(npu.detectMs) + " ms, " : "")
-                + "landmarks " + Math.round(npu.landmarkMs) + " ms";
-        pose.set(npu, found);
-        if (found && !npu.detected) autoModel(npu.totalMs, NPU_SLOW_MS);  // following someone: the steady cost
+                + "landmarks " + Math.round(npu.landmarkMs) + " ms (crop " + Math.round(npu.cropMs) + ", NPU "
+                + Math.round(npu.npuMs) + ")" + people(npu);
+        pose.set(npu);
+        // following someone: the NPU's part of a frame, as in the pipelined runs (the crop runs beside it there)
+        if (found && !npu.detected) autoModel(npu.landmarkMs - npu.cropMs, NPU_SLOW_MS);
         return true;
+    }
+
+    /** The stats line's people part, when two may be followed: how many are, and this frame's landmark runs. */
+    private String people(NpuPose engine) {
+        if (maxPeople < 2 && !twin && !bench) return "";
+        return ", people " + engine.followed + "/" + maxPeople + " (" + engine.count + " run"
+                + (engine.count == 1 ? "" : "s") + (runsPerSecond > 0 ? ", budget " + Math.round(runsPerSecond) + "/s" : "")
+                + (twin ? ", twin" : "") + (bench ? ", bench" : "") + ")";
     }
 
     /** Auto model: after a warm-up, full drops to lite once if it's slower than slowMs per frame on average. */
@@ -251,6 +383,11 @@ final class PoseEngine {
     }
 
     void close() {
+        Future<?> job = inFlight;  // the NPU thread may still be running a frame on the engine about to go
+        inFlight = null;
+        if (job != null) {
+            try { job.get(); } catch (Throwable ignored) { }
+        }
         if (landmarker != null) {
             try { landmarker.close(); } catch (Throwable ignored) { }
             landmarker = null;

@@ -42,16 +42,19 @@ public final class MotionService implements LifecycleOwner {
     private volatile String error = "";
     private volatile String cameraName = "";
     private volatile float fps, inferenceMs, cameraFps;
-    private long lastResultAt, lastFrameAt, lastStatsLogAt;
+    private volatile long lastResultAt;    // the analysis thread's or the NPU thread's result, never both at once
+    private long lastFrameAt, lastStatsLogAt;
     /** Nobody seen for this long: the pose AI only looks every IDLE_INTERVAL_MS (~7 times a second). */
     private static final long IDLE_AFTER_MS = 2000, IDLE_INTERVAL_MS = 150;
-    private long lastPersonAt, lastAiAt;   // analysis thread only
+    private volatile long lastPersonAt;    // also set by pipelined results (the NPU thread)
+    private long lastAiAt;                 // analysis thread only
     private final float[] inference = new float[1];
     private final Pose pose = new Pose();  // analysis thread only
     private Bitmap reusedFrame;  // analysis thread only
     private volatile boolean snapshotRequested;
 
-    // Stutter diagnostics, counted between stats lines (analysis thread; tools/motion/frame_timing_sim.py): camera frames
+    // Stutter diagnostics, counted between stats lines (synchronized: results also come from the NPU thread when
+    // pipelined; tools/motion/frame_timing_sim.py): camera frames
     // the AI never saw (a gap between the capture times of two analysed frames, in camera frame intervals; the camera
     // keeps only the newest frame while the AI is busy), people lost (a frame with a person, the next without: the
     // detector runs again, ~43 ms on the box's NPU, and the smoothing starts over), and the slowest frame.
@@ -127,6 +130,19 @@ public final class MotionService implements LifecycleOwner {
         if (s != null) s.video.request(port, width, on);
     }
 
+    /**
+     * The camera frame size to ask for while running (the nearest the camera offers, larger first); 0 x 0 = the
+     * default (640 x 480: 1024 x 768 on the X98K Pro). PerfLab's camera= for comparing sizes on the box.
+     */
+    public static void setCameraSize(int width, int height) {
+        android.util.Size size = width > 0 && height > 0 ? new android.util.Size(width, height) : CameraSource.DEFAULT_SIZE;
+        cameraSize = size;   // a request before the service exists (PerfLab at startup) is used when it starts
+        MotionService s = instance;
+        if (s != null) s.activity.runOnUiThread(() -> s.camera.request(size));
+    }
+
+    private static volatile android.util.Size cameraSize = CameraSource.DEFAULT_SIZE;
+
     /** Switches the pose model ("auto", "full" or "lite") while running; the engine re-opens on the analysis thread. */
     public static void setModel(String model) {
         MotionService s = instance;
@@ -137,6 +153,31 @@ public final class MotionService implements LifecycleOwner {
                 s.fail("model: " + e.getMessage());
             }
         });
+    }
+
+    /**
+     * Up to how many people the pose AI follows (1 or 2: two-player games ask for 2 while they want a second player) and,
+     * on the NPU, the landmark model's runs per second shared by them (0 = each one every frame; 30 = they take turns, the
+     * same NPU load as one person). twin: one person's landmarks run twice (a second person's cost, PerfLab). Fewer than
+     * followed: keepTrack (a packet's "tid") stays followed, the others end. bench: the NPU runs maxPeople fixed crops as
+     * if they were people, their cost with nobody in front of the camera (PerfLab). Applied on the analysis thread; a
+     * request before the service exists is used when it starts.
+     */
+    public static void setPeople(int maxPeople, float runsPerSecond, boolean twin, int keepTrack, boolean bench) {
+        people = new float[]{maxPeople, runsPerSecond, twin ? 1 : 0, keepTrack, bench ? 1 : 0};
+        MotionService s = instance;
+        if (s != null) s.analysisThread.execute(s::applyPeople);
+    }
+
+    private static volatile float[] people = {1, 0, 0, 0, 0};
+
+    private void applyPeople() {
+        float[] p = people;
+        try {
+            engine.setPeople((int) p[0], p[1], p[2] > 0, (int) p[3], p[4] > 0);
+        } catch (Throwable e) {
+            fail("people: " + e.getMessage());
+        }
     }
 
     /**
@@ -162,6 +203,7 @@ public final class MotionService implements LifecycleOwner {
     private void boot() {
         analysisThread.execute(() -> {
             try {
+                applyPeople();
                 engine.open();
             } catch (Throwable e) {
                 fail("model: " + e.getMessage());
@@ -169,6 +211,7 @@ public final class MotionService implements LifecycleOwner {
             }
             activity.runOnUiThread(() -> {
                 lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_CREATE);
+                camera.request(cameraSize);   // not bound yet: only remembered for start()
                 camera.start(activity, this, analysisThread, this::analyze, new CameraSource.Callback() {
                     @Override
                     public void onStarted(String description) {
@@ -203,7 +246,7 @@ public final class MotionService implements LifecycleOwner {
      */
     private void analyze(@NonNull ImageProxy image) {
         long now = SystemClock.elapsedRealtime();
-        boolean idle = now - lastPersonAt > IDLE_AFTER_MS;
+        boolean idle = now - lastPersonAt > IDLE_AFTER_MS && !engine.bench();
         boolean videoOn = video.streaming();
         try {
             if (lastFrameAt > 0) cameraFps = smooth(cameraFps, 1000f / Math.max(1, now - lastFrameAt));
@@ -213,18 +256,20 @@ public final class MotionService implements LifecycleOwner {
             if (now - lastStatsLogAt > 5000) {
                 lastStatsLogAt = now;
                 String detail = engine.detail(), light = tuner.describe();
-                Log.i(TAG, "stats: camera " + round(cameraFps) + " fps, AI " + round(fps) + " fps, "
-                        + round(inferenceMs) + " ms, " + engine.delegate() + " " + engine.model()
-                        + (detail.isEmpty() ? "" : " (" + detail + ")") + ", " + state + (idle ? " (idle)" : "")
-                        + ", frame " + image.getWidth() + "x" + image.getHeight() + (light.isEmpty() ? "" : ", " + light)
-                        + ", gaps: " + skippedFrames + " camera frames skipped, " + peopleLost + " lost, worst "
-                        + round(worstMs) + " ms, frame age " + round(frameAgeMs) + " ms (" + frameClock + " clock)");
-                lastSkipped = skippedFrames;
-                lastLost = peopleLost;
-                if (shortestGapMs > 0) frameIntervalMs = shortestGapMs;
-                shortestGapMs = 0;
-                skippedFrames = peopleLost = 0;
-                worstMs = 0;
+                synchronized (this) {
+                    Log.i(TAG, "stats: camera " + round(cameraFps) + " fps, AI " + round(fps) + " fps, "
+                            + round(inferenceMs) + " ms, " + engine.delegate() + " " + engine.model()
+                            + (detail.isEmpty() ? "" : " (" + detail + ")") + ", " + state + (idle ? " (idle)" : "")
+                            + ", frame " + image.getWidth() + "x" + image.getHeight() + (light.isEmpty() ? "" : ", " + light)
+                            + ", gaps: " + skippedFrames + " camera frames skipped, " + peopleLost + " lost, worst "
+                            + round(worstMs) + " ms, frame age " + round(frameAgeMs) + " ms (" + frameClock + " clock)");
+                    lastSkipped = skippedFrames;
+                    lastLost = peopleLost;
+                    if (shortestGapMs > 0) frameIntervalMs = shortestGapMs;
+                    shortestGapMs = 0;
+                    skippedFrames = peopleLost = 0;
+                    worstMs = 0;
+                }
             }
             boolean runAi = !idle || now - lastAiAt >= IDLE_INTERVAL_MS;
             ImageProxy.PlaneProxy plane = image.getPlanes()[0];
@@ -267,6 +312,10 @@ public final class MotionService implements LifecycleOwner {
                 rgba.rewind();
                 width = image.getWidth();
                 height = image.getHeight();
+                // someone followed on the NPU: the crop here, the rest on the NPU's thread, which sends the pose itself
+                final int w = width, h = height;
+                if (engine.submit(rgba, w, h, plane.getRowStride(), captureNs,
+                        (result, ms) -> onPipelinedResult(result, ms, captureNs, idle, now, captureWall, w, h))) return;
                 ok = engine.detect(rgba, width, height, plane.getRowStride(), inference, captureNs, pose);
             } else {
                 width = frame.getWidth();
@@ -307,9 +356,17 @@ public final class MotionService implements LifecycleOwner {
         return reusedFrame;
     }
 
+    /** A pipelined frame's pose (PoseEngine.submit), on the NPU's thread: handled like a synchronous one. */
+    private void onPipelinedResult(Pose result, float ms, long captureNs, boolean idle, long frameAt, long captureWall,
+                                   int width, int height) {
+        countGaps(captureNs, idle, result.found, ms);
+        if (result.found) lastPersonAt = frameAt;
+        onPoseResult(result, captureWall, width, height, ms);
+    }
+
     /** The stutter diagnostics for one analysed frame (see the fields). Gaps count only between frames analysed while
      *  someone was being followed (not idle: then the AI looks every {@link #IDLE_INTERVAL_MS} on purpose). */
-    private void countGaps(long captureNs, boolean idle, boolean found, float ms) {
+    private synchronized void countGaps(long captureNs, boolean idle, boolean found, float ms) {
         if (!idle && !lastAnalysedIdle && lastAnalysedNs > 0) {
             float gapMs = (captureNs - lastAnalysedNs) / 1e6f;
             if (gapMs > 0 && gapMs < 250) {

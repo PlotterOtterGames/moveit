@@ -262,7 +262,80 @@ def make():
     sfx["sport_net"] = mix(1.0, (0, swish, 0.7), (0, S._tone_drum(130, 70, 0.06, 0.2), 0.5))
     sfx["sport_volley"] = mix(0.35, (0, S._tone_drum(210, 120, 0.04, 0.14), 0.9), (0, env(S.noise(int(SR * 0.04), 800, 5000, seed=98), 0.001, 0.03), 0.5),
                               (0.005, note(S.marimba, C6, vel=0.6), 0.2))
+    kart(sfx)
     return sfx
+
+
+def kart(sfx):
+    """Gara!: the engine and the drift's screech as seamless loops (the game pitches the engine with the speed), boosts,
+    the trick, pads, bumps, stars, gift boxes and the item's roulette, the items, laps."""
+    # the engine: a soft, buzzy toy two-stroke; whole cycles of every part in the loop's second (seamless)
+    n = SR
+    t = np.arange(n) / SR
+    f0 = 96.0
+    phase = 2 * np.pi * f0 * t
+    buzz = sum(a * np.sin(h * phase) for h, a in ((1, 1.0), (2, 0.55), (3, 0.38), (4, 0.22), (5, 0.14), (6, 0.08)))
+    putter = 0.72 + 0.28 * np.sin(2 * np.pi * 24 * t) ** 2          # the firing: 24 pulses a second
+    rumble = 0.25 * np.sin(2 * np.pi * 48 * t)
+    air = S.noise(n + int(SR * 0.2), 200, 1800, seed=301)
+    air = seamless(air, 0.2)[:n] * 0.18
+    sfx["kart_engine"] = (buzz * putter + rumble) * 0.55 + air
+    # the drift: a tyre's squeal, wobbling
+    n = int(SR * 1.2)
+    t = np.arange(n) / SR
+    squeal = S.noise(n, 1800, 3800, seed=302) * (0.7 + 0.3 * np.sin(2 * np.pi * 7 * t))
+    tone = 0.25 * np.sin(2 * np.pi * (2300 + 60 * np.sin(2 * np.pi * 3 * t)) * t)
+    sfx["kart_drift"] = seamless(squeal * 0.6 + tone, 0.2)
+    sfx["kart_drift_start"] = mix(0.35, (0, env(sweep(1900, 1500, 0.25, harmonics=((1, 1), (2, 0.2))), 0.005, 0.15), 0.3),
+                                  (0, env(S.noise(int(SR * 0.25), 1500, 4000, seed=303), 0.005, 0.2), 0.4))
+    # a boost: a whoosh up and a quick rising chime
+    whoosh = env(S.noise(int(SR * 0.6), 500, 6000, seed=304) * np.linspace(0.3, 1, int(SR * 0.6)) ** 2, 0.02, 0.25)
+    sfx["kart_boost"] = mix(0.8, (0, whoosh, 0.7), (0, env(sweep(300, 900, 0.5, shape=0.7, harmonics=((1, 1), (2, 0.4), (3, 0.2))), 0.01, 0.2), 0.25),
+                            *[(0.03 + 0.05 * i, note(S.glockenspiel, p, vel=0.6), 0.25) for i, p in enumerate((G5, B5, D5 + 12))])
+    # a trick: a sparkling run up and a happy "whee"
+    sfx["kart_trick"] = mix(0.9, *[(0.0 + 0.045 * i, note(S.glockenspiel, p, vel=0.7), 0.3) for i, p in enumerate((C6, E5 + 12, G5 + 12, C6 + 12))],
+                            (0, env(sweep(600, 1400, 0.35, shape=0.6, harmonics=((1, 1), (2, 0.3)), vibrato=0.01), 0.02, 0.12), 0.25),
+                            (0.05, note(S.marimba, G5), 0.4))
+    # a boost pad: a zap
+    sfx["kart_pad"] = mix(0.45, (0, env(sweep(320, 1500, 0.22, shape=0.5, harmonics=((1, 1), (3, 0.35), (5, 0.15))), 0.003, 0.1), 0.45),
+                          (0.06, note(S.glockenspiel, G5 + 12, vel=0.5), 0.25))
+    # a bump: a soft rubbery boing
+    n = int(SR * 0.3)
+    t = np.arange(n) / SR
+    boing = np.sin(2 * np.pi * np.cumsum(140 + 60 * np.exp(-t / 0.05) * np.cos(2 * np.pi * 22 * t)) / SR) * np.exp(-t / 0.09)
+    sfx["kart_bump"] = mix(0.35, (0, boing, 0.7), (0, S._tone_drum(170, 80, 0.05, 0.2), 0.6))
+    # a star: two bright notes
+    sfx["kart_star"] = mix(0.4, (0, note(S.marimba, B5, vel=0.7), 0.5), (0.06, note(S.glockenspiel, E5 + 12, vel=0.7), 0.4))
+    # a gift box: a pop and a sparkle
+    pop = env(S.noise(int(SR * 0.04), 400, 3000, seed=305), 0.001, 0.03)
+    sfx["kart_box"] = mix(0.6, (0, pop, 0.6), (0, S._tone_drum(500, 260, 0.03, 0.1), 0.5),
+                          *[(0.03 + 0.03 * i, note(S.glockenspiel, p, vel=0.5), 0.22) for i, p in enumerate((E5 + 12, G5 + 12, B5 + 12))])
+    # the roulette: ticks slowing down
+    ticks, at = [], 0.0
+    for i in range(10):
+        ticks.append((at, note(S.xylophone, (C6, E5 + 12, G5 + 12)[i % 3], dur=0.1, vel=0.5), 0.3))
+        at += 0.05 + 0.01 * i
+    sfx["kart_roll"] = mix(at + 0.2, *ticks)
+    sfx["kart_item"] = mix(0.7, (0, note(S.vibraphone, G5), 0.5), (0.1, note(S.vibraphone, D5 + 12), 0.5), (0.1, note(S.glockenspiel, G5 + 12, vel=0.5), 0.2))
+    # a rocket: a deep whoosh with a rumble
+    n = int(SR * 1.1)
+    t = np.arange(n) / SR
+    roar = S.noise(n, 80, 2500, seed=306) * np.clip(t / 0.05, 0, 1) * np.exp(-t / 0.5)
+    sfx["kart_rocket"] = mix(1.2, (0, roar, 0.8), (0, env(sweep(120, 480, 0.8, shape=0.6, harmonics=((1, 1), (2, 0.5))), 0.02, 0.3), 0.35))
+    # a shield: a bubble's bloop and a shimmer
+    sfx["kart_shield"] = mix(0.8, (0, env(sweep(300, 900, 0.3, shape=0.4, harmonics=((1, 1), (2, 0.2)), vibrato=0.02), 0.01, 0.15), 0.4),
+                             *[(0.12 + 0.04 * i, note(S.celesta, p, vel=0.5), 0.25) for i, p in enumerate((G5, C6, E5 + 12, G5 + 12))])
+    # honey: a gloopy blorp
+    sfx["kart_honey"] = mix(0.6, (0, env(sweep(420, 140, 0.4, shape=1.4, harmonics=((1, 1), (2, 0.3)), vibrato=0.05), 0.01, 0.2), 0.6),
+                            (0.05, env(S.noise(int(SR * 0.2), 150, 900, seed=307), 0.01, 0.15), 0.3))
+    # paint: a splat
+    sfx["kart_paint"] = mix(0.6, (0, env(S.noise(int(SR * 0.3), 300, 3000, seed=308), 0.002, 0.22), 0.7),
+                            (0, S._tone_drum(260, 90, 0.08, 0.3), 0.6), (0.1, env(sweep(700, 300, 0.25), 0.01, 0.15), 0.2))
+    # a lap, the last lap
+    sfx["kart_lap"] = mix(0.9, (0, note(S.vibraphone, G5), 0.5), (0.12, note(S.vibraphone, D5 + 12), 0.5), (0.12, note(S.glockenspiel, G5 + 12, vel=0.6), 0.3))
+    sfx["kart_final"] = mix(1.6, *[(0.0 + 0.11 * i, note(S.marimba, p), 0.5) for i, p in enumerate((G5 - 12, B5 - 12, D5, G5))],
+                            *[(0.44, note(S.vibraphone, p), 0.4) for p in (G5, B5, D5 + 12)], (0.44, note(S.glockenspiel, G5 + 12), 0.35),
+                            (0.44, S.drum(49, 0.8), 0.35))
 
 
 def ring(f, decay, seconds):

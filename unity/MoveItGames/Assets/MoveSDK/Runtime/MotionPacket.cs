@@ -26,6 +26,10 @@ namespace MoveIt.Motion
     public class PersonPacket
     {
         public int id;
+        /// <summary>v1.1 (2026-11-05): the service's track for this person, the same while it follows them (the box's NPU
+        /// engine; 0 = not known). With two people followed on the box, a packet may carry only one of them (they take
+        /// turns on the NPU), so the SDK matches bodies by it rather than by position alone.</summary>
+        public int tid;
         public float score;
         /// <summary>17 joints x [x, y, z, visibility], flat (68 floats), raw normalized camera coordinates.</summary>
         public float[] k;

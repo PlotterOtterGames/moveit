@@ -4,7 +4,7 @@ using UnityEngine;
 namespace MoveIt.Games.Sports.Tests
 {
     /// <summary>Sporte!'s rules without a scene: running on the spot, arm flicks and kicks from simulated joints, the
-    /// race, football and volleyball.</summary>
+    /// race and football (volleyball is Volejboll!'s own since 2026-11-07).</summary>
     public class SportsRulesTests
     {
         const float Dt = 1f / 30f;   // camera samples
@@ -150,41 +150,6 @@ namespace MoveIt.Games.Sports.Tests
             int saves = match.Saves;
             for (int i = 0; i < 60 && match.Phase == FootballPhase.Flight; i++) match.Step(Dt, body, 1);
             Assert.AreEqual(saves + 1, match.Saves, "a hand where the shot goes saves it");
-        }
-
-        [Test]
-        public void Volleyball_ABumpInTime_ASpikeAtTheTop_NothingLosesThePoint()
-        {
-            var match = new VolleyMatch(5);
-            // our serve: an arm move at the top of the toss
-            while (match.UntilAct > 0f) match.Step(Dt);
-            Assert.IsTrue(match.Act(5f, false), "the serve");
-            int bumps = 0, spikes = 0, points = 0;
-            match.Events += e =>
-            {
-                if (e == VolleyEvent.Bump) bumps++;
-                if (e is VolleyEvent.Spike or VolleyEvent.PerfectSpike) spikes++;
-                if (e is VolleyEvent.PointUs or VolleyEvent.PointThem) points++;
-            };
-            float t = 0f;
-            while (points == 0 && t < 30f)
-            {
-                // a perfect player: moves exactly at each moment
-                if (match.PlayerToAct && Mathf.Abs(match.UntilAct) < 0.02f) match.Act(5f, false);
-                match.Step(Dt);
-                t += Dt;
-            }
-            Assert.AreEqual(1, points);
-            Assert.AreEqual(bumps, spikes, "every bump is followed by a spike");
-            Assert.AreEqual(1, match.Us, "perfect play wins the rally");
-            // now nobody moves: their serve lands
-            t = 0f;
-            while (match.Them == 0 && t < 30f)
-            {
-                match.Step(Dt);
-                t += Dt;
-            }
-            Assert.AreEqual(1, match.Them, "no bump, no point");
         }
     }
 }

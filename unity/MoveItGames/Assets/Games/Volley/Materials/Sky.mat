@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Sky
+  m_Shader: {fileID: 4800000, guid: 2018726ab148aff44b2d03dd129385e8, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs: []
+    m_Ints: []
+    m_Floats:
+    - _CloudScale: 1.6
+    - _Clouds: 0.42
+    - _Exponent: 0.6
+    - _SunSize: 10
+    m_Colors:
+    - _BottomColor: {r: 0.49803922, g: 0.7882353, b: 0.8784314, a: 1}
+    - _CloudColor: {r: 1, g: 1, b: 1, a: 1}
+    - _CloudShade: {r: 0.78, g: 0.8399999, b: 0.95, a: 1}
+    - _HorizonColor: {r: 0.79607844, g: 0.9372549, b: 0.98039216, a: 1}
+    - _SunColor: {r: 1, g: 0.93, b: 0.7, a: 1}
+    - _SunDirection: {r: 0.3237444, g: 0.6427875, b: 0.694272, a: 0}
+    - _TopColor: {r: 0.12156863, g: 0.49803922, b: 0.9019608, a: 1}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1

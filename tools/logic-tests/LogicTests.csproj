@@ -43,14 +43,28 @@
     <Compile Include="$(UnityAssets)/Games/Sports/Scripts/FootballRules.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Sports/Scripts/SportsMotion.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Sports/Scripts/TrackRules.cs" Link="Rules/%(Filename)%(Extension)" />
-    <Compile Include="$(UnityAssets)/Games/Sports/Scripts/VolleyRules.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Sword/Scripts/SwordMoves.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Tennis/Scripts/SwingDetector.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Tennis/Scripts/TennisBall.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Tennis/Scripts/TennisLevel.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Tennis/Scripts/TennisMatch.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Tennis/Scripts/TennisScore.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Tennis/Scripts/TennisTournament.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Volley/Scripts/VolleyLevel.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Volley/Scripts/VolleyMatch.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Volley/Scripts/VolleyMoves.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Volley/Scripts/VolleyScore.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Volley/Scripts/VolleyTournament.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Kart/Scripts/KartTrack.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Kart/Scripts/KartTracks.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Kart/Scripts/KartLevel.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Kart/Scripts/KartRace.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Kart/Scripts/KartCup.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Kart/Scripts/KartMoves.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Runtime/Body.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/MoveSDK/Runtime/BodyTracker.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/MoveSDK/Runtime/MotionPacket.cs" Link="Rules/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/MoveSDK/Runtime/PlayerSlots.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Runtime/CursorRope.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Runtime/HandInterpolator.cs" Link="Rules/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Runtime/JointTimeline.cs" Link="Rules/%(Filename)%(Extension)" />
@@ -75,9 +89,21 @@
     <Compile Include="$(UnityAssets)/Games/Tennis/Tests/Editor/TennisBallTests.cs" Link="Tests/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Tennis/Tests/Editor/TennisMatchTests.cs" Link="Tests/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/Games/Tennis/Tests/Editor/TennisScoreTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Tennis/Tests/Editor/TennisTwoPlayerTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Tennis/Tests/Editor/TennisTournamentTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Volley/Tests/Editor/VolleySim.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Volley/Tests/Editor/VolleyMatchTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Volley/Tests/Editor/VolleyMovesTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Volley/Tests/Editor/VolleyTournamentTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Kart/Tests/Editor/KartSim.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Kart/Tests/Editor/KartTrackTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Kart/Tests/Editor/KartRaceTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Kart/Tests/Editor/KartMovesTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/Games/Kart/Tests/Editor/KartCupTests.cs" Link="Tests/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Tests/Editor/HandCursorTests.cs" Link="Tests/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Tests/Editor/JointTimelineTests.cs" Link="Tests/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Tests/Editor/PlacementCheckTests.cs" Link="Tests/%(Filename)%(Extension)" />
+    <Compile Include="$(UnityAssets)/MoveSDK/Tests/Editor/PlayerSlotsTests.cs" Link="Tests/%(Filename)%(Extension)" />
     <Compile Include="$(UnityAssets)/MoveSDK/Tests/Editor/PunchDetectorTests.cs" Link="Tests/%(Filename)%(Extension)" />
   </ItemGroup>
 

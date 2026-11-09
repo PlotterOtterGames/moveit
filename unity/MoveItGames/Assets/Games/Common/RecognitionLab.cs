@@ -38,7 +38,11 @@ namespace MoveIt.Games
         void Start()
         {
             // The motion rig (with its overlay) comes from the menu in corner mode: show the skeleton full screen here.
-            _overlay = FindAnyObjectByType<MotionDebugOverlay>();
+            // Its overlay, not "any" overlay: this scene's own rig is a duplicate that removes itself at the end of this
+            // first frame, and when the search found that one, the real overlay stayed as the menu's settings panel
+            // had left it (hidden) and no skeleton was drawn at all.
+            _overlay = MotionSystem.Instance != null ? MotionSystem.Instance.GetComponent<MotionDebugOverlay>() : null;
+            if (_overlay == null) _overlay = FindAnyObjectByType<MotionDebugOverlay>();
             if (_overlay == null) return;
             _overlayWasFullScreen = _overlay.FullScreen;
             _overlay.FullScreen = true;

@@ -32,6 +32,8 @@ def build_packet(src, frame, t_ms, width, height, fps, inference_ms, people, cam
 
 def _person(i, p):
     person = {"id": i, "score": round(p.score, 3), "k": [round(c, 4) for joint in p.joints for c in joint]}
+    if getattr(p, "track", 0):
+        person["tid"] = p.track
     if p.world:
         person["wk"] = [round(c, 4) for joint in p.world for c in joint]
     if getattr(p, "hands", None):

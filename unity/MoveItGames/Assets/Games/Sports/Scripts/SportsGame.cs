@@ -4,11 +4,12 @@ using UnityEngine;
 namespace MoveIt.Games.Sports
 {
     /// <summary>
-    /// "Sporte!": three Kinect Sports events this box didn't have yet (it has Bowling and Tenis! as games of their own):
-    /// the 100 metres (<see cref="TrackActivity"/>), football (<see cref="FootballActivity"/>) and beach volleyball
-    /// (<see cref="VolleyActivity"/>). The flow (the choice of sport, how-to, countdown, medals) is
+    /// "Sporte!": Kinect Sports events this box didn't have yet (it has Bowling, Tenis! and Volejboll! as games of their
+    /// own): the 100 metres (<see cref="TrackActivity"/>) and football (<see cref="FootballActivity"/>). Beach volleyball
+    /// was a third until 2026-11-07, when it became its own game with Tenis!'s menu and two players (Volejboll!; it still
+    /// plays on the beach venue built here). The flow (the choice of sport, how-to, countdown, medals) is
     /// <see cref="ActivityGame"/>'s. The choice: the chosen sport's venue fills the screen with its athlete waiting in
-    /// front (the venues are all loaded, far apart; the camera cuts between them with a quick flash), three cards along
+    /// front (the venues are all loaded, far apart; the camera cuts between them with a quick flash), a card each along
     /// the bottom.
     /// </summary>
     public sealed class SportsGame : ActivityGame
@@ -46,7 +47,6 @@ namespace MoveIt.Games.Sports
         {
             list.Add(new TrackActivity());
             list.Add(new FootballActivity());
-            list.Add(new VolleyActivity());
         }
 
         // ---------------------------------------------------------------- the choice
@@ -57,7 +57,6 @@ namespace MoveIt.Games.Sports
         {
             (Venue.Kind.Track, new Vector3(3000f, 0f, 0f), new Vector3(-0.61f, 0f, -1.4f), 200f, new Vector3(-2.4f, 1.45f, 2.6f), new Vector3(0.3f, 1.15f, -1.4f)),
             (Venue.Kind.Football, Vector3.zero, new Vector3(1.8f, 0f, 44.5f), 195f, new Vector3(0.2f, 1.5f, 39.8f), new Vector3(2.4f, 1.2f, 44.5f)),
-            (Venue.Kind.Beach, new Vector3(-3000f, 0f, 0f), new Vector3(1.4f, 0f, -3.2f), 200f, new Vector3(-0.4f, 1.55f, -7.6f), new Vector3(2.0f, 1.15f, -3.2f)),
         };
 
         readonly List<Athlete> _menuAthletes = new List<Athlete>();
@@ -73,8 +72,7 @@ namespace MoveIt.Games.Sports
             _menuAthletes.Clear();
             _menuVenues.Clear();
             _menuSelected = -1;
-            var looks = new[] { MyLook(Wear.Track).Team(Coral, Night, Color.white, Sun), MyLook(Wear.Football).Team(Sky, Color.white, Sky),
-                                MyLook(Wear.Beach).Team(Sun, Sky, Sky, Color.white) };
+            var looks = new[] { MyLook(Wear.Track).Team(Coral, Night, Color.white, Sun), MyLook(Wear.Football).Team(Sky, Color.white, Sky) };
             looks[0].WearsHeadband = true;
             looks[0].Headband = Sun;
             for (int i = 0; i < Corners.Length; i++)
@@ -94,11 +92,6 @@ namespace MoveIt.Games.Sports
                     var ball = SportsBalls.Create("Menu ball", SportsBalls.Football, kit.Actor, null, place, Color.white);
                     ball.localPosition = c.athlete + Quaternion.Euler(0f, c.yaw, 0f) * new Vector3(0.25f, 0.11f, 0.45f);
                 }
-                if (c.kind == Venue.Kind.Beach)
-                {
-                    var ball = SportsBalls.Create("Menu ball", SportsBalls.Volleyball, kit.Actor, null, place, Sun);
-                    ball.localPosition = c.athlete + new Vector3(-0.9f, 0.105f, -0.6f);
-                }
             }
         }
 
@@ -113,10 +106,9 @@ namespace MoveIt.Games.Sports
             switch (Corners[selected].kind)
             {
                 case Venue.Kind.Track: Daylight.Afternoon.Apply(_kit); break;
-                case Venue.Kind.Beach: Daylight.Beach.Apply(_kit); break;
                 default: Daylight.Stadium.Apply(_kit); break;
             }
-            string[] ready = { "SetPosition", "Ready", "Ready" };
+            string[] ready = { "SetPosition", "Ready" };
             for (int i = 0; i < _menuAthletes.Count; i++)
             {
                 if (i == selected) _menuAthletes[i].PlayThen("Wave", ready[i] == "SetPosition" ? "Idle" : ready[i], 0.2f, 1f, 0.4f);

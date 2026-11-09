@@ -67,6 +67,10 @@ namespace MoveIt.Motion
         /// <summary>Put the lane back to center, e.g. when a new round starts.</summary>
         public void ResetLane() => Lane = 0;
 
+        /// <summary>The camera player plays, not the keys: the TV remote's arrows also arrive as arrow keys (choosing in a
+        /// menu, a game's options) and would otherwise leave a camera game on the keyboard until the next step or jump.</summary>
+        public void PreferBody() => UsingKeyboard = false;
+
         void HandleGesture(Gesture g)
         {
             switch (g)

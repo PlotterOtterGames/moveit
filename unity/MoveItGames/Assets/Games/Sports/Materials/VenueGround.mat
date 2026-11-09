@@ -32,6 +32,8 @@ Material:
     m_Floats:
     - _Ambient: 0.42
     - _Curve: 0
+    - _DetailScale: 0.25
+    - _DetailStrength: 0.12
     - _Gloss: 0
     - _GlossPower: 36
     - _RimPower: 3

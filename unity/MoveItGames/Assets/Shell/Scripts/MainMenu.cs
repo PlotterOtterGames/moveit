@@ -9,7 +9,7 @@ namespace MoveIt.Shell
 {
     /// <summary>
     /// The box's home screen (the app is registered as Android's HOME, so the box boots here and the remote's Home
-    /// button returns here). A row of game tiles (eight): a step to the left or right (or ← →) moves one tile, stepping back to
+    /// button returns here). A row of game tiles (ten): a step to the left or right (or ← →) moves one tile, stepping back to
     /// the middle keeps it; raise both hands or press OK to play. ↓ reaches the Settings button. Settings is remote-only and shows just what a family
     /// needs. Android's own settings are hidden behind 7 presses on "Device" (like Android's developer-mode trick).
     /// Game Pass: games in Game Pass show a lock while it isn't active; choosing one (or Settings → Game Pass) opens
@@ -74,9 +74,21 @@ namespace MoveIt.Shell
             },
             new Entry
             {
+                Scene = "Volley", Color = new Color(1f, 0.72f, 0.18f),
+                Title = () => T("Volejboll!", "Volleyball!"),
+                Description = () => T("Prit, ngrije dhe godite topin në plazh, vetëm ose me një shok", "Receive, set and spike on the beach, alone or with a friend"),
+            },
+            new Entry
+            {
+                Scene = "Kart", Color = new Color(0.35f, 0.4f, 0.95f),
+                Title = () => T("Gara!", "Race!"),
+                Description = () => T("Drejto makinën me një timon në ajër, kërce te rampat, gara me shokët", "Steer your kart with a wheel in the air, jump at the ramps, race your friends"),
+            },
+            new Entry
+            {
                 Scene = "Sports", Color = new Color(0.95f, 0.45f, 0.2f),
                 Title = () => T("Sporte!", "Sports!"),
-                Description = () => T("Vrapo 100 metra, gjuaj në portë dhe luaj volejboll në plazh", "Run the 100 metres, shoot at goal and play beach volleyball"),
+                Description = () => T("Vrapo 100 metra dhe gjuaj në portë", "Run the 100 metres and shoot at goal"),
             },
         };
 
@@ -126,7 +138,11 @@ namespace MoveIt.Shell
             _input?.ResetLane();
             PlayerGate.Use(_input, Area);
             _previousLane = 0;
-            _mirror = FindAnyObjectByType<MotionDebugOverlay>();
+            // the rig that lives on (this scene's own rig is a duplicate that removes itself at the end of this frame);
+            // shown again here, whatever a screen left it as (the settings panel hides it before Settings → Kamera)
+            _mirror = MotionSystem.Instance != null ? MotionSystem.Instance.GetComponent<MotionDebugOverlay>() : null;
+            if (_mirror == null) _mirror = FindAnyObjectByType<MotionDebugOverlay>();
+            if (_mirror != null) _mirror.Visible = true;
             // the background is the camera's clear colour: a full-screen box drawn over it cost the box's GPU ~1.5 ms a frame
             if (Camera.main != null) Camera.main.backgroundColor = Brand.Current.BackgroundColor;
             GameAudio.PlayMusic("menu");
@@ -433,7 +449,7 @@ namespace MoveIt.Shell
 
             const float tileH = 400f;
             int n = Mathf.Max(1, _shown.Count);
-            float gap = n > 5 ? 28f : 40f;
+            float gap = n > 8 ? 22f : n > 5 ? 28f : 40f;
             float tileW = Mathf.Min(520f, (w - 120f - gap * (n - 1)) / n);
             float x0 = (w - (tileW * n + gap * (n - 1))) / 2f;
             bool tilesFocused = !SettingsButtonFocused && !SettingsOpen;
@@ -447,11 +463,12 @@ namespace MoveIt.Shell
                 var c = g.Color;
                 c.a = selected ? 1f : 0.55f;
                 GameHud.Box(r, c);
-                // more tiles on a 16:9 TV are narrower: smaller type (eight tiles are ~200 px wide)
-                TileTitle.fontSize = tileW >= 440f ? 76 : tileW >= 300f ? 60 : tileW >= 220f ? 50 : 36;
-                TileText.fontSize = tileW >= 300f ? 32 : tileW >= 220f ? 27 : 23;
+                // more tiles on a 16:9 TV are narrower: smaller type (eight tiles are ~200 px wide, nine ~180, ten ~160)
+                TileTitle.fontSize = tileW >= 440f ? 76 : tileW >= 300f ? 60 : tileW >= 220f ? 50 : tileW >= 195f ? 36 : tileW >= 172f ? 31 : 27;
+                TileText.fontSize = tileW >= 300f ? 32 : tileW >= 220f ? 27 : tileW >= 195f ? 23 : tileW >= 172f ? 21 : 19;
+                float inset = tileW >= 172f ? 22f : 12f;
                 GameHud.Text(new Rect(r.x, r.y + 40, r.width, 120), g.Title(), TileTitle);
-                GameHud.Text(new Rect(r.x + 22, r.y + 190, r.width - 44, 190), g.Description(), TileText);
+                GameHud.Text(new Rect(r.x + inset, r.y + 190, r.width - inset * 2f, 190), g.Description(), TileText);
                 if (TunduCloud.AccessFor(g.Scene) == Access.Locked)
                 {
                     var badge = new Rect(r.x + 16, r.y + r.height - 64, r.width - 32, 48);

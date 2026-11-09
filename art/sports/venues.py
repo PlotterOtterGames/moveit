@@ -504,6 +504,10 @@ def umbrella(geo, x, z, colours):
         geo.face_out([(x, 2.45, z), rim0, rim1], vk.mix(c, NIGHT, 0.3), (0, -1, 0))
 
 
+# Volejboll!'s net (m): its top (VolleyMatch.NetHeight) and how deep the mesh hangs (VolleyGame builds it)
+NET_H, NET_DEPTH = 1.5, 0.8
+
+
 def beach():
     """The beach volleyball court on the Albanian coast: the court 16 x 8 m in the sand (x across, the net at z = 0,
     our side z < 0, the camera behind it), the sea from z = 20 to the horizon, mountains beyond; sponsor fences round
@@ -527,19 +531,20 @@ def beach():
     # the court: 5 cm blue tape, the centre line under the net
     y, w, tape = 0.02, 0.06, "#2F6FE0"
     lines.strip([(-4, -8), (-4, 8), (4, 8), (4, -8)], w, y, tape, closed=True)
-    # the net: padded posts, the top tape (the game hangs the mesh), a referee stand
+    # the net: padded posts, the top and bottom tapes (the game hangs the mesh between them), a referee stand. Since
+    # 2026-11-07 a children's net for Volejboll!'s chibis (as high as they are tall: VolleyMatch.NetHeight)
     for s in (-1, 1):
-        structure.cylinder((s * 4.9, 0, 0), (s * 4.9, 2.6, 0), 0.08, STEEL, segs=10)
-        structure.cylinder((s * 4.9, 0, 0), (s * 4.9, 1.8, 0), 0.17, SUN if s < 0 else CORAL, segs=12)
-    structure.box((0, 2.43 - 0.035, 0), (9.6, 0.07, 0.03), WHITE)
-    structure.box((0, 2.43 - 1.0, 0), (9.6, 0.05, 0.03), WHITE)
-    rx = 5.6
-    structure.box((rx, 1.6, 0), (0.9, 0.08, 0.9), WOOD, bevel=0.02)
+        structure.cylinder((s * 4.9, 0, 0), (s * 4.9, NET_H + 0.35, 0), 0.08, STEEL, segs=10)
+        structure.cylinder((s * 4.9, 0, 0), (s * 4.9, NET_H - 0.25, 0), 0.17, SUN if s < 0 else CORAL, segs=12)
+    structure.box((0, NET_H - 0.035, 0), (9.6, 0.07, 0.03), WHITE)
+    structure.box((0, NET_H - NET_DEPTH, 0), (9.6, 0.05, 0.03), WHITE)
+    rx, rh = 5.6, 1.0
+    structure.box((rx, rh, 0), (0.9, 0.08, 0.9), WOOD, bevel=0.02)
     for dx in (-0.4, 0.4):
         for dz in (-0.4, 0.4):
-            structure.box((rx + dx, 0.8, dz), (0.06, 1.6, 0.06), WOOD_DARK)
-    for k in range(4):
-        structure.box((rx + 0.5, 0.3 + k * 0.38, 0), (0.06, 0.04, 0.6), WOOD_DARK)
+            structure.box((rx + dx, rh / 2, dz), (0.06, rh, 0.06), WOOD_DARK)
+    for k in range(3):
+        structure.box((rx + 0.5, 0.25 + k * 0.3, 0), (0.06, 0.04, 0.6), WOOD_DARK)
     # sponsor fences round the court: frames and their screens (reading left to right from inside)
     def fence(a, b, facing):
         ax, az = a

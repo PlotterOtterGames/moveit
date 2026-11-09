@@ -30,6 +30,8 @@ namespace MoveIt.Motion
         readonly List<Body> _bodies = new List<Body>();
         readonly List<Candidate> _candidates = new List<Candidate>();
         readonly Stack<Candidate> _candidatePool = new Stack<Candidate>();
+        readonly HashSet<Body> _matched = new HashSet<Body>();
+        readonly List<(float distance, Body body, Candidate candidate)> _pairs = new List<(float, Body, Candidate)>();
         int _nextId = 1;
 
         public IReadOnlyList<Body> Bodies => _bodies;
@@ -44,6 +46,7 @@ namespace MoveIt.Motion
             public readonly Vector3[] World = new Vector3[Skeleton.JointCount];
             public bool HasWorld;
             public float Score;
+            public int Track;
             public Vector3 Center;
             public float Torso, WorldTorso;
             public bool Matched;
@@ -59,20 +62,53 @@ namespace MoveIt.Motion
             float aspect = packet.h > 0 ? (float)packet.w / packet.h : 16f / 9f;
             double sampleTime = packet.t / 1000.0;
             BuildCandidates(packet, aspect);
+            _matched.Clear();
 
-            // Tracked bodies first, then briefly-lost ones (with a radius that grows the longer they were missing).
+            // The service's own tracks first (the box's NPU engine): the person it has been following is that body, even
+            // when a packet carries only one of two people (they take turns on the NPU) and they stand close.
+            foreach (var c in _candidates)
+            {
+                if (c.Track == 0) continue;
+                foreach (var body in _bodies)
+                {
+                    if (body.ServiceTrack != c.Track || _matched.Contains(body)) continue;
+                    c.Matched = true;
+                    _matched.Add(body);
+                    Apply(body, c, aspect, sampleTime, now, localNow);
+                    break;
+                }
+            }
+
+            // Then by position: tracked bodies first, then briefly-lost ones (with a radius that grows the longer they
+            // were missing); in each pass the nearest body-candidate pairs first, so two people close together aren't
+            // swapped because one body was looked at before the other.
             foreach (bool lostPass in new[] { false, true })
             {
+                _pairs.Clear();
                 foreach (var body in _bodies)
                 {
                     bool lost = !body.IsTracking;
-                    if (lost != lostPass) continue;
+                    if (lost != lostPass || _matched.Contains(body)) continue;
                     float missing = now - body.LastSeen;
                     float radius = lost ? Mathf.Min(MatchDistance + LostMatchGrowth * missing, 0.8f) : MatchDistance;
-                    var best = Nearest(body.TorsoCenter, radius);
-                    if (best == null) continue;
-                    best.Matched = true;
-                    Apply(body, best, aspect, sampleTime, now, localNow);
+                    foreach (var c in _candidates)
+                    {
+                        if (c.Matched) continue;
+                        // a body the service is following under another track is someone else, however close (two
+                        // people side by side, a packet carrying only one of them); a lost one may come back under a
+                        // new track (the service found them again)
+                        if (!lost && c.Track != 0 && body.ServiceTrack != 0 && c.Track != body.ServiceTrack) continue;
+                        float d = Vector2.Distance(c.Center, body.TorsoCenter);
+                        if (d < radius) _pairs.Add((d, body, c));
+                    }
+                }
+                _pairs.Sort((a, b) => a.distance.CompareTo(b.distance));
+                foreach (var (_, body, c) in _pairs)
+                {
+                    if (c.Matched || _matched.Contains(body)) continue;
+                    c.Matched = true;
+                    _matched.Add(body);
+                    Apply(body, c, aspect, sampleTime, now, localNow);
                 }
             }
 
@@ -108,23 +144,6 @@ namespace MoveIt.Motion
             ActiveChanged?.Invoke(Active);
         }
 
-        Candidate Nearest(Vector3 center, float radius)
-        {
-            Candidate best = null;
-            float bestDist = radius;
-            foreach (var c in _candidates)
-            {
-                if (c.Matched) continue;
-                float d = Vector2.Distance(c.Center, center);
-                if (d < bestDist)
-                {
-                    bestDist = d;
-                    best = c;
-                }
-            }
-            return best;
-        }
-
         void BuildCandidates(MotionPacket packet, float aspect)
         {
             foreach (var c in _candidates) _candidatePool.Push(c);
@@ -156,6 +175,7 @@ namespace MoveIt.Motion
                 c.Center = (shoulders + hips) * 0.5f;
                 c.Torso = Vector2.Distance(shoulders, hips);
                 c.Score = person.score;
+                c.Track = person.tid;
                 c.Matched = false;
                 _candidates.Add(c);
             }
@@ -179,6 +199,7 @@ namespace MoveIt.Motion
             body.ShownTimeline.Add(sampleTime, body.Joints, localNow);
             body.HasWorld = c.HasWorld;
             body.Score = c.Score;
+            body.ServiceTrack = c.Track;
             body.Aspect = aspect;
             body.SampleTime = sampleTime;
             body.LastSeen = now;

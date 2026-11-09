@@ -22,8 +22,8 @@ def tool(name):
     return os.path.join(NDK, 'toolchains', 'llvm', 'prebuilt', host, 'bin', name + ('.exe' if os.name == 'nt' else ''))
 
 
-def build(sources, output, extra):
-    cmd = [tool('clang++'), '--target=aarch64-linux-android28', '-std=c++17', '-O2', '-fPIC', '-Wall',
+def build(sources, output, extra, api=28):
+    cmd = [tool('clang++'), f'--target=aarch64-linux-android{api}', '-std=c++17', '-O2', '-fPIC', '-Wall',
            '-I', CPP, '-I', os.path.join(CPP, 'include')] + [os.path.join(CPP, s) for s in sources] + extra + [
            '-L', JNI, '-lrknnrt', '-llog', '-static-libstdc++', '-Wl,-z,max-page-size=16384', '-o', output]
     print(os.path.relpath(output, ROOT))
@@ -35,7 +35,9 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     build(['pose_npu.cpp', 'pose_npu_jni.cpp', 'camera_controls.cpp', 'frame_share.cpp'], os.path.join(JNI, 'libtundupose.so'),
           ['-shared', '-Wl,-soname,libtundupose.so', '-Wl,--no-undefined', '-ljnigraphics'])
-    build(['pose_npu.cpp', 'pose_npu_test.cpp'], os.path.join(OUT, 'pose_npu_test'), [])
+    # the test tool decodes camera clips with Android 11's AImageDecoder (the box runs Android 11; the app stays at 28)
+    build(['pose_npu.cpp', 'pose_npu_test.cpp'], os.path.join(OUT, 'pose_npu_test'), ['-ljnigraphics', '-pthread'],
+          api=30)
 
 
 if __name__ == '__main__':

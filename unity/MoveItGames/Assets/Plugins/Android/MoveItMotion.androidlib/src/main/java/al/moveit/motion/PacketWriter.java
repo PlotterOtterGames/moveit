@@ -18,7 +18,7 @@ final class PacketWriter {
     private final DatagramSocket socket;
     private final InetAddress address;
     private final int port;
-    private final StringBuilder sb = new StringBuilder(2048);
+    private final StringBuilder sb = new StringBuilder(4096);
     private long frame;
 
     PacketWriter(int port) throws Exception {
@@ -27,8 +27,10 @@ final class PacketWriter {
         this.port = port;
     }
 
-    void send(Pose pose, String src, String model, long captureWallMs, int width, int height,
-              float fps, float inferenceMs, float cameraFps) {
+    // synchronized: pipelined poses are sent from the NPU's thread, the others from the camera's (never at once, but
+    // the builder and the frame counter then pass between threads)
+    synchronized void send(Pose pose, String src, String model, long captureWallMs, int width, int height,
+                           float fps, float inferenceMs, float cameraFps) {
         sb.setLength(0);
         sb.append("{\"v\":1,\"src\":\"").append(src).append("\",\"t\":").append(captureWallMs)
           .append(",\"f\":").append(frame++).append(",\"w\":").append(width).append(",\"h\":").append(height)
@@ -37,11 +39,18 @@ final class PacketWriter {
         sb.append(",\"cam\":"); fixed(cameraFps, 10);
         sb.append(",\"model\":\"").append(model).append("\",\"people\":[");
 
-        if (pose != null && pose.found) {
-            float[] lms = pose.landmarks;
+        // the people the pose AI looked at in this frame and found (with two followed on the NPU and a shared budget, a
+        // frame may carry only one of them: "tid" tells the game which, docs/protocol.md)
+        int written = 0;
+        for (int k = 0; pose != null && k < pose.count; k++) {
+            Pose.Person p = pose.people[k];
+            if (!p.found) continue;
+            float[] lms = p.landmarks;
             float score = 0f;
             for (int t : TORSO) score += lms[MEDIAPIPE_TO_COCO17[t] * 5 + 3];
-            sb.append("{\"id\":0,\"score\":"); fixed(score / TORSO.length, 1000);
+            if (written++ > 0) sb.append(',');
+            sb.append("{\"id\":").append(k).append(",\"tid\":").append(p.track).append(",\"score\":");
+            fixed(score / TORSO.length, 1000);
             sb.append(",\"k\":[");
             for (int j = 0; j < MEDIAPIPE_TO_COCO17.length; j++) {
                 int i = MEDIAPIPE_TO_COCO17[j] * 5;
@@ -50,13 +59,13 @@ final class PacketWriter {
                 fixed(lms[i + 2], 10000); sb.append(','); fixed(lms[i + 3], 1000);
             }
             sb.append(']');
-            if (pose.hasWorld) {
+            if (p.hasWorld) {
                 sb.append(",\"wk\":[");
                 for (int j = 0; j < MEDIAPIPE_TO_COCO17.length; j++) {
                     int i = MEDIAPIPE_TO_COCO17[j] * 3;
                     if (j > 0) sb.append(',');
-                    fixed(pose.world[i], 10000); sb.append(','); fixed(pose.world[i + 1], 10000); sb.append(',');
-                    fixed(pose.world[i + 2], 10000);
+                    fixed(p.world[i], 10000); sb.append(','); fixed(p.world[i + 1], 10000); sb.append(',');
+                    fixed(p.world[i + 2], 10000);
                 }
                 sb.append(']');
             }

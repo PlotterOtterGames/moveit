@@ -12,6 +12,8 @@
         "MoveIt.Games.Fly",
         "MoveIt.Games.Tennis",
         "MoveIt.Games.Sports",
+        "MoveIt.Games.Volley",
+        "MoveIt.Games.Kart",
         "MoveIt.Shell",
         "Unity.RenderPipelines.Core.Runtime",
         "Unity.RenderPipelines.Universal.Runtime"

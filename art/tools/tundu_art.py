@@ -25,6 +25,10 @@ PALETTE = {
     "dirt": "#D9A066", "dirt_dark": "#B98250", "egg": "#FFF4E0", "lava": "#FF8A3D",
     "volcano": "#6A5A78", "volcano_dark": "#4E4260", "sand": "#F2D49B", "grape": "#7B61FF",
     "blush": "#FF8F86", "moss": "#5DB04E", "bone": "#F6E9CF", "smoke": "#E8E6F0",
+    # Gara!'s scenery (2026-11-08; appended: the cells above keep their places)
+    "olive": "#9DB572", "olive_dark": "#6F8C50", "cypress": "#2C6A46", "pine": "#2F7D4E", "terracotta": "#DB6A3D",
+    "roof_dark": "#B44E2E", "wall": "#FFF4E2", "stone": "#DCCBA8", "stone_dark": "#B49D7A", "red": "#E8403A",
+    "blue": "#2E6FE8", "pink": "#FF8FB0", "teal": "#2EC4B6", "metal": "#B9BDCC", "tyre": "#2A2C38", "checker": "#1E2030",
 }
 CELLS = 8
 CELL_PX = 8

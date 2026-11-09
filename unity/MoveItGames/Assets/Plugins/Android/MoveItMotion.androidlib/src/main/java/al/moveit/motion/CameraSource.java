@@ -22,13 +22,15 @@ import androidx.lifecycle.LifecycleOwner;
 
 import com.google.common.util.concurrent.ListenableFuture;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.Executor;
 
 /**
  * CameraX frames for the pose engine. Prefers the box's USB camera (external), then a back camera, then a front one
- * (phones, emulators). 640×480 RGBA, keep-only-latest: frames are never queued, so there's no hidden latency.
+ * (phones, emulators). 640×480 RGBA (or the nearest larger size the camera offers: 1024×768 on the X98K Pro; another
+ * size on request, {@link #request}), keep-only-latest: frames are never queued, so there's no hidden latency.
  *
  * Frame rate: cameras slow down to ~15 fps in a dim room to expose longer, which adds ~33 ms of delay and blurs
  * fast moves. We ask auto-exposure for a range that never goes below ~30 fps (a slightly darker, noisier image
@@ -44,9 +46,17 @@ final class CameraSource {
 
     private static final String TAG = "MoveItMotion";
     private static final int LENS_FACING_EXTERNAL = 2;  // CameraSelector.LENS_FACING_EXTERNAL (marked experimental)
+    static final Size DEFAULT_SIZE = new Size(640, 480);
 
     private ProcessCameraProvider provider;
     private volatile String cameraId = "";
+    private Size target = DEFAULT_SIZE;
+    // what start() bound, for binding again at another size (main thread)
+    private LifecycleOwner owner;
+    private CameraInfo info;
+    private Range<Integer> fps;
+    private Executor analysisExecutor;
+    private ImageAnalysis.Analyzer analyzer;
 
     /** The bound camera's Camera2 id ("109" for the X98K Pro's USB camera), "" before it starts. */
     String cameraId() {
@@ -75,6 +85,11 @@ final class CameraSource {
                     bind(owner, info, null, analysisExecutor, analyzer);
                 }
                 cameraId = idOf(info);
+                this.owner = owner;
+                this.info = info;
+                this.fps = fps;
+                this.analysisExecutor = analysisExecutor;
+                this.analyzer = analyzer;
                 Log.i(TAG, "Camera " + describe(info) + " " + cameraId + ", fps range " + (fps != null ? fps : "default"));
                 callback.onStarted(describe(info));
             } catch (Throwable e) {
@@ -89,13 +104,31 @@ final class CameraSource {
         if (provider != null) provider.unbindAll();
     }
 
+    /**
+     * Asks for frames of about this size (the nearest the camera offers, larger first), binding the camera again if
+     * it runs. More pixels on a player standing at TV distance for the pose AI, at the cost of converting bigger
+     * frames. Must be called on the main thread.
+     */
+    void request(Size size) {
+        if (size.equals(target)) return;
+        target = size;
+        if (provider == null || info == null) return;   // start() binds with it
+        try {
+            bind(owner, info, fps, analysisExecutor, analyzer);
+            Log.i(TAG, "Camera size requested: " + size);
+        } catch (Throwable e) {
+            Log.w(TAG, "Camera size " + size + " refused: " + e);
+        }
+    }
+
     @OptIn(markerClass = ExperimentalCamera2Interop.class)
     private void bind(LifecycleOwner owner, CameraInfo info, Range<Integer> fps, Executor analysisExecutor,
                       ImageAnalysis.Analyzer analyzer) {
         ImageAnalysis.Builder builder = new ImageAnalysis.Builder()
                 .setResolutionSelector(new ResolutionSelector.Builder()
-                        .setResolutionStrategy(new ResolutionStrategy(new Size(640, 480),
+                        .setResolutionStrategy(new ResolutionStrategy(target,
                                 ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER))
+                        .setResolutionFilter((sizes, rotation) -> exactFirst(sizes, target))
                         .build())
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                 .setOutputImageFormat(ImageAnalysis.OUTPUT_IMAGE_FORMAT_RGBA_8888);
@@ -105,6 +138,19 @@ final class CameraSource {
         analysis.setAnalyzer(analysisExecutor, analyzer);
         provider.unbindAll();
         provider.bindToLifecycle(owner, info.getCameraSelector(), analysis);
+    }
+
+    /**
+     * The requested size first when the camera offers exactly that size: CameraX otherwise prefers 4:3 sizes, so a
+     * request for the X98K Pro's 1280 x 1024 (5:4) or 1920 x 1080 still got 1024 x 768. No exact match: as CameraX sorted
+     * them.
+     */
+    private static List<Size> exactFirst(List<Size> sizes, Size target) {
+        if (!sizes.contains(target) || sizes.get(0).equals(target)) return sizes;
+        List<Size> out = new ArrayList<>(sizes.size());
+        out.add(target);
+        for (Size s : sizes) if (!s.equals(target)) out.add(s);
+        return out;
     }
 
     /**

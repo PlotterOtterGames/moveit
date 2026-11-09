@@ -45,7 +45,13 @@ namespace MoveIt.Games
         static Mesh Sphere(Vector3 scale)
         {
             float size = Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y), Mathf.Abs(scale.z));
-            int segments = size >= 0.5f ? 22 : size >= 0.15f ? 14 : 8;
+            return Ball(size >= 0.5f ? 22 : size >= 0.15f ? 14 : 8);
+        }
+
+        /// <summary>A ball of radius 0.5 with this many segments round (and two thirds as many rings): 22 = 572
+        /// triangles, 12 = 168, 8 = 64.</summary>
+        public static Mesh Ball(int segments)
+        {
             if (Spheres.TryGetValue(segments, out var mesh) && mesh != null) return mesh;
             int rings = segments * 2 / 3;
             var v = new List<Vector3>();
@@ -73,20 +79,52 @@ namespace MoveIt.Games
             return Spheres[segments] = mesh;
         }
 
-        public PartMesh Add(Mesh mesh, Matrix4x4 transform, Color color, float gloss)
+        public PartMesh Add(Mesh mesh, Matrix4x4 transform, Color color, float gloss) =>
+            Add(mesh, transform, color, gloss, color, float.PositiveInfinity);
+
+        /// <summary>A shape in two colours: its vertices from <paramref name="topFrom"/> up (the source mesh's y, before
+        /// the transform) take <paramref name="top"/>, blending into <paramref name="color"/> over the band below (a
+        /// spectator's head with its hair: one shape instead of two).</summary>
+        public PartMesh Add(Mesh mesh, Matrix4x4 transform, Color color, float gloss, Color top, float topFrom)
         {
             int start = _v.Count;
             var normalMatrix = transform.inverse.transpose;
-            if (Srgb) color = color.linear;
+            if (Srgb)
+            {
+                color = color.linear;
+                top = top.linear;
+            }
             // reading mesh.vertices copies the array: keep one copy per source mesh
             if (!Sources.TryGetValue(mesh, out var src)) Sources[mesh] = src = (mesh.vertices, mesh.normals, mesh.triangles);
             for (int i = 0; i < src.v.Length; i++)
             {
                 _v.Add(transform.MultiplyPoint3x4(src.v[i]));
                 _n.Add(normalMatrix.MultiplyVector(src.n[i]).normalized);
-                _c.Add(new Color(color.r, color.g, color.b, gloss));
+                var c = src.v[i].y >= topFrom ? top : color;
+                _c.Add(new Color(c.r, c.g, c.b, gloss));
             }
             foreach (int index in src.t) _t.Add(start + index);
+            return this;
+        }
+
+        /// <summary>A shape of its own with a colour per vertex (alpha = how glossy): Tenis!'s court, a grid whose grass is
+        /// worn and shaded vertex by vertex. Triangles index <paramref name="vertices"/>.</summary>
+        public PartMesh Add(IList<Vector3> vertices, IList<Vector3> normals, IList<Color> colors, IList<int> triangles)
+        {
+            int start = _v.Count;
+            for (int i = 0; i < vertices.Count; i++)
+            {
+                _v.Add(vertices[i]);
+                _n.Add(normals[i]);
+                var c = colors[i];
+                if (Srgb)
+                {
+                    var l = c.linear;
+                    c = new Color(l.r, l.g, l.b, c.a);
+                }
+                _c.Add(c);
+            }
+            foreach (int index in triangles) _t.Add(start + index);
             return this;
         }
 

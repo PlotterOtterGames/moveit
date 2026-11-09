@@ -64,21 +64,5 @@ namespace MoveIt.Games.Sports
         public static string KickNow => T("GODIT!", "KICK!");
         public static string Score(int us, int them) => T($"Ti {us} - {them} Ata", $"You {us} - {them} Them");
 
-        // ---- Volejboll
-        public static string VolleyTitle => T("Volejboll", "Volleyball");
-        public static string VolleyHowTo => T("Kur vjen topi te ti, ngri krahët shpejt për ta kthyer. Kur shoku ta ngre, kërce ose godit poshtë fort!",
-                                              "When the ball comes to you, swing your arms up to bump it. When your partner sets it up, jump or hit down hard!");
-        public static string VolleyKeys => T("hapësira pret / godet", "space bump / spike");
-        public static string VolleyResult(int us, int them) => T($"Rezultati: {us} - {them}", $"Score: {us} - {them}");
-        public static string Serve => T("SHËRBE!", "SERVE!");
-        public static string Bump => T("PRITE!", "BUMP!");
-        public static string Spike => T("GODIT!", "SPIKE!");
-        public static string PerfectSpike => T("GODITJE E PËRSOSUR!", "PERFECT SPIKE!");
-        public static string YourServe => T("SHËRBIMI YT", "YOUR SERVE");
-        public static string FirstTo(int n) => T($"Kush shënon {n} fiton", $"First to {n}");
-        public static string PointUs => T("PIKË!", "POINT!");
-        public static string PointThem => T("PIKË PËR TA", "THEIR POINT");
-        public static string MatchWon => T("FITORE!", "YOU WIN!");
-        public static string MatchLost => T("HUMBJE", "YOU LOST");
     }
 }

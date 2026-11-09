@@ -30,6 +30,12 @@ EditorBuildSettings:
     path: Assets/Games/Tennis/Tennis.unity
     guid: 14fabec9716003646bbffdc734444e2b
   - enabled: 1
+    path: Assets/Games/Volley/Volley.unity
+    guid: a5ef35cca5d661f448073cdb280ab37a
+  - enabled: 1
+    path: Assets/Games/Kart/Kart.unity
+    guid: a8ba841c70fc6b64a83d09aa51a9b5bd
+  - enabled: 1
     path: Assets/Games/Sports/Sports.unity
     guid: 5944a36b60c423046bf28ce3add29458
   - enabled: 1

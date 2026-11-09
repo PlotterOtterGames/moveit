@@ -27,10 +27,18 @@ Scripts:
     turn   Vishu!: turns 45 then 90 degrees to the screen's right, back, 60 degrees to the left, back, then spins
            slowly all the way round (the clothes must wrap around the body, never fold or flip)
     tennis_move  Tenis!: hands up, the match intro, then steps: to the right, back, to the left, back, toward the camera
-           (the torso looks bigger: the player goes to the net), back, away from the camera (behind the baseline), back
+           and away from it (the player must stay on the baseline: only sideways steps move it), back
     tennis Tenis!: hands up, the match intro, then a racket swing of the right arm every 3.4 s, its fast part always
-           1.6 s into the segment (serve, forehand, backhand, forehand, lob, backhand, slice, forehand, three times).
-           Wind-ups and the way back are slow (under the swing speed), so each segment is exactly one swing
+           1.6 s into the segment (serve, forehand, backhand, forehand, lob, backhand, slice, forehand, a swing straight
+           up, three times). Wind-ups and the way back are slow (under the swing speed), so each segment is exactly one
+           swing: forehands sweep from the right across the body, backhands from the left, at chest height (where the
+           practice feeds arrive), the lob scoops up across (~43 degrees), the slice chops down across, the last one
+           goes straight up (since 2026-11-07 a swing up at a ball in reach lobs it; only a strong one down misses)
+    tennis_flick  Tenis! played the lazy way (2026-11-06: "like a Wii remote, moving the whole arm is tiring"): the same
+           3.4 s segments, but every stroke is a small flick of the forearm, ~15 cm (a third of a torso) in 0.22 s,
+           gentle: forehand and backhand flicks in front of the body, a serve of two flicks (up: the toss, down: the hit),
+           and a small flick straight up (never a miss: at a ball in reach it lobs, else it's nothing). With
+           --glitches it also shows the pose model's glitches (see there): they must not swing
     place  the placement check (Vrapo!): stands too close (head out of the picture) and raises the hands (must not
            start), steps back (calibrates), stands at the screen's left (no room for a lane step: "move right", hands
            up must not start), back to the middle, starts, then drifts to the left edge during the run (the warning)
@@ -38,13 +46,25 @@ Scripts:
     sp_run  Sporte!'s 100 m: stands still through the start (no false start), then runs on the spot (knees up, arms
            pumping, ~3.4 steps a second) for 22 s
     sp_kick  Sporte!'s football: a right-foot kick every 0.7 s (a pass is met whenever it comes), with rests
-    sp_volley  Sporte!'s volleyball: both arms swung up quickly every 0.6 s (bumps, spikes and serves)
+
+    volley  Volejboll!: hands up (start), the match intro, then 10 s cycles: both hands together low in front (the bump,
+           0.2-1.9 s), both hands up (the set, 2.3-3.4 s), the right arm raised slowly and swung down (the spike, its fast
+           part at 4.4 s), both hands up again (the block, 7.6-8.9 s). The first cycle serves instead of spiking: the swing
+           at 4.4 s and again at 6.4 s (one of them comes while the toss is up). VolleyGameTests times the computer's balls
+           to the cycle in practice: its attacks at 8.3 s, a smash (blocked) and a free ball (received) by turns
+    volley_duo  Volejboll! for two: both calibrate and raise their hands, then each holds the bump, then the set, then
+           spikes, in 6 s cycles, player 2 three seconds after player 1 (the poses are held long: balls the computer doesn't
+           time still find a move)
 
 While the game asks for camera frames (Pikturo's camera mode), it also sends a drawn "camera picture" of the room
 and the player, exactly where the joints are (video.py), so the camera mode can be checked without a camera.
 
     python fake_sender.py                      # basic, loops forever
     python fake_sender.py --script bowl --once # one pass of the bowling script
+
+--glitches N adds the box's pose-model glitches (measured 2026-11-06), N a second on average: a wrist flipped to
+another spot 15-50 cm away for one or two frames, or pulled most of the way onto its elbow for one to three frames,
+less sure while it lasts (visibility 0.7-0.85).
 """
 
 import argparse
@@ -247,9 +267,25 @@ TENNIS = [  # Tenis!: one swing per 3.4 s segment, the fast part 1.6 s in (Tenni
         ("LOB (slow, upward)", 3.4, dict(IDLE, arm="tennis_lob")),
         ("BACKHAND", 3.4, dict(IDLE, arm="tennis_backhand")),
         ("SLICE (chop down)", 3.4, dict(IDLE, arm="tennis_slice")),
-        ("FOREHAND", 3.4, dict(IDLE, arm="tennis_forehand")))],
+        ("FOREHAND", 3.4, dict(IDLE, arm="tennis_forehand")),
+        ("UP (straight up: a lob)", 3.4, dict(IDLE, arm="tennis_up")))],
 ]
-TENNIS_MOVE = [  # Tenis!: the body moves the player; `near` = metres toward the camera (the picture has perspective)
+TENNIS_FLICK = [  # Tenis! with small flicks of the forearm (gentle swings), the fast part 1.6 s into each 3.4 s segment
+    ("idle (calibration)", 2.5, IDLE),
+    *START,
+    ("match intro", 3.4, IDLE),
+    *[seg for _ in range(3) for seg in (
+        ("FLICK SERVE (a flick up tosses, a flick down hits)", 3.4, dict(IDLE, arm="flick_serve")),
+        ("FOREHAND FLICK", 3.4, dict(IDLE, arm="flick_forehand")),
+        ("BACKHAND FLICK", 3.4, dict(IDLE, arm="flick_backhand")),
+        ("FOREHAND FLICK", 3.4, dict(IDLE, arm="flick_forehand")),
+        ("BACKHAND FLICK", 3.4, dict(IDLE, arm="flick_backhand")),
+        ("FOREHAND FLICK", 3.4, dict(IDLE, arm="flick_forehand")),
+        # last, like the tennis script's swing straight up: never an instant miss
+        ("SMALL FLICK UP (never a miss)", 3.4, dict(IDLE, arm="flick_up")))],
+]
+
+TENNIS_MOVE = [  # Tenis!: steps to the sides, toward the camera (`near` = metres) and away: none may move the players (they run by themselves)
     ("idle (calibration)", 2.5, IDLE),
     *START,
     ("match intro", 3.6, IDLE),
@@ -257,9 +293,9 @@ TENNIS_MOVE = [  # Tenis!: the body moves the player; `near` = metres toward the
     ("back to the middle", 2.0, IDLE),
     ("step LEFT", 2.5, dict(IDLE, x=0.4)),
     ("back to the middle", 2.0, IDLE),
-    ("step TOWARD the camera (to the net)", 2.5, dict(IDLE, near=0.5)),
+    ("step TOWARD the camera (the player stays on the baseline)", 2.5, dict(IDLE, near=0.5)),
     ("back to the middle", 2.0, IDLE),
-    ("step AWAY from the camera (behind the baseline)", 2.5, dict(IDLE, near=-0.4)),
+    ("step AWAY from the camera (still the baseline)", 2.5, dict(IDLE, near=-0.4)),
     ("back to the middle", 2.0, IDLE),
 ]
 PLACE = [  # the placement check, in Vrapo!: too close, then too near a side, then a run drifting to the edge
@@ -289,15 +325,62 @@ SP_KICK = [  # Sporte!'s football: kick after kick (each pass is met), rests whi
         ("KICKS with the right foot", 5.0, dict(IDLE, arm="kick_loop")),
         ("keeping goal: arms out", 5.5, dict(IDLE, arm="arms_out")))],
 ]
-SP_VOLLEY = [  # Sporte!'s volleyball: arm swings up, again and again
+VOLLEY = [  # Volejboll!: 10 s cycles of bump, set, spike and block (VolleyGameTests times the practice balls to them)
     ("idle (calibration)", 2.5, IDLE),
-    ("countdown", 3.0, IDLE),
-    ("SWING both arms up, over and over", 40.0, dict(IDLE, arm="bump_loop")),
+    *START,
+    ("match intro", 3.4, IDLE),
+    ("BUMP, SET, then SERVE twice (the toss is up for one of them), BLOCK", 10.0, dict(IDLE, arm="volley_serve_cycle")),
+    *[("BUMP (hands together low), SET (both hands up), SPIKE (one arm down), BLOCK (both hands up)", 10.0,
+       dict(IDLE, arm="volley_cycle")) for _ in range(8)],
+]
+# Two players (a segment's target is a pair: player 1, player 2). Player 1 stands DUO_X[0] to the image's right (the
+# players' left: the screen's left in the mirrored game), player 2 DUO_X[1] to its left; each one's x, arm, ... are their
+# own, as in the one-player scripts (x > 0 = that player's left).
+DUO_X = (0.75, -0.75)
+TENNIS_DUO = [  # Tenis! for two: TennisGameTests sets the mode (versus or together) before the hands go up
+    ("both idle (calibration)", 3.0, (IDLE, IDLE)),
+    ("both HANDS UP (start)", 1.4, (dict(IDLE, hands=1), dict(IDLE, hands=1))),
+    ("hands down", 1.0, (IDLE, IDLE)),
+    ("match intro", 3.4, (IDLE, IDLE)),
+    ("player 1 steps RIGHT, player 2 still", 2.5, (dict(IDLE, x=-0.35), IDLE)),
+    ("back to the middle", 1.5, (IDLE, IDLE)),
+    ("player 2 steps RIGHT, player 1 still", 2.5, (IDLE, dict(IDLE, x=-0.35))),
+    ("back to the middle", 1.5, (IDLE, IDLE)),
+    *[seg for _ in range(4) for seg in (
+        ("player 1 TOSSES AND SERVES (a flick up, then the swing down), player 2 still", 3.4,
+         (dict(IDLE, arm="tennis_toss_serve"), IDLE)),
+        ("player 2 FOREHAND, player 1 still", 3.4, (IDLE, dict(IDLE, arm="tennis_forehand"))))],
+]
+VOLLEY_DUO = [  # Volejboll! for two: VolleyGameTests sets the mode (together or versus) before the hands go up
+    ("both idle (calibration)", 3.0, (IDLE, IDLE)),
+    ("both HANDS UP (start)", 1.4, (dict(IDLE, hands=1), dict(IDLE, hands=1))),
+    ("hands down", 1.0, (IDLE, IDLE)),
+    ("match intro", 3.4, (IDLE, IDLE)),
+    *[("player 1: bump, set, spike; player 2 the same 3 s later", 6.0,
+       (dict(IDLE, arm="volley_duo_cycle"), dict(IDLE, arm="volley_duo_cycle_late"))) for _ in range(9)],
+]
+KART = [  # Gara!: both hands on an invisible wheel; 8 s cycles: turning left and right, a hard right turn held (a drift), both
+    # hands up (the item), a jump at the start of each (KartGameTests watches what reaches the kart)
+    ("idle (calibration)", 2.5, IDLE),
+    *START,
+    ("the countdown: both hands on the wheel, level", 4.2, dict(IDLE, arm="kart_level")),
+    *[("steer left and right, a hard right turn (a drift), both hands up; a jump", 8.0, dict(IDLE, arm="kart_drive", hop=(0.1, 0.36)))
+      for _ in range(17)],
+]
+KART_DUO = [  # Gara! for two: KartGameTests sets the mode (versus or together) before the hands go up
+    ("both idle (calibration)", 3.0, (IDLE, IDLE)),
+    ("both HANDS UP (start)", 1.4, (dict(IDLE, hands=1), dict(IDLE, hands=1))),
+    ("hands down", 1.0, (IDLE, IDLE)),
+    ("the countdown: both hold their wheels", 4.2, (dict(IDLE, arm="kart_level"), dict(IDLE, arm="kart_level"))),
+    *[("both steer, player 2 half a cycle later", 8.0, (dict(IDLE, arm="kart_drive", hop=(0.1, 0.36)), dict(IDLE, arm="kart_drive_late")))
+      for _ in range(5)],
 ]
 SCRIPTS = {"basic": BASIC, "bowl": BOWL, "slash": SLASH, "idle": IDLE_FIDGET, "dropout": DROPOUT, "jumps": JUMPS,
            "runner": RUNNER, "paint": PAINT, "sword": SWORD, "fly": FLY, "turns": TURNS, "brawl": BRAWL, "dress": DRESS,
            "runway": RUNWAY, "turn": TURN, "tennis": TENNIS, "tennis_move": TENNIS_MOVE, "place": PLACE,
-           "sp_run": SP_RUN, "sp_kick": SP_KICK, "sp_volley": SP_VOLLEY}
+           "sp_run": SP_RUN, "sp_kick": SP_KICK, "tennis_duo": TENNIS_DUO,
+           "tennis_flick": TENNIS_FLICK, "volley": VOLLEY, "volley_duo": VOLLEY_DUO, "kart": KART,
+           "kart_duo": KART_DUO}
 TRANSITION_S = 0.25
 JUMP_HEIGHT_M = 0.35
 JUMP_TIME_S = 0.55
@@ -585,6 +668,14 @@ def tennis_swing(start, end, wind=1.45, swing=0.22, at=1.6, seg=3.4):
                               (at + swing + 0.2, end, None), (seg - 0.05, None, None)])
 
 
+def toss_serve(seg=3.4):
+    """A serve as a player does it: a quick flick of the right hand up at 1.0 s (it tosses the ball), held, then the
+    swing down at 1.5 s while the ball is near the top (it serves)."""
+    return arm_keys("right", [(0, None, None), (0.85, (-0.3, 1.2, 0.0), None), (1.0, (-0.3, 1.2, 0.0), None),
+                              (1.15, (-0.3, 1.75, 0.05), None), (1.5, (-0.3, 1.75, 0.05), None),
+                              (1.7, (0.05, 1.1, -0.45), None), (1.9, (0.05, 1.1, -0.45), None), (seg - 0.05, None, None)])
+
+
 def shield_hold(wrist, elbow, hold=1.2):
     """A shield block: the left hand raises the shield into place, holds it there, lowers it."""
     return arm_keys("left", [(0, None, None), (0.35, wrist, elbow), (0.35 + hold, wrist, elbow), (1.8, None, None)])
@@ -608,12 +699,27 @@ ARM_MOTIONS = {"bowl": bowl_arm, "swipe": swipe_arm, "scratch": scratch_arm, "cr
                "guard_jab_right": guard_punch("right", (-0.17, 1.44, -0.60), (-0.18, 1.43, -0.30)),
                "guard_jab_left": guard_punch("left", (0.17, 1.44, -0.60), (0.18, 1.43, -0.30)),
                "guard_hook_right": guard_punch("right", (-0.70, 1.48, -0.30), (-0.45, 1.45, -0.15), extend=0.18, fold=True),
-               # Tenis! (metres; x > 0 = the player's left, z < 0 = toward the camera)
-               "tennis_forehand": tennis_swing((-0.7, 1.0, 0.15), (0.3, 1.2, -0.4)),
-               "tennis_backhand": tennis_swing((0.45, 1.15, 0.1), (-0.7, 1.3, -0.35)),
+               # Tenis! (metres; x > 0 = the player's left, z < 0 = toward the camera). The racket is the hand: it
+               # meets a ball on the right as the hand passes ~0.25 m right of the shoulders' middle (on the left: left
+               # of it), at about the hand's height; the practice feeds arrive ~1.1 m up
+               "tennis_forehand": tennis_swing((-0.7, 1.12, 0.15), (0.3, 1.32, -0.4)),
+               "tennis_backhand": tennis_swing((0.6, 1.15, 0.1), (-0.7, 1.3, -0.35)),
                "tennis_serve": tennis_swing((-0.3, 1.6, 0.1), (0.05, 1.1, -0.45), swing=0.2),
-               "tennis_lob": tennis_swing((-0.5, 0.95, 0.0), (-0.4, 1.4, -0.3), swing=0.45),
+               # the lob: across and up at ~43 degrees (steeper than 50 is a swing straight up: a lob too)
+               "tennis_lob": tennis_swing((-0.6, 0.9, 0.1), (0.25, 1.7, -0.35), swing=0.25),
                "tennis_slice": tennis_swing((-0.55, 1.6, 0.05), (0.15, 0.95, -0.45)),
+               # small flicks of the forearm around a still elbow (a third of a torso, 0.22 s: gentle swings, like
+               # a Wii remote's): forehand across toward the body, backhand back out, a serve of a flick up and one
+               # down, a flick straight up (nothing)
+               "flick_forehand": tennis_swing((-0.42, 1.0, -0.12), (-0.27, 1.03, -0.22), swing=0.22),
+               "flick_backhand": tennis_swing((-0.12, 1.02, -0.22), (-0.28, 1.0, -0.12), swing=0.22),
+               "flick_serve": arm_keys("right", [(0, None, None), (0.85, (-0.3, 1.15, -0.1), None),
+                                                  (1.0, (-0.3, 1.15, -0.1), None), (1.2, (-0.3, 1.32, -0.1), None),
+                                                  (1.6, (-0.3, 1.32, -0.1), None), (1.82, (-0.27, 1.15, -0.2), None),
+                                                  (2.1, (-0.27, 1.15, -0.2), None), (3.35, None, None)]),
+               "flick_up": tennis_swing((-0.3, 0.95, -0.15), (-0.3, 1.08, -0.18), swing=0.22),
+               "tennis_up": tennis_swing((-0.3, 0.9, 0.0), (-0.25, 1.85, -0.2)),
+               "tennis_toss_serve": toss_serve(),
                "shield_left": shield_hold((0.45, 1.5, -0.35), (0.36, 1.2, -0.25)),
                "shield_right": shield_hold((-0.32, 1.48, -0.38), (0.02, 1.28, -0.3)),
                # hold on the colour column (right edge), long enough for a dwell selection, then back down
@@ -751,9 +857,94 @@ def kick_loop(every=0.7):
 ARM_MOTIONS.update({
     "run_spot": run_spot(),
     "kick_loop": kick_loop(),
-    # Sporte!'s volleyball: both forearms swung up from low in front, every 0.6 s
-    "bump_loop": both(repeat_keys("left", [((0.12, 0.95, -0.3), (0.2, 1.15, -0.15)), ((0.1, 1.45, -0.45), (0.2, 1.3, -0.25))], 0.3),
-                      repeat_keys("right", [((-0.12, 0.95, -0.3), (-0.2, 1.15, -0.15)), ((-0.1, 1.45, -0.45), (-0.2, 1.3, -0.25))], 0.3)),
+})
+
+
+# Volejboll!'s moves (metres; x > 0 = the player's left, z < 0 = toward the camera). The bump: both wrists together low
+# in front of the belly (a torso below the shoulders, 10 cm apart); the set: both hands up above the head; the spike: the
+# right arm raised (slowly: a wind-up, never a hit) and swung down and forward (its fast part 0.2 s)
+BUMP_W, BUMP_E = (0.05, 0.95, -0.35), (0.17, 1.17, -0.18)
+SET_W, SET_E = (0.16, 1.92, -0.08), (0.24, 1.66, -0.04)
+SPIKE_UP_W, SPIKE_UP_E = (-0.24, 1.95, -0.05), (-0.25, 1.68, -0.02)
+SPIKE_DOWN_W = (-0.12, 1.02, -0.45)
+
+
+def mirror(p):
+    return (-p[0], p[1], p[2])
+
+
+def volley_cycle(hits=(4.4,), bump=(0.2, 1.9), set_=(2.3, 3.4), seg=10.0, block=None):
+    """One cycle: both hands to the bump and held, to the set and held, then the right arm's spike(s) at `hits`, then
+    (`block`) both hands up again: the block."""
+    def both_arms(side):
+        w = lambda p: p if side == "left" else mirror(p)
+        keys = [(0, None, None), (bump[0] - 0.15, None, None), (bump[0], w(BUMP_W), w(BUMP_E)), (bump[1], w(BUMP_W), w(BUMP_E)),
+                (bump[1] + 0.25, None, None), (set_[0] - 0.2, None, None), (set_[0], w(SET_W), w(SET_E)), (set_[1], w(SET_W), w(SET_E)),
+                (set_[1] + 0.25, None, None)]
+        if block:
+            keys += [(block[0] - 0.2, None, None), (block[0], w(SET_W), w(SET_E)), (block[1], w(SET_W), w(SET_E)), (block[1] + 0.25, None, None)]
+        if side == "right":
+            for at in hits:
+                keys += [(at - 0.75, None, None), (at - 0.2, SPIKE_UP_W, SPIKE_UP_E), (at, SPIKE_UP_W, SPIKE_UP_E),
+                         (at + 0.2, SPIKE_DOWN_W, None), (at + 0.35, SPIKE_DOWN_W, None),
+                         (min(at + 1.25, block[0] - 0.3) if block else at + 1.25, None, None)]
+        keys.append((seg - 0.05, None, None))
+        keys.sort(key=lambda k: k[0])
+        return arm_keys(side, keys)
+    return both(both_arms("left"), both_arms("right"))
+
+
+ARM_MOTIONS.update({
+    "volley_cycle": volley_cycle(block=(7.6, 8.9)),
+    "volley_serve_cycle": volley_cycle(hits=(4.4, 6.4), block=(7.6, 8.9)),
+    "volley_duo_cycle": volley_cycle(hits=(4.6,), bump=(0.2, 2.2), set_=(2.6, 3.9), seg=6.0),
+    # the same, half a cycle later (it starts and ends at rest, so the wrap is smooth)
+    "volley_duo_cycle_late": (lambda m: (lambda t: m((t + 3.0) % 6.0)))(volley_cycle(hits=(4.6,), bump=(0.2, 2.2), set_=(2.6, 3.9), seg=6.0)),
+})
+
+
+# Gara!: an invisible steering wheel held in front of the chest (toward the camera), turned by the hands: the player's left
+# hand (x > 0) rises turning right
+WHEEL_C, WHEEL_R = (0.0, 1.16, -0.32), 0.2
+
+
+def wheel_pose(deg, up=0.0):
+    a = math.radians(deg)
+    cx, cy, cz = WHEEL_C
+    cy += up
+    lw = (WHEEL_R * math.cos(a), cy + WHEEL_R * math.sin(a), cz)
+    rw = (-WHEEL_R * math.cos(a), cy - WHEEL_R * math.sin(a), cz)
+    le = ((0.19 + lw[0]) / 2 + 0.07, (1.42 + lw[1]) / 2 - 0.08, cz * 0.45)
+    re = ((-0.19 + rw[0]) / 2 - 0.07, (1.42 + rw[1]) / 2 - 0.08, cz * 0.45)
+    return {"left_wrist": lw, "left_elbow": le, "right_wrist": rw, "right_elbow": re}
+
+
+UP_POSE = {"left_wrist": (0.18, 1.95, -0.05), "left_elbow": (0.22, 1.66, 0.0),
+           "right_wrist": (-0.18, 1.95, -0.05), "right_elbow": (-0.22, 1.66, 0.0)}
+
+
+def kart_drive(seg=8.0, amp=32.0, hard=(4.4, 5.9), up=(6.5, 7.3)):
+    """One cycle of driving: the wheel turned left and right (a sine, 4 s), a hard right turn held (a drift), both hands
+    up and back (the item)."""
+    def arm(t):
+        t = t % seg
+        deg = amp * math.sin(2 * math.pi * t / 4.0)
+        if hard[0] - 0.3 <= t <= hard[1] + 0.3:
+            k = smoothstep((t - (hard[0] - 0.3)) / 0.3) * (1 - smoothstep((t - hard[1]) / 0.3))
+            deg = deg + (62.0 - deg) * k
+        pose = wheel_pose(deg)
+        if up[0] - 0.25 <= t <= up[1] + 0.25:
+            k = smoothstep((t - (up[0] - 0.25)) / 0.25) * (1 - smoothstep((t - up[1]) / 0.25))
+            pose = {n: tuple(a + (b - a) * k for a, b in zip(pose[n], UP_POSE[n])) for n in pose}
+        return pose
+    return arm
+
+
+ARM_MOTIONS.update({
+    "kart_level": lambda t: wheel_pose(0.0),
+    "kart_drive": kart_drive(),
+    # the same, half a cycle later (it starts and ends with the wheel level, so the wrap is smooth)
+    "kart_drive_late": (lambda m: (lambda t: m((t + 4.0) % 8.0)))(kart_drive()),
 })
 
 
@@ -814,7 +1005,40 @@ def perspective(x, y, near):
     return x * k, CAMERA_HEIGHT_M + (y - CAMERA_HEIGHT_M) * k
 
 
-def to_person(joints_m, noise=0.003, world_noise=0.005, near=0.0):
+class Glitches:
+    """The box's pose-model glitches (2026-11-06, from its recordings), `rate` a second on average: a wrist flipped to
+    another spot 15-50 cm away for one or two frames, or pulled most of the way onto its elbow for one to three, the
+    model less sure of it meanwhile. The right hand (the racket's) gets 60 % of them."""
+
+    def __init__(self, rate, fps):
+        self.chance = rate / fps
+        self.side, self.frames, self.kind, self.amount, self.vis = None, 0, None, None, 1.0
+
+    def __call__(self, joints_m):
+        if self.frames <= 0 and random.random() < self.chance:
+            self.side = "right" if random.random() < 0.6 else "left"
+            if random.random() < 0.5:
+                angle = random.uniform(0, 2 * math.pi)
+                size = random.uniform(0.15, 0.5)
+                self.kind, self.amount, self.frames = "flip", (math.cos(angle) * size, math.sin(angle) * size), random.randint(1, 2)
+            else:
+                self.kind, self.amount, self.frames = "collapse", random.uniform(0.5, 0.8), random.randint(1, 3)
+            self.vis = random.uniform(0.7, 0.85)
+        if self.frames <= 0:
+            return joints_m, {}
+        self.frames -= 1
+        joints = dict(joints_m)
+        w, e = f"{self.side}_wrist", f"{self.side}_elbow"
+        x, y, z = joints[w]
+        if self.kind == "flip":
+            joints[w] = (x + self.amount[0], y + self.amount[1], z)
+        else:
+            ex, ey, ez = joints[e]
+            joints[w] = (x + (ex - x) * self.amount, y + (ey - y) * self.amount, z + (ez - z) * self.amount)
+        return joints, {w: self.vis}
+
+
+def to_person(joints_m, noise=0.003, world_noise=0.005, near=0.0, track=0, vis=None):
     out, world = [], []
     hx = (joints_m["left_hip"][0] + joints_m["right_hip"][0]) / 2
     hy = (joints_m["left_hip"][1] + joints_m["right_hip"][1]) / 2
@@ -825,11 +1049,40 @@ def to_person(joints_m, noise=0.003, world_noise=0.005, near=0.0):
         nx = 0.5 + px / VIEW_WIDTH_M + random.gauss(0, noise)
         ny = 0.95 - py / VIEW_HEIGHT_M + random.gauss(0, noise)
         nz = z / VIEW_WIDTH_M  # MediaPipe-style depth: same scale as x, negative = toward the camera
-        out.append((nx, ny, nz, 0.98))
+        out.append((nx, ny, nz, (vis or {}).get(name, 0.98)))
         # MediaPipe world joints: metres, origin at the hips, x image-right, y DOWN, z toward the camera = negative
         world.append((x - hx + random.gauss(0, world_noise), -(y - hy) + random.gauss(0, world_noise),
                       z - hz + random.gauss(0, world_noise)))
-    return Person(out, world=world)
+    return Person(out, world=world, track=track)
+
+
+def frame_joints(prev, target, t):
+    """One player's joints (metres) `t` seconds into a segment going from state `prev` to `target`, and how near the
+    camera they stand."""
+    k = smoothstep(t / TRANSITION_S)
+    state = {key: prev.get(key, 0.0) + (target.get(key, 0.0) - prev.get(key, 0.0)) * k
+             for key in ("x", "crouch", "hands", "near")}
+    jump_y = JUMP_HEIGHT_M * math.sin(math.pi * t / JUMP_TIME_S) if target.get("jump") and t < JUMP_TIME_S else 0.0
+    arm = ARM_MOTIONS[target["arm"]](t) if target.get("arm") else None
+    dx, dy = BODY_MOTIONS[target["move"]](t) if target.get("move") else (0.0, 0.0)
+    if target.get("hop"):
+        extra_crouch, hop_y = hop(t, *target["hop"])
+        state["crouch"] += extra_crouch
+        dy += hop_y
+    if target.get("hops"):   # hop after hop, one every `hops` seconds
+        extra_crouch, hop_y = hop(t % target["hops"], 0.10, 0.36, start=0.02)
+        state["crouch"] += extra_crouch
+        dy += hop_y
+    state["x"] += dx
+    joints_m = body_at(state, jump_y + dy, arm)
+    if target.get("turn"):
+        a0, a1 = target["turn"]
+        joints_m = turn_body(joints_m, a0 + (a1 - a0) * smoothstep(t / target.get("turn_s", 1.2)))
+    return joints_m, state["near"]
+
+
+def end_state(target):
+    return {key: target.get(key, 0.0) for key in ("x", "crouch", "hands", "near")}
 
 
 # ---- drawn camera picture for the camera preview stream (what a camera would see: not mirrored, no noise)
@@ -896,17 +1149,25 @@ def main():
     p.add_argument("--fps", type=float, default=30)
     p.add_argument("--once", action="store_true", help="play the script once instead of looping")
     p.add_argument("--script", choices=sorted(SCRIPTS), default="basic")
+    p.add_argument("--alternate", action="store_true",
+                   help="two-player scripts: one player per packet, taking turns, with track ids (like the box's NPU "
+                        "sharing its landmark runs between two people: each player at half the rate)")
     p.add_argument("--video-control-port", type=int, default=CONTROL_PORT,
                    help="send a drawn camera picture while the game asks for one; 0 = never")
+    p.add_argument("--glitches", type=float, default=0.0,
+                   help="the box's pose-model glitches this many times a second on average (one player): wrists flipped "
+                        "or pulled onto their elbows for a frame or a few")
     args = p.parse_args()
     script = SCRIPTS[args.script]
+    glitches = Glitches(args.glitches, args.fps) if args.glitches > 0 else None
 
     sender = UdpSender(args.host, args.port)
     video = VideoStreamer(args.video_control_port) if args.video_control_port else None
     fps_meter = FpsMeter()
     print(f"Fake player ({args.script}) -> udp://{args.host}:{args.port} at {args.fps:.0f} fps")
     frame = 0
-    prev = dict(script[-1][2])
+    duo = isinstance(script[0][2], tuple)
+    prev = [end_state(t) for t in script[-1][2]] if duo else dict(script[-1][2])
     period = 1.0 / args.fps
     next_tick = time.perf_counter()
     try:
@@ -918,36 +1179,30 @@ def main():
                     pass  # no console (e.g. started by the Unity tests): keep sending
                 seg_start = time.perf_counter()
                 while (t := time.perf_counter() - seg_start) < duration:
-                    k = smoothstep(t / TRANSITION_S)
-                    state = {key: prev.get(key, 0.0) + (target.get(key, 0.0) - prev.get(key, 0.0)) * k
-                             for key in ("x", "crouch", "hands", "near")}
-                    jump_y = JUMP_HEIGHT_M * math.sin(math.pi * t / JUMP_TIME_S) if target.get("jump") and t < JUMP_TIME_S else 0.0
-                    arm = ARM_MOTIONS[target["arm"]](t) if target.get("arm") else None
-                    dx, dy = BODY_MOTIONS[target["move"]](t) if target.get("move") else (0.0, 0.0)
-                    if target.get("hop"):
-                        extra_crouch, hop_y = hop(t, *target["hop"])
-                        state["crouch"] += extra_crouch
-                        dy += hop_y
-                    if target.get("hops"):   # hop after hop, one every `hops` seconds
-                        extra_crouch, hop_y = hop(t % target["hops"], 0.10, 0.36, start=0.02)
-                        state["crouch"] += extra_crouch
-                        dy += hop_y
-                    state["x"] += dx
-                    joints_m = body_at(state, jump_y + dy, arm)
-                    if target.get("turn"):
-                        a0, a1 = target["turn"]
-                        joints_m = turn_body(joints_m, a0 + (a1 - a0) * smoothstep(t / target.get("turn_s", 1.2)))
-                    people = [] if target.get("absent") else [to_person(joints_m, near=state["near"])]
+                    if duo:
+                        people = []
+                        for i, (pv, tg) in enumerate(zip(prev, target)):
+                            if tg.get("absent"):
+                                continue
+                            joints, near = frame_joints(pv, tg, t)
+                            joints = {n: (x + DUO_X[i], y, z) for n, (x, y, z) in joints.items()}
+                            people.append(to_person(joints, near=near, track=i + 1 if args.alternate else 0))
+                        if args.alternate and people:
+                            people = [people[frame % len(people)]]
+                    else:
+                        joints_m, near = frame_joints(prev, target, t)
+                        seen, vis = glitches(joints_m) if glitches else (joints_m, None)
+                        people = [] if target.get("absent") else [to_person(seen, near=near, vis=vis)]
                     t_ms = now_ms()
                     packet = build_packet("py-fake", frame, t_ms, WIDTH, HEIGHT, fps_meter.tick(), 0.0, people,
                                           camera_fps=30.0, model="fake")
                     sender.send(packet)
-                    if video and video.wanted():
+                    if video and video.wanted() and not duo:
                         video.send(render_camera(joints_m) if people else room_background(), t_ms, frame)
                     frame += 1
                     next_tick += period
                     time.sleep(max(0.0, next_tick - time.perf_counter()))
-                prev = {key: target.get(key, 0.0) for key in ("x", "crouch", "hands", "near")}
+                prev = [end_state(tg) for tg in target] if duo else end_state(target)
             if args.once:
                 break
     except KeyboardInterrupt:
