@@ -20,6 +20,8 @@ unity/*/.vs/
 unity/*/.idea/
 unity/*/*.apk
 unity/*/*.aab
+# the Android build's native CMake/Ninja cache (object files, absolute paths to the Unity install)
+unity/*/.utmp/
 
 # OS
 .DS_Store
