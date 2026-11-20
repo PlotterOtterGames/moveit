@@ -58,6 +58,7 @@ class Shape(kit.Part):
 
     def lathe(self, profile, axis_origin, axis, region, segs=24, caps=(False, False)):
         """A surface of revolution: profile = [(radius, along)] round axis (unit) through axis_origin."""
+        segs = kit.lod(segs, 8)
         axis = Vector(axis).normalized()
         o = Vector(axis_origin)
         side = Vector((0, 0, 1)) if abs(axis.z) < 0.9 else Vector((1, 0, 0))
@@ -73,6 +74,7 @@ class Shape(kit.Part):
 
     def rbox(self, centre, half, region, round_=0.35, segs=16, rings=10, power=3.0):
         """A rounded box: a superellipsoid (power > 2 = boxier)."""
+        segs, rings = kit.lod(segs, 8), kit.lod(rings, 4)
         c = Vector(centre)
         rows = []
         e = 2.0 / power
@@ -95,6 +97,7 @@ class Shape(kit.Part):
 def loft(shape, sections, region, segs=28):
     """A closed body lofted through sections (y, centre z, half width, half height, power): a soap bar."""
     rows = []
+    segs = kit.lod(segs, 12)
     for y, cz, hw, hh, pw in sections:
         rows.append(kit.superellipse(Vector((0, y, cz)), Vector((1, 0, 0)), Vector((0, 0, 1)), hw, hh, pw, segs, keep=True))
     y0, y1 = sections[0][0], sections[-1][0]
@@ -176,17 +179,19 @@ def wheel():
     r, w = REAR_R, WHEEL_W * 0.5
     # the tyre: a rounded rectangle swept round the axle
     prof = []
-    steps = 10
+    steps = kit.lod(10, 4)
     for k in range(steps + 1):
         a = math.pi * k / steps - math.pi / 2       # -90 .. 90 degrees round the tyre's section
         x = w * math.sin(a) * 1.0
         rr = r - 0.07 + 0.07 * math.cos(a) ** 0.6
         prof.append((rr, x))
     s.lathe(prof, (0, 0, 0), (1, 0, 0), "tyre", segs=28)
-    # the tread: three soft ribs round the tyre (the baked shade between them reads as grooves)
-    for x in (-w * 0.5, 0.0, w * 0.5):
-        pts = [(x, math.cos(2 * math.pi * k / 40) * (r - 0.004), math.sin(2 * math.pi * k / 40) * (r - 0.004)) for k in range(40)]
-        s.ring(pts, (0.012, 0.022), "tyre", segs=8, front=Vector((1, 0, 0)))
+    # the tread: three soft ribs round the tyre (the baked shade between them reads as grooves); the low-detail wheel
+    # (small on the screen) has none: they were two thirds of the wheel's vertices
+    if kit.DETAIL >= 0.999:
+        for x in (-w * 0.5, 0.0, w * 0.5):
+            pts = [(x, math.cos(2 * math.pi * k / 40) * (r - 0.004), math.sin(2 * math.pi * k / 40) * (r - 0.004)) for k in range(40)]
+            s.ring(pts, (0.012, 0.022), "tyre", segs=8, front=Vector((1, 0, 0)))
     # the rim: a dish on each side, the hub cap on the outside (+X)
     for side in (1, -1):
         s.lathe([(r - 0.075, side * (w - 0.01)), (r - 0.12, side * (w + 0.008)), (0.06, side * (w + 0.02)), (0.0, side * (w + 0.022))],
@@ -199,7 +204,8 @@ def steering():
     """The steering wheel: a ring with three spokes and a hub, facing the driver (its axis along +Z tilted back)."""
     s = Shape("KartSteering")
     ring_r, tube_r = 0.15, 0.024
-    pts = [(math.cos(2 * math.pi * k / 24) * ring_r, 0.0, math.sin(2 * math.pi * k / 24) * ring_r) for k in range(24)]
+    n = kit.lod(24, 10)
+    pts = [(math.cos(2 * math.pi * k / n) * ring_r, 0.0, math.sin(2 * math.pi * k / n) * ring_r) for k in range(n)]
     s.ring(pts, tube_r, "dark", segs=8, front=Vector((0, 1, 0)))
     for k in range(3):
         a = math.radians(-90 + 120 * k)
@@ -243,15 +249,28 @@ def to_object(shape, coll):
     return obj
 
 
+# The low-detail kart (2026-11-13): the same parts with about 40 % of the segments and no tread ribs, exported beside the
+# full ones as KartBodyLow, KartWheelLow, KartSteeringLow. Gara!'s two-player split screen draws all six karts twice;
+# the full kart is ~19,700 triangles (its four wheels 11,400 of them), far more than a kart that size on the TV needs.
+LOW_DETAIL = 0.4
+LOW = "Low"
+
+
 def build():
     ta.clear_scene()
     coll = ta.collection("Kart")
     for o in list(coll.objects):
         bpy.data.objects.remove(o, do_unlink=True)
     made = {}
-    for fn in (body, wheel, steering):
-        shape = fn()
-        made[shape.name] = to_object(shape, coll)
+    for detail, suffix in ((1.0, ""), (LOW_DETAIL, LOW)):
+        kit.DETAIL = detail
+        try:
+            for fn in (body, wheel, steering):
+                shape = fn()
+                shape.name += suffix
+                made[shape.name] = to_object(shape, coll)
+        finally:
+            kit.DETAIL = 1.0
     return {n: sum(len(p.vertices) - 2 for p in o.data.polygons) for n, o in made.items()}
 
 
@@ -267,13 +286,15 @@ STEERING_AT = Vector((0, -0.06, 0.73))   # close to the driver: the chibis' arms
 STEERING_TILT = 35.0   # degrees back from upright
 
 
-def assemble(coll, offset=Vector(), name="pv", colours=None):
-    """Copies of the parts put together as the game does (for previews and the ambient-occlusion bake)."""
+def assemble(coll, offset=Vector(), name="pv", colours=None, low=False):
+    """Copies of the parts put together as the game does (for previews and the ambient-occlusion bake); low = the
+    low-detail parts."""
     from mathutils import Euler, Matrix
     made = []
-    body_o = bpy.data.objects["KartBody"]
-    wheel_o = bpy.data.objects["KartWheel"]
-    steer_o = bpy.data.objects["KartSteering"]
+    suffix = LOW if low else ""
+    body_o = bpy.data.objects["KartBody" + suffix]
+    wheel_o = bpy.data.objects["KartWheel" + suffix]
+    steer_o = bpy.data.objects["KartSteering" + suffix]
 
     def copy(src, mw, n):
         o = bpy.data.objects.new(n, src.data.copy())
@@ -342,20 +363,25 @@ def preview():
             bpy.data.objects.remove(o, do_unlink=True)
     for o in objects():
         o.hide_render = True
-    for i, look in enumerate(LOOKS):
-        off = Vector(((i - 1.5) * 2.0, 0, 0))
-        assemble(coll, off, f"pv{i}", look)
-        if i == 0:
-            driver_stand_in(coll, off)
     paths = []
-    for view, yaw, pitch, dist in (("front", -30, 18, 8.5), ("back", 160, 22, 8.5), ("side", -90, 8, 8.5)):
-        ta.preview_rig(target=(0, 0, 0.45), distance=dist, yaw_deg=yaw, pitch_deg=pitch, lens=50)
+    for low in (False, True):   # the full karts, then the low-detail ones (kart_low_*.png)
+        for o in list(coll.objects):
+            if o.type == "MESH":
+                bpy.data.objects.remove(o, do_unlink=True)
+        for i, look in enumerate(LOOKS):
+            off = Vector(((i - 1.5) * 2.0, 0, 0))
+            assemble(coll, off, f"pv{i}", look, low=low)
+            if i == 0:
+                driver_stand_in(coll, off)
+        tag = "kart_low" if low else "kart"
+        for view, yaw, pitch, dist in (("front", -30, 18, 8.5), ("back", 160, 22, 8.5), ("side", -90, 8, 8.5)):
+            ta.preview_rig(target=(0, 0, 0.45), distance=dist, yaw_deg=yaw, pitch_deg=pitch, lens=50)
+            kit_lights()
+            paths.append(ta.render_preview(os.path.join(out_dir, f"{tag}_{view}.png"), res=(1800, 900)))
+        # the first kart close, from the game's chase camera
+        ta.preview_rig(target=(-3.0, -0.3, 0.5), distance=4.2, yaw_deg=180, pitch_deg=20, lens=40)
         kit_lights()
-        paths.append(ta.render_preview(os.path.join(out_dir, f"kart_{view}.png"), res=(1800, 900)))
-    # the first kart close, from the game's chase camera
-    ta.preview_rig(target=(-3.0, -0.3, 0.5), distance=4.2, yaw_deg=180, pitch_deg=20, lens=40)
-    kit_lights()
-    paths.append(ta.render_preview(os.path.join(out_dir, "kart_chase.png"), res=(1200, 800)))
+        paths.append(ta.render_preview(os.path.join(out_dir, f"{tag}_chase.png"), res=(1200, 800)))
     for o in objects():
         o.hide_render = False
     return paths
@@ -379,36 +405,38 @@ def bake_ao(samples=48):
     scene.world = world
     world.light_settings.distance = 0.35
     coll = ta.collection("Bake")
-    for o in list(coll.objects):
-        bpy.data.objects.remove(o, do_unlink=True)
-    parts = assemble(coll, name="bk")
-    # the ground under it (the wheels and the belly darker)
-    bm = bmesh.new()
-    bmesh.ops.create_grid(bm, x_segments=1, y_segments=1, size=3.0)
-    ground = ta.mesh_object("bk_ground", bm, coll)
-    for o in objects():
-        o.hide_render = True
-        o.hide_set(True)
     done = 0
-    for src_name, copy_name in (("KartBody", "bk_body"), ("KartWheel", "bk_wheel2"), ("KartSteering", "bk_steer")):
-        target = bpy.data.objects[copy_name]
-        me = target.data
-        attr = me.color_attributes.get("AO") or me.color_attributes.new("AO", "FLOAT_COLOR", "POINT")
-        me.color_attributes.active_color = attr
-        for o in bpy.context.view_layer.objects:
-            o.select_set(False)
-        target.select_set(True)
-        bpy.context.view_layer.objects.active = target
-        bpy.ops.object.bake(type="AO")
-        # back onto the part itself (same topology)
-        src = bpy.data.objects[src_name].data
-        uv = src.uv_layers["Region"]
-        for poly in src.polygons:
-            for li in poly.loop_indices:
-                c = attr.data[src.loops[li].vertex_index].color
-                ao = (c[0] + c[1] + c[2]) / 3
-                uv.data[li].uv = (uv.data[li].uv[0], 0.35 + 0.65 * ao)
-        done += 1
+    for low in (False, True):   # the full kart, then the low-detail one
+        for o in list(coll.objects):
+            bpy.data.objects.remove(o, do_unlink=True)
+        assemble(coll, name="bk", low=low)
+        # the ground under it (the wheels and the belly darker)
+        bm = bmesh.new()
+        bmesh.ops.create_grid(bm, x_segments=1, y_segments=1, size=3.0)
+        ta.mesh_object("bk_ground", bm, coll)
+        for o in objects():
+            o.hide_render = True
+            o.hide_set(True)
+        for src_name, copy_name in (("KartBody", "bk_body"), ("KartWheel", "bk_wheel2"), ("KartSteering", "bk_steer")):
+            src_name += LOW if low else ""
+            target = bpy.data.objects[copy_name]
+            me = target.data
+            attr = me.color_attributes.get("AO") or me.color_attributes.new("AO", "FLOAT_COLOR", "POINT")
+            me.color_attributes.active_color = attr
+            for o in bpy.context.view_layer.objects:
+                o.select_set(False)
+            target.select_set(True)
+            bpy.context.view_layer.objects.active = target
+            bpy.ops.object.bake(type="AO")
+            # back onto the part itself (same topology)
+            src = bpy.data.objects[src_name].data
+            uv = src.uv_layers["Region"]
+            for poly in src.polygons:
+                for li in poly.loop_indices:
+                    c = attr.data[src.loops[li].vertex_index].color
+                    ao = (c[0] + c[1] + c[2]) / 3
+                    uv.data[li].uv = (uv.data[li].uv[0], 0.35 + 0.65 * ao)
+            done += 1
     for o in list(coll.objects):
         bpy.data.objects.remove(o, do_unlink=True)
     for o in objects():

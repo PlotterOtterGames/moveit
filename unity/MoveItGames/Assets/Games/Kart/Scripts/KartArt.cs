@@ -43,11 +43,13 @@ namespace MoveIt.Games.Kart
                 }
             }
 
-            public Texture2D Texture(string name)
+            /// <summary>The picture as a texture; <paramref name="readable"/> keeps its pixels in memory (the race HUD's
+            /// atlas copies them: <see cref="KartHudAtlas"/>).</summary>
+            public Texture2D Texture(string name, bool readable = false)
             {
                 var tex = new Texture2D(_size, _size, TextureFormat.RGBA32, true) { name = name, wrapMode = TextureWrapMode.Clamp };
                 tex.SetPixels(_px);
-                tex.Apply(true, true);
+                tex.Apply(true, !readable);
                 return tex;
             }
         }
@@ -85,7 +87,7 @@ namespace MoveIt.Games.Kart
 
         // ------------------------------------------------------------------------------------------------ items
 
-        public static Texture2D ItemIcon(KartItem item, int size = 128)
+        public static Texture2D ItemIcon(KartItem item, int size = 128, bool readable = false)
         {
             var c = new Canvas(size);
             var dark = new Color(0.08f, 0.1f, 0.22f, 0.9f);
@@ -145,14 +147,14 @@ namespace MoveIt.Games.Kart
                     c.Fill(p => Circle(p, new Vector2(50f, 50f), 30f), dark);
                     break;
             }
-            return c.Texture($"Item {item}");
+            return c.Texture($"Item {item}", readable);
         }
 
         // ------------------------------------------------------------------------------------------------ the wheel
 
         /// <summary>The steering wheel the HUD shows (white: tinted when drawn): a thick ring, three spokes, a hub and two
         /// grips at ten to two.</summary>
-        public static Texture2D Wheel(int size = 192)
+        public static Texture2D Wheel(int size = 192, bool readable = false)
         {
             var c = new Canvas(size);
             var centre = new Vector2(50f, 50f);
@@ -171,7 +173,7 @@ namespace MoveIt.Games.Kart
                 var g = centre + new Vector2(Mathf.Cos(a), -Mathf.Sin(a)) * 40f;
                 c.Fill(p => Circle(p, g, 8.5f), new Color(0.75f, 0.78f, 0.85f));
             }
-            return c.Texture("Wheel");
+            return c.Texture("Wheel", readable);
         }
 
         // ------------------------------------------------------------------------------------------------ the moves
@@ -179,7 +181,7 @@ namespace MoveIt.Games.Kart
         public enum Figure { Wheel, Jump, HandsUp, Lean }
 
         /// <summary>A figure making a move, white on clear (the how-to cards and hints).</summary>
-        public static Texture2D MoveFigure(Figure figure, int size = 128)
+        public static Texture2D MoveFigure(Figure figure, int size = 128, bool readable = false)
         {
             var c = new Canvas(size);
             var col = Color.white;
@@ -236,7 +238,7 @@ namespace MoveIt.Games.Kart
                     c.Fill(p => Segment(p, neck, new Vector2(64f, 58f), 5.5f), col);
                     break;
             }
-            return c.Texture($"Figure {figure}");
+            return c.Texture($"Figure {figure}", readable);
         }
 
         // ------------------------------------------------------------------------------------------------ the road
@@ -263,7 +265,7 @@ namespace MoveIt.Games.Kart
         }
 
         /// <summary>The track seen from above (white line on clear) for the minimap, with the map's bounds.</summary>
-        public static Texture2D Minimap(KartTrack track, int size, out Rect bounds)
+        public static Texture2D Minimap(KartTrack track, int size, out Rect bounds, bool readable = false)
         {
             float x0 = float.MaxValue, x1 = float.MinValue, z0 = float.MaxValue, z1 = float.MinValue;
             for (float s = 0f; s < track.Length; s += 4f)
@@ -301,7 +303,7 @@ namespace MoveIt.Games.Kart
                 }
             }
             tex.SetPixels32(px);
-            tex.Apply(false, true);
+            tex.Apply(false, !readable);
             return tex;
         }
 

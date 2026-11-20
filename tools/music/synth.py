@@ -129,7 +129,7 @@ def _karplus(f, seconds, decay, bright, seed, pluck_pos=0.18):
         end = min(start + L, len(y))
         y[start:end] = g * 0.5 * (y[start - L:end - L] + y[start - L - 1:end - L - 1])
         start = end
-    y = y[:n]
+    y = y[:n - n % 2]                                     # an even count (a note's length can make n odd)
     y = 0.5 * (y[0::2] + y[1::2])                          # back to SR (simple averaging decimation)
     return y / (np.max(np.abs(y)) + 1e-9)
 

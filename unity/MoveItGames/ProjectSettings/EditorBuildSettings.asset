@@ -24,8 +24,8 @@ EditorBuildSettings:
     path: Assets/Games/Sword/Sword.unity
     guid: a42b8baa045de1e4ca77f16fd6eaf01b
   - enabled: 1
-    path: Assets/Games/Fly/Fly.unity
-    guid: 7771774132a8c3d4cbdf08870b07dd26
+    path: Assets/Games/Boxing/Boxing.unity
+    guid: eb0481f067ad3894b837ea0b47fffb15
   - enabled: 1
     path: Assets/Games/Tennis/Tennis.unity
     guid: 14fabec9716003646bbffdc734444e2b
@@ -35,6 +35,15 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Games/Kart/Kart.unity
     guid: a8ba841c70fc6b64a83d09aa51a9b5bd
+  - enabled: 1
+    path: Assets/Games/Arcade/Arcade.unity
+    guid: adb4fad05c1385a4181d1c4175e14382
+  - enabled: 1
+    path: Assets/Games/Space/Space.unity
+    guid: 615be70aa70bc4440ae0df44b02b5157
+  - enabled: 1
+    path: Assets/Games/Fairy/Fairy.unity
+    guid: 0c4b247636a2ec34a934f0a0eab4166a
   - enabled: 1
     path: Assets/Games/Sports/Sports.unity
     guid: 5944a36b60c423046bf28ce3add29458

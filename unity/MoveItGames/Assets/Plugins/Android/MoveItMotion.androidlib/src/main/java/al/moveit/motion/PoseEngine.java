@@ -21,6 +21,7 @@ import java.util.Arrays;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * The pose AI on the camera analysis thread. The camera keeps only its latest frame while we're busy, so every result
@@ -54,6 +55,10 @@ final class PoseEngine {
     private volatile String model;
     private volatile String delegate = "";
     private volatile String detail = "";
+    // new tracks the NPU engine's upright check ended (ghosts) since the stats line last asked (takeGhosts), and frames
+    // whose pose score dipped while the person stayed followed (takeDips)
+    private final AtomicInteger ghosts = new AtomicInteger();
+    private final AtomicInteger dips = new AtomicInteger();
     private long lastTimestamp = -1;
     private float slowAverage = -1f;
     // people to follow (1 or 2), the landmark model's shared budget on the NPU (runs per second, 0 = everyone every
@@ -108,6 +113,23 @@ final class PoseEngine {
     /** Where the time goes, for the stats log (NPU: the detector and the landmark model). */
     String detail() { return detail; }
 
+    /** New tracks the NPU engine's upright check ended since the last call (ghosts: a guitar on a couch), for the stats
+     *  line. */
+    int takeGhosts() { return ghosts.getAndSet(0); }
+
+    /** Frames whose pose score dipped while the NPU engine kept following the person, since the last call (MediaPipe
+     *  would have dropped them each time: the stats line). */
+    int takeDips() { return dips.getAndSet(0); }
+
+    /**
+     * A frame the pose AI doesn't look at, while nobody is followed: on the NPU it goes into the person detector's
+     * running average (the frames just before the next look). Call on the analysis thread.
+     */
+    void watch(ByteBuffer rgba, int width, int height, int rowStride, long captureNs) {
+        NpuPose engine = npu;
+        if (engine != null && inFlight == null && !engine.tracking()) engine.watch(rgba, width, height, rowStride, captureNs);
+    }
+
     /** The packets' "src": android-rknn-full, android-mediapipe-gpu-lite, ... (docs/protocol.md). */
     String source() {
         return npu != null ? "android-rknn-" + model : "android-mediapipe-" + delegate.toLowerCase() + "-" + model;
@@ -139,6 +161,22 @@ final class PoseEngine {
 
     int maxPeople() { return maxPeople; }
 
+    // setFocus: the followed person (an NPU track id) who gets focusShare of the shared landmark runs, 0 = nobody
+    private int focusTrack;
+    private float focusShare;
+
+    /**
+     * While two people share the NPU's landmark runs: the one followed as track (a packet's "tid") gets share of them,
+     * the other the rest; 0 = they take turns evenly (2026-11-12: Tenis!'s player the ball is coming to, ~20 poses a
+     * second instead of 15). No effect on MediaPipe (it runs everyone every frame). Call on the analysis thread.
+     */
+    void setFocus(int track, float share) {
+        if (track == focusTrack && share == focusShare) return;
+        focusTrack = track;
+        focusShare = share;
+        if (npu != null) npu.setFocus(track, share);
+    }
+
     /** The NPU runs fixed crops as if they were people (measuring): the service mustn't idle for lack of anyone. */
     boolean bench() { return bench && npu != null; }
 
@@ -150,6 +188,7 @@ final class PoseEngine {
         if (npuAllowed && openNpu()) {
             delegate = "NPU";
             npu.setPeople(maxPeople, runsPerSecond, twin, 0, bench);
+            npu.setFocus(focusTrack, focusShare);
             Log.i(TAG, "Pose model " + model + " on the NPU");
             return;
         }
@@ -307,6 +346,8 @@ final class PoseEngine {
             return;
         }
         lastRunMs = engine.landmarkMs;
+        ghosts.addAndGet(engine.rejected);
+        dips.addAndGet(engine.coasting);
         detail = "crop " + Math.round(engine.cropMs) + " ms, landmarks " + Math.round(engine.landmarkMs) + " ms (NPU "
                 + Math.round(engine.npuMs) + ", pipelined)" + people(engine);
         pipelinedPose.set(engine);
@@ -353,6 +394,8 @@ final class PoseEngine {
             return false;
         }
         inferenceMs[0] = npu.totalMs;
+        ghosts.addAndGet(npu.rejected);
+        dips.addAndGet(npu.coasting);
         detail = (npu.detected ? "detector " + Math.round(npu.detectMs) + " ms, " : "")
                 + "landmarks " + Math.round(npu.landmarkMs) + " ms (crop " + Math.round(npu.cropMs) + ", NPU "
                 + Math.round(npu.npuMs) + ")" + people(npu);
@@ -367,6 +410,7 @@ final class PoseEngine {
         if (maxPeople < 2 && !twin && !bench) return "";
         return ", people " + engine.followed + "/" + maxPeople + " (" + engine.count + " run"
                 + (engine.count == 1 ? "" : "s") + (runsPerSecond > 0 ? ", budget " + Math.round(runsPerSecond) + "/s" : "")
+                + (focusTrack > 0 ? ", focus " + focusTrack + " " + Math.round(focusShare * 100) + "%" : "")
                 + (twin ? ", twin" : "") + (bench ? ", bench" : "") + ")";
     }
 

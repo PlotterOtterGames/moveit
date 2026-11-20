@@ -20,15 +20,12 @@ LAYERS = ["back", "doll", "bottom", "top", "sleeve", "hairfront", "head", "face"
 
 
 def tint(rgba, mask, color):
-    """The shader's colouring: tinted grey g -> colour * min(g / 0.8, 1), lighter greys toward white."""
+    """The shader's colouring (Tundu/Outfit Shade, style.shade_rgb) of the tinted greys."""
+    from style import shade_rgb
     rgb = rgba[..., :3].astype(np.float32) / 255
     a = rgba[..., 3:].astype(np.float32) / 255
     m = cv2.resize(mask, (rgba.shape[1], rgba.shape[0]), interpolation=cv2.INTER_LINEAR).astype(np.float32)[..., None] / 255
-    g = rgb[..., :1]
-    c = np.asarray(color, np.float32)
-    base = c * np.minimum(g / 0.8, 1.0)
-    hi = np.clip((g - 0.8) / 0.2, 0, 1)
-    tinted = base + (1 - base) * hi * 0.75
+    tinted = shade_rgb(np.asarray(color, np.float32), rgb[..., :1])
     out = rgb * (1 - m) + tinted * m
     return np.dstack([out, a])
 
@@ -128,8 +125,32 @@ LOOKS = {
 }
 
 
-def preview_all(images, manifest, out_dir):
+QUICK_COLORS = ["#FF7EC8", "#6E4BD8", "#F8F4FF", "#2EC9D0", "#E8304A", "#1E2240"]
+
+
+def quick_look(images, manifest, items, out_dir):
+    """Each of `items` on the doll in a few colours, big (tools/dress/out/quick.png)."""
     hexc = lambda h: tuple(int(h.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    tw, th = 420, 760
+    cols = 4
+    rows = []
+    for item in items:
+        tiles = []
+        for c in QUICK_COLORS[:cols]:
+            parts = doll_parts(manifest, [item]) + [(p, hexc(c)) for p in manifest["items"][item]]
+            img = to_image(render_look(images, manifest, parts, size=(tw, th), scale=170, top=0.95))
+            ImageDraw.Draw(img).text((8, 6), item, fill=(60, 40, 70))
+            tiles.append(np.asarray(img))
+        rows.append(np.hstack(tiles))
+    Image.fromarray(np.vstack(rows)).save(os.path.join(out_dir, "quick.png"))
+    print(f"quick look in {os.path.join(out_dir, 'quick.png')}")
+
+
+def preview_all(images, manifest, out_dir, items=None):
+    hexc = lambda h: tuple(int(h.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    if items is not None:
+        quick_look(images, manifest, items, out_dir)
+        return
     tiles = []
     for name, look in LOOKS.items():
         parts = doll_parts(manifest, [i for i, _ in look])

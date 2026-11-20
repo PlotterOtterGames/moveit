@@ -16,8 +16,9 @@ public static class Runner
         string filter = args.Length > 0 ? args[0] : null;
         foreach (var type in Assembly.GetExecutingAssembly().GetTypes())
         {
+            // an [Explicit] test runs only when the filter is its exact name
             var tests = type.GetMethods().Where(m => m.GetCustomAttributes().Any(a => a.GetType().Name == "TestAttribute")
-                                                     && !m.GetCustomAttributes().Any(a => a.GetType().Name == "ExplicitAttribute")).ToList();
+                                                     && (!m.GetCustomAttributes().Any(a => a.GetType().Name == "ExplicitAttribute") || m.Name == filter)).ToList();
             if (tests.Count == 0) continue;
             foreach (var m in tests)
             {
@@ -37,6 +38,9 @@ public static class Runner
                     fail++;
                     var msg = e.InnerException?.Message ?? e.Message;
                     Console.WriteLine($"FAIL {type.Name}.{m.Name}: {msg.Split('\n')[0]}{(msg.Contains('\n') ? " | " + string.Join(" | ", msg.Split('\n').Skip(1).Take(3)) : "")}");
+                    // a crash (not a failed assertion): where it happened
+                    if (e.InnerException != null && e.InnerException.GetType().Namespace?.StartsWith("NUnit") != true)
+                        Console.WriteLine("    " + string.Join("\n    ", (e.InnerException.StackTrace ?? "").Split('\n').Take(4)));
                 }
             }
         }

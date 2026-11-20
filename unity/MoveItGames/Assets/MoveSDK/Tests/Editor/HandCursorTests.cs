@@ -130,6 +130,21 @@ namespace MoveIt.Motion.Tests
         }
 
         [Test]
+        public void HandPoint_CarriesTheWristOnAlongTheArm_FromTheSteadyShoulder_TheElbowPlaysNoPart()
+        {
+            var body = new Body();
+            body.Joints[(int)Joint.RightShoulder] = new Vector3(1.0f, 0.6f, 0f);
+            body.Raw[(int)Joint.RightShoulder] = new Vector3(1.03f, 0.62f, 0f);   // the raw shoulder's noise plays no part
+            body.Raw[(int)Joint.RightWrist] = new Vector3(1.4f, 0.9f, 0f);
+            body.Raw[(int)Joint.RightElbow] = new Vector3(0.2f, 0.1f, 0f);        // nor does an elbow the model got wrong
+            var p = body.HandPoint(body.Raw, Joint.RightShoulder, Joint.RightWrist);
+            Assert.AreEqual(1.44f, p.x, 1e-5f, "the arm a tenth longer, from the smooth shoulder");
+            Assert.AreEqual(0.93f, p.y, 1e-5f);
+            Assert.AreEqual(new Vector2(1.4f, 0.9f), body.HandPoint(body.Raw, Joint.RightShoulder, Joint.RightWrist, 0f),
+                            "0 = the wrist itself");
+        }
+
+        [Test]
         public void Rope_IgnoresShakeSmallerThanTheString_AndTrailsAPull()
         {
             var rope = new CursorRope(6f);

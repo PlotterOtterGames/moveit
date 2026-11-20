@@ -1,0 +1,138 @@
+{
+ "FairyTree": {
+  "tris": 27757,
+  "verts": 14847
+ },
+ "TreeRound": {
+  "tris": 2928,
+  "verts": 1624
+ },
+ "TreeRoundFar": {
+  "tris": 834,
+  "verts": 485
+ },
+ "TreeBlossom": {
+  "tris": 2078,
+  "verts": 1174
+ },
+ "TreeBlossomFar": {
+  "tris": 827,
+  "verts": 484
+ },
+ "TreeTall": {
+  "tris": 1454,
+  "verts": 812
+ },
+ "TreeTallFar": {
+  "tris": 453,
+  "verts": 269
+ },
+ "Pine": {
+  "tris": 1182,
+  "verts": 605
+ },
+ "PineFar": {
+  "tris": 533,
+  "verts": 279
+ },
+ "Bush": {
+  "tris": 1749,
+  "verts": 959
+ },
+ "BushFlower": {
+  "tris": 2121,
+  "verts": 1158
+ },
+ "FlowerPatch": {
+  "tris": 576,
+  "verts": 336
+ },
+ "FlowerPatchBlue": {
+  "tris": 564,
+  "verts": 330
+ },
+ "GrassTuft": {
+  "tris": 18,
+  "verts": 30
+ },
+ "GrassTall": {
+  "tris": 21,
+  "verts": 35
+ },
+ "GrassFlowers": {
+  "tris": 144,
+  "verts": 96
+ },
+ "Fern": {
+  "tris": 1512,
+  "verts": 810
+ },
+ "Rock": {
+  "tris": 320,
+  "verts": 162
+ },
+ "RockSmall": {
+  "tris": 320,
+  "verts": 162
+ },
+ "PathStone": {
+  "tris": 80,
+  "verts": 42
+ },
+ "Pebbles": {
+  "tris": 120,
+  "verts": 72
+ },
+ "Mushroom": {
+  "tris": 912,
+  "verts": 484
+ },
+ "MushroomGlow": {
+  "tris": 912,
+  "verts": 484
+ },
+ "MushroomTrio": {
+  "tris": 1032,
+  "verts": 576
+ },
+ "CrystalCluster": {
+  "tris": 272,
+  "verts": 154
+ },
+ "Lantern": {
+  "tris": 544,
+  "verts": 298
+ },
+ "FlowerDaisy": {
+  "tris": 953,
+  "verts": 497
+ },
+ "FlowerTulip": {
+  "tris": 1243,
+  "verts": 650
+ },
+ "FlowerBell": {
+  "tris": 1093,
+  "verts": 593
+ },
+ "Cloud1": {
+  "tris": 1297,
+  "verts": 729
+ },
+ "Cloud2": {
+  "tris": 480,
+  "verts": 269
+ },
+ "Cloud3": {
+  "tris": 645,
+  "verts": 356
+ },
+ "Mountains": {
+  "tris": 1260,
+  "verts": 728
+ },
+ "Castle": {
+  "tris": 1164,
+  "verts": 722
+ }
+}

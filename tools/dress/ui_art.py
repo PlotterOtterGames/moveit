@@ -170,6 +170,14 @@ def icon_remove(p):
     p.stroke([(0.6, -0.6), (-0.6, 0.6)], 0.24, color=WHITE)
 
 
+def icon_undo(p):
+    """A curved arrow turning back (undo: the look comes back)."""
+    arc = [(math.cos(a) * 0.55 + 0.05, math.sin(a) * 0.5 + 0.12) for a in np.linspace(-math.pi * 0.95, math.pi * 0.55, 18)]
+    p.stroke(arc, 0.22, color=WHITE)
+    tip = arc[0]
+    white(p, [(tip[0] - 0.36, tip[1] - 0.02), (tip[0] + 0.26, tip[1] - 0.34), (tip[0] + 0.2, tip[1] + 0.32)])
+
+
 def icon_ready(p):
     p.stroke([(-0.65, 0.05), (-0.2, 0.5), (0.7, -0.5)], 0.26, color=WHITE)
 
@@ -360,7 +368,7 @@ def bubble_button():
 ICONS = {"cat_top": icon_top, "cat_bottom": icon_bottom, "cat_hair": icon_hair, "cat_head": icon_crown,
          "cat_face": icon_glasses, "cat_back": icon_wings, "cat_hand": icon_wand, "act_magic": icon_magic,
          "act_dice": icon_dice, "act_show": icon_show, "act_photo": icon_photo, "act_remove": icon_remove,
-         "act_ready": icon_ready, "none": icon_none, "hand": icon_hand}
+         "act_undo": icon_undo, "act_ready": icon_ready, "none": icon_none, "hand": icon_hand}
 
 
 def theme_icon(name, draw):

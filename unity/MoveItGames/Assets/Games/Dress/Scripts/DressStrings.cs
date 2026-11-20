@@ -20,6 +20,8 @@ namespace MoveIt.Games.Dress
         public static string RemoveAll => T("Hiq", "Clear");
         public static string Nothing => T("Asgjë", "Nothing");
         public static string AllRemoved => T("U hoqën të gjitha", "Everything off");
+        public static string Undo => T("Rikthe", "Undo");
+        public static string LookBack => T("U rikthye pamja!", "Your look is back!");
         public static string PhotoSaved(int count) => T($"Foto u ruajt! ({count} foto)", $"Photo saved! ({count} photos)");
         public static string NewColor(string item) => T($"{item}: ngjyrë e re!", $"{item}: a new colour!");
         public static string MagicOn(string effect) => T($"Magji: {effect}", $"Magic: {effect}");

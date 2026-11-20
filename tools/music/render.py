@@ -5,7 +5,8 @@
     python tools/music/render.py --wav           # also keep a .wav next to each .mid (for listening/checking)
 
 Loops: the music loops at the "loop_end" marker (or the end of the last bar). Reverb and ringing notes that run
-past the end are wrapped around to the start, so the loop is seamless. Files named jingle_* play once (no wrap).
+past the end are wrapped around to the start, so the loop is seamless. Files named jingle_* and space_* (Yjet!'s songs)
+play once (no wrap).
 Needs ffmpeg on the PATH for OGG (falls back to WAV without it).
 """
 
@@ -34,7 +35,7 @@ TAIL = 3.0
 def render(path):
     song = midi.read(path)
     name = os.path.splitext(os.path.basename(path))[0]
-    looping = not name.startswith("jingle_")
+    looping = not (name.startswith("jingle_") or name.startswith("space_"))   # jingles and Yjet!'s songs play once
     loop_n = int(round(song.loop_end * SR))
     last_note = max([n.end for n in song.notes] + [0])
     total = (loop_n if looping else int(last_note * SR)) + int(TAIL * SR)
@@ -72,6 +73,10 @@ def render(path):
         out[:, :total - loop_n] += out[:, loop_n:]     # wrap the tail into the start: seamless loop
         out = out[:, :loop_n]
     else:
+        if name.startswith("space_"):
+            # Yjet!'s songs: exactly the song (its charts are timed from the file's first sample), then the last
+            # chord's ring for TAIL seconds, faded
+            out = out[:, :loop_n + int(TAIL * SR)]
         k = int(0.3 * SR)
         out[:, -k:] *= np.linspace(1, 0, k)
     # master: loudness to a common level, then a soft limiter

@@ -44,12 +44,31 @@ namespace MoveIt.Games.Tennis
         readonly List<Section> _sections = new List<Section>();
         float _cheer, _t;
         GameObject _nearEnd;
+        // the light crowd (LiteCrowd): the stands' people as one mesh each, heads of 6 vertices; the near end's has only
+        // this one (only the split screen shows it)
+        Transform _lite, _liteNear;
+        bool _liteOn;
 
         /// <summary>The stands, crowd, trees and hills behind the near baseline: only the far team's half of a split
         /// screen (two players, versus) looks that way, so they're drawn only then.</summary>
         public void ShowNearEnd(bool on)
         {
             if (_nearEnd != null && _nearEnd.activeSelf != on) _nearEnd.SetActive(on);
+        }
+
+        /// <summary>
+        /// The light crowd instead of the bobbing sections (the two-player split screen, 2026-11-12): the same people in
+        /// one mesh (the near end's another: 2 renderers instead of ~25, each drawn in both halves) with 6-vertex heads
+        /// (30 vertices a spectator instead of 59), jumping together when they cheer. On the hot box's GPU at 200 MHz,
+        /// leaving the crowd out of the split screen at 0.6 resolution gave +13 %, and the driver's CPU work grows with
+        /// every draw and vertex.
+        /// </summary>
+        public void LiteCrowd(bool on)
+        {
+            if (_liteOn == on) return;
+            _liteOn = on;
+            foreach (var s in _sections) s.T.gameObject.SetActive(!on);
+            if (_lite != null) _lite.gameObject.SetActive(on);
         }
 
         /// <summary>The stadium; with <paramref name="shadow"/> (Tundu/Fx with <see cref="TennisArt.ShadowAtlas"/>) the sun's
@@ -71,6 +90,14 @@ namespace MoveIt.Games.Tennis
             float dt = Time.deltaTime;
             _t += dt;
             _cheer = Mathf.Max(0f, _cheer - dt * 0.6f);
+            if (_liteOn)
+            {
+                // the light crowd: each stand jumps as one when they cheer (a murmur would be a pixel)
+                float jump = Mathf.Abs(Mathf.Sin(_t * 9f)) * 0.25f * _cheer;
+                if (_lite != null) _lite.localPosition = new Vector3(0f, jump, 0f);
+                if (_liteNear != null) _liteNear.localPosition = new Vector3(0f, Mathf.Abs(Mathf.Sin(_t * 9f + 1.3f)) * 0.25f * _cheer, 0f);
+                return;
+            }
             foreach (var s in _sections)
             {
                 // a slow murmur of movement, and a jump when they cheer
@@ -212,7 +239,8 @@ namespace MoveIt.Games.Tennis
             nr.shadowCastingMode = ShadowCastingMode.Off;
             nr.receiveShadows = false;
 
-            BuildCrowd(crowd, toon, rng);
+            _lite = BuildCrowd(crowd, toon, rng, null, sections: true);
+            _lite.gameObject.SetActive(false);
             BuildNearEnd(toon, bx, bz, rows);
         }
 
@@ -418,7 +446,8 @@ namespace MoveIt.Games.Tennis
             _nearEnd.transform.SetParent(transform, false);
             var stands = PartMesh.Show("Near stands", _nearEnd.transform, m.Build("Tennis near end"), toon);
             stands.receiveShadows = false;
-            BuildCrowd(crowd, toon, rng, _nearEnd.transform);
+            // only the split screen shows the near end: its crowd is the light one only
+            _liteNear = BuildCrowd(crowd, toon, rng, _nearEnd.transform, sections: false);
             _nearEnd.SetActive(false);
         }
 
@@ -430,27 +459,38 @@ namespace MoveIt.Games.Tennis
         /// <summary>The crowd's facing for the near end's stand (they look toward the far end).</summary>
         const float NearEndFacing = 2f;
 
-        /// <summary>The crowd in sections of about eight metres (each its own mesh, so they can bob out of step).</summary>
-        void BuildCrowd(List<(Vector3 pos, float facing)> people, Material toon, System.Random rng, Transform parent = null)
+        /// <summary>The crowd in sections of about eight metres (each its own mesh, so they can bob out of step; with
+        /// <paramref name="sections"/>), and the same people as the light crowd (<see cref="LiteCrowd"/>): one mesh, heads
+        /// of 6 vertices. Returns the light crowd's object (made active by the caller).</summary>
+        Transform BuildCrowd(List<(Vector3 pos, float facing)> people, Material toon, System.Random rng, Transform parent, bool sections)
         {
-            var sections = new Dictionary<int, PartMesh>();
+            var parts = new Dictionary<int, PartMesh>();
+            var lite = new PartMesh { Srgb = true };
             var head = TennisArt.LowSphere();
+            var diamond = TennisArt.Diamond();
             foreach (var (pos, facing) in people)
             {
                 int key = facing == 0f || facing == NearEndFacing ? 100 + Mathf.FloorToInt((pos.x + 30f) / 8f)
                     : (facing < 0f ? 200 : 300) + Mathf.FloorToInt((pos.z + 20f) / 8f);
-                if (!sections.TryGetValue(key, out var m)) sections[key] = m = new PartMesh { Srgb = true };
                 var shirt = Crowd[rng.Next(Crowd.Length)];
                 var skin = Skins[rng.Next(Skins.Length)];
                 var hair = Hairs[rng.Next(Hairs.Length)];
                 float yaw = facing == NearEndFacing ? 0f : facing == 0f ? 180f : facing > 0f ? 90f : -90f;
                 var turn = Quaternion.Euler(0f, yaw, 0f);
                 float size = 0.85f + (float)rng.NextDouble() * 0.3f;
-                m.Add(PrimitiveType.Cube, Matrix4x4.TRS(pos + Vector3.up * 0.32f * size, turn, new Vector3(0.38f, 0.5f, 0.3f) * size), shirt, 0.05f);
-                // the head with its hair on top (one shape: the hair was a second ball, 36 more triangles a spectator)
-                m.Add(head, Matrix4x4.TRS(pos + Vector3.up * 0.76f * size, turn, Vector3.one * 0.31f * size), skin, 0.05f, hair, 0.3f);
+                var body = Matrix4x4.TRS(pos + Vector3.up * 0.32f * size, turn, new Vector3(0.38f, 0.5f, 0.3f) * size);
+                var top = Matrix4x4.TRS(pos + Vector3.up * 0.76f * size, turn, Vector3.one * 0.31f * size);
+                if (sections)
+                {
+                    if (!parts.TryGetValue(key, out var m)) parts[key] = m = new PartMesh { Srgb = true };
+                    m.Add(PrimitiveType.Cube, body, shirt, 0.05f);
+                    // the head with its hair on top (one shape: the hair was a second ball, 36 more triangles a spectator)
+                    m.Add(head, top, skin, 0.05f, hair, 0.3f);
+                }
+                lite.Add(PrimitiveType.Cube, body, shirt, 0.05f);
+                lite.Add(diamond, top, skin, 0.05f, hair, 0.3f);   // the hair is its top point
             }
-            foreach (var pair in sections)
+            foreach (var pair in parts)
             {
                 var root = new GameObject("Crowd").transform;
                 root.SetParent(parent != null ? parent : transform, false);
@@ -458,6 +498,11 @@ namespace MoveIt.Games.Tennis
                 r.receiveShadows = false;
                 _sections.Add(new Section { T = root, Phase = (float)rng.NextDouble() * 6.28f });
             }
+            var liteRoot = new GameObject("Crowd (light)").transform;
+            liteRoot.SetParent(parent != null ? parent : transform, false);
+            var lr = PartMesh.Show("People", liteRoot, lite.Build("Tennis crowd (light)"), toon);
+            lr.receiveShadows = false;
+            return liteRoot;
         }
 
         static void UmpireChair(PartMesh m, Vector3 at)

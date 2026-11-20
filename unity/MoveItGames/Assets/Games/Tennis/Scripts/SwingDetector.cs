@@ -38,7 +38,7 @@ namespace MoveIt.Games.Tennis
     /// <item>samples: the wrists' raw camera samples (not the low-lag filter, which smears a one-frame jump into a
     /// two-frame move) relative to the raw shoulders, in torso lengths, each through a median of three samples (one
     /// sample late: a one-frame glitch never gets through, a real move does, unchanged); unsure ones
-    /// (<see cref="MinVisibility"/>) are skipped;</item>
+    /// (<see cref="MinVisibility"/>) are skipped, also in the middle of a swing;</item>
     /// <item>a swing starts when the hand moves at least <see cref="SwingSpeed"/> over <see cref="SpeedWindow"/>, carried
     /// by both of its last two steps (<see cref="StepShare"/>: a jump is one step), measured from where the hand
     /// trustably was before (an anchor <see cref="AnchorAge"/> back);</item>
@@ -108,8 +108,13 @@ namespace MoveIt.Games.Tennis
         public float VerticalLimit = 0.77f;
         /// <summary>The racket meets the ball this long (s) after the hand gets fast: the middle of the swing.</summary>
         public float ContactLead = 0.05f;
-        /// <summary>Samples the pose model is less sure of are skipped (its glitches came with ~0.6-0.85).</summary>
-        public float MinVisibility = 0.6f;
+        /// <summary>Samples the pose model is less sure of are skipped (a swing under way waits for the next sure one). Since
+        /// 2026-11-10 the box's visibility is capped by how far the model's heatmap backs the position (docs/protocol.md):
+        /// 0.45 = almost nothing under it. It was 0.6 and also dropped a swing under way: with the capped visibility that
+        /// threw away a third of the blurred samples of real swings (two players, 15 poses a second each: strong swings
+        /// seen 54 % → 67 % on a two-person recording, docs/hardware.md "Two players after the tracking rework"), while the
+        /// glitches it was for still don't get through (the same 6-7 as before on the routine, judged by a second model).</summary>
+        public float MinVisibility = 0.45f;
         /// <summary>A hand just found (or found again after a gap) doesn't swing for this long (s).</summary>
         public float SettleSeconds = 0.25f;
         /// <summary>A swing is reported once its speed stops growing, or after this many more samples (or 0.1 s).</summary>
@@ -305,11 +310,9 @@ namespace MoveIt.Games.Tennis
 
         bool Sample(Hand h, double time, Vector2 p, float visibility)
         {
-            if (visibility < MinVisibility)
-            {
-                if (h.Pending) Reject(h);
-                return false;
-            }
+            // an unsure sample says nothing: skipped (a swing under way goes on with the next sure one; a hand unsure for
+            // more than a quarter second starts over below)
+            if (visibility < MinVisibility) return false;
             if (h.Count > 0)
             {
                 double since = time - h.Times[h.Count - 1];

@@ -59,6 +59,10 @@ namespace MoveIt.Motion
             public Body Body { get; internal set; }
             /// <summary>In view now (the camera saw them within the last quarter second).</summary>
             public bool Present => Body != null && Body.IsTracking;
+            /// <summary>The camera saw them within the last <paramref name="seconds"/>. Two players share the box's pose AI
+            /// (~10-20 poses a second each), and a dip of the pose model's score skips a few: a match should pause only when
+            /// a player has been gone a moment, not at every such gap (<see cref="Present"/> is a quarter second).</summary>
+            public bool SeenWithin(float seconds) => Body != null && Time.unscaledTime - Body.LastSeen < seconds;
             public bool Calibrated { get; private set; }
             public float CalibrationProgress => Calibrated ? 1f : Mathf.Clamp01(_still / Mathf.Max(0.01f, _stillTime));
             /// <summary>Where they stood still (view units) and their torso length then: the unit of their steps.</summary>

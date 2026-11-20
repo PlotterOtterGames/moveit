@@ -68,6 +68,7 @@ Shader "Tundu/Outfit"
                 float2 uv : TEXCOORD0;
                 float4 extra : TEXCOORD1;
                 float2 world : TEXCOORD2;
+                half3 light : TEXCOORD3;   // the room's light (the same everywhere: read once per vertex, not per pixel)
                 half4 color : COLOR;
             };
 
@@ -80,6 +81,20 @@ Shader "Tundu/Outfit"
                 o.uv = TRANSFORM_TEX(v.uv, _MainTex);
                 o.extra = v.extra * _UseExtra;
                 o.color = v.color * _Tint;
+                o.light = half3(1, 1, 1);
+                float ambientOn = _TunduAmbientOn * _UseExtra;   // not in the interface's thumbnails
+                if (ambientOn > 0.001)
+                {
+                    // the room's light: a touch of its colour, darker in a dim room, never much
+                    half3 amb = SAMPLE_TEXTURE2D_LOD(_TunduAmbient, sampler_TunduAmbient, float2(0.5, 0.5), 8).rgb;
+                    #if !defined(UNITY_COLORSPACE_GAMMA)
+                        amb = sqrt(amb);   // close enough to sRGB for a faint tint, without pow
+                    #endif
+                    half l = dot(amb, half3(0.299, 0.587, 0.114));
+                    half3 hue = clamp(amb / max(l, 0.04), 0.6, 1.5);
+                    half3 light = lerp(half3(1, 1, 1), hue, 0.12) * lerp(1.0, clamp(l / 0.42, 0.72, 1.12), 0.4);
+                    o.light = lerp(half3(1, 1, 1), light, ambientOn);
+                }
                 return o;
             }
 
@@ -96,10 +111,14 @@ Shader "Tundu/Outfit"
                 return lerp(half3(1, 1, 1), k, 0.62);
             }
 
-            // a tinted grey -> sRGB colour: the colour at 0.8, its shade below, toward white above
+            // a tinted grey -> sRGB colour: the colour at 0.8; below it toward a deep, saturated, slightly cool shade of
+            // the colour (an illustrator's shadow, not just a darker one: white cloth shades lavender, pink shades rose);
+            // above it toward white. tools/dress/style.py shade_rgb is the same formula for the previews.
             half3 Shade(half3 tint, half g)
             {
-                half3 base = tint * min(g / 0.8, 1.0);
+                half k = saturate(g / 0.8);
+                half3 dark = saturate(tint * tint * 0.6 + half3(-0.02, -0.01, 0.03));
+                half3 base = dark + (tint - dark) * k;
                 half hi = saturate((g - 0.8) / 0.2);
                 return base + (1.0 - base) * hi * 0.75;
             }
@@ -154,20 +173,7 @@ Shader "Tundu/Outfit"
                 }
                 else tinted = Shade(tint, g);
 
-                half3 rgb = lerp(c.rgb, tinted, m);
-                float ambientOn = _TunduAmbientOn * _UseExtra;   // not in the interface's thumbnails
-                if (ambientOn > 0.001)
-                {
-                    // the room's light: a touch of its colour, darker in a dim room, never much
-                    half3 amb = SAMPLE_TEXTURE2D_LOD(_TunduAmbient, sampler_TunduAmbient, float2(0.5, 0.5), 8).rgb;
-                    #if !defined(UNITY_COLORSPACE_GAMMA)
-                        amb = sqrt(amb);   // close enough to sRGB for a faint tint, without pow
-                    #endif
-                    half l = dot(amb, half3(0.299, 0.587, 0.114));
-                    half3 hue = clamp(amb / max(l, 0.04), 0.6, 1.5);
-                    half3 light = lerp(half3(1, 1, 1), hue, 0.12) * lerp(1.0, clamp(l / 0.42, 0.72, 1.12), 0.4);
-                    rgb *= lerp(half3(1, 1, 1), light, ambientOn);
-                }
+                half3 rgb = lerp(c.rgb, tinted, m) * i.light;
                 rgb = lerp(rgb, half3(1, 1, 1), saturate(i.extra.z));
                 half a = c.a * i.color.a * (1.0 - Hidden(i));
                 #if !defined(UNITY_COLORSPACE_GAMMA)

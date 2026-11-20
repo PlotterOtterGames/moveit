@@ -12,11 +12,31 @@
 // serial: MediaPipe's own order (each crop from the frame before); pipelined: each crop made before the frame before
 // has run (always one frame older: what the app does when the NPU isn't done in time, the worst case); threads: the
 // app's two threads for real, as fast as the frames decode (checks the engine's locking; crops as they come).
+// --idle: like the app's service with nobody in view for 2 s: the detector then looks only every 8th frame (the three
+// frames before a look go into its running average, PoseNpu::Watch), instead of on every frame.
+// With --people 2 [--rate R]: the clip in the app's two-player mode (up to two followed, R landmark runs a second shared
+// between them), frame by frame in MediaPipe's order: how one person fares in it (frames with their pose, tracks started,
+// tracks ended, the detector's runs) and a line per frame in <out_dir>/<clip>.<label>.people.txt: the frame, d = the
+// detector ran, each landmark run's track with f (a pose), c (a dip: kept, no pose) or x (the track ended) and its pose
+// score, then how many are followed after the frame.
+// The summary counts the ghosts too (new tracks the upright check ended), the dips (frames whose pose score was low
+// while the person stayed followed) and the frames whose sides were put back. The jsonl has a line per person found,
+// "id" = its track (tools/npu/two_score.py splits them). --focus-left S: whoever is on the picture's left half has the
+// focus (PoseNpu::SetFocus, that share of the runs). To compare on the same clip, in the
+// environment: TUNDU_NPU_BOOST=0 (MediaPipe's plain detector input) or =clahe (the local contrast of 2026-11-09),
+// TUNDU_NPU_UPRIGHT=0, TUNDU_NPU_TRUST=0 (the heatmap's trust, the hold, the quick visibility; its parts alone:
+// TUNDU_NPU_HOLD=0, TUNDU_NPU_CAP=0, TUNDU_NPU_RESCUE=0), TUNDU_NPU_SWAP=0 (the left/right guard), TUNDU_NPU_COAST=0 (a
+// low pose score ends the track at once), TUNDU_NPU_BACKOFF=0. All of them = the engine of 2026-11-08.
+//   pose_npu_test --selftest
+// No models: the picture work the camera thread does on every frame (the game's camera picture: frame_scale.h; the
+// detector's shrink: DetectorEye), its ARM code against the plain C it must equal byte for byte, and each one's time.
 #include <android/bitmap.h>
 #include <android/imagedecoder.h>
+#include <time.h>
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstdio>
 #include <cstdlib>
@@ -27,6 +47,7 @@
 #include <thread>
 #include <vector>
 
+#include "frame_scale.h"
 #include "pose_npu.h"
 #include "rknn_api.h"
 
@@ -140,16 +161,18 @@ static bool Decode(const uint8_t* jpeg, size_t size, Frame* out) {
     return ret == ANDROID_IMAGE_DECODER_SUCCESS;
 }
 
-// One line of the recorder's format (tools/motion: 17 COCO joints x, y, z, visibility and world joints).
+// One line of the recorder's format (tools/motion: 17 COCO joints x, y, z, visibility and world joints); id = the
+// person's track (two people: --people 2 --clip writes a line per person found, each with its track).
 static void WriteLine(FILE* f, const std::string& label, int n, double seconds, int width, int height,
-                      const Pose& pose) {
+                      const Pose& pose, int id = 0) {
     static const int kCoco[17] = {0, 2, 5, 7, 8, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28};
     std::fprintf(f, "{\"v\":1,\"src\":\"box-npu-%s\",\"t\":%lld,\"f\":%d,\"w\":%d,\"h\":%d,\"inf\":%.2f,\"crop\":%.2f,"
-                    "\"npu\":%.2f,\"det\":%d,\"people\":[",
+                    "\"npu\":%.2f,\"det\":%d,\"dip\":%d,\"sw\":%d,\"people\":[",
                  label.c_str(), 1800000000000LL + (long long)std::llround(seconds * 1000), n, width, height,
-                 pose.totalMs, pose.cropMs, pose.npuMs, pose.detected ? 1 : 0);
+                 pose.totalMs, pose.cropMs, pose.npuMs, pose.detected ? 1 : 0, pose.coasting ? 1 : 0,
+                 pose.swapped ? 1 : 0);
     if (pose.found) {
-        std::fprintf(f, "{\"id\":0,\"score\":%.3f,\"k\":[", pose.score);
+        std::fprintf(f, "{\"id\":%d,\"score\":%.3f,\"k\":[", id, pose.score);
         for (int j = 0; j < 17; j++) {
             const float* l = pose.lm[kCoco[j]];
             std::fprintf(f, "%s%.5f,%.5f,%.5f,%.4f", j ? "," : "", l[0], l[1], l[2], l[3]);
@@ -159,13 +182,15 @@ static void WriteLine(FILE* f, const std::string& label, int n, double seconds, 
             const float* w = pose.world[kCoco[j]];
             std::fprintf(f, "%s%.5f,%.5f,%.5f", j ? "," : "", w[0], w[1], w[2]);
         }
+        std::fprintf(f, "],\"trust\":[");   // the heatmap's backing of each joint's position (0..1)
+        for (int j = 0; j < 17; j++) std::fprintf(f, "%s%.2f", j ? "," : "", pose.trust[kCoco[j]]);
         std::fprintf(f, "]}");
     }
     std::fprintf(f, "]}\n");
 }
 
 static int RunClip(PoseNpu& npu, const std::string& label, const std::string& outDir, const std::string& clipPath,
-                   const std::string& order) {
+                   const std::string& order, bool idleLooks) {
     const std::vector<uint8_t> data = ReadFile(clipPath);
     const auto jpegs = SplitJpegs(data);
     std::string log = clipPath.substr(0, clipPath.rfind('.')) + ".log";
@@ -183,8 +208,9 @@ static int RunClip(PoseNpu& npu, const std::string& label, const std::string& ou
     }
     auto seconds = [&](size_t n) { return times[n] - times[0]; };
     auto ns = [&](size_t n) { return (int64_t)std::llround(seconds(n) * 1e9) + 1; };
-    Stat decode, crop, run, frame;
-    int found = 0, detections = 0;
+    Stat decode, crop, run, frame, look;
+    int found = 0, detections = 0, ghosts = 0, dips = 0, swaps = 0;
+    size_t lastSeen = 0;    // the last frame with someone followed (--idle)
     const double started = Ms();
     Frame fr;
     Pose pose;
@@ -217,6 +243,9 @@ static int RunClip(PoseNpu& npu, const std::string& label, const std::string& ou
                 WriteLine(out, label, (int)job.second, seconds(job.second), W, H, p);
                 std::lock_guard<std::mutex> lock(m);
                 found += p.found;
+                ghosts += p.rejected;
+                dips += p.coasting;
+                swaps += p.swapped;
                 busy = false;
                 cv.notify_all();
             }
@@ -238,6 +267,7 @@ static int RunClip(PoseNpu& npu, const std::string& label, const std::string& ou
             npu.Process(img, ns(n), &pose);   // nobody followed: the detector, here
             detections += pose.detected;
             found += pose.found;
+            ghosts += pose.rejected;
             WriteLine(out, label, (int)n, seconds(n), W, H, pose);
         }
         {
@@ -264,6 +294,9 @@ static int RunClip(PoseNpu& npu, const std::string& label, const std::string& ou
                     crop.Add(pose.cropMs);
                     run.Add(pose.totalMs);
                     found += pose.found;
+                    ghosts += pose.rejected;
+                    dips += pose.coasting;
+                    swaps += pose.swapped;
                     WriteLine(out, label, (int)pendingFrame, seconds(pendingFrame), W, H, pose);
                     pending = -1;
                 }
@@ -274,26 +307,42 @@ static int RunClip(PoseNpu& npu, const std::string& label, const std::string& ou
                     continue;
                 }
             }
+            if (idleLooks && !npu.Tracking() && n > lastSeen + 60 && n % 8 != 0) {
+                // idle: three frames before each look are only watched, the others not even that
+                if (n % 8 >= 5) npu.Watch(img, ns(n));
+                pose = Pose();
+                WriteLine(out, label, (int)n, seconds(n), W, H, pose);
+                continue;
+            }
             npu.Process(img, ns(n), &pose);
             detections += pose.detected;
+            ghosts += pose.rejected;
+            dips += pose.coasting;
+            swaps += pose.swapped;
+            if (pose.detected) look.Add(pose.detectMs);
             if (!pose.detected) {
                 crop.Add(pose.cropMs);
                 run.Add(pose.totalMs - pose.cropMs);
             }
             found += pose.found;
+            if (npu.Tracking()) lastSeen = n;
             WriteLine(out, label, (int)n, seconds(n), W, H, pose);
             frame.Add(Ms() - f0);
         }
         if (pending >= 0) {
             npu.RunJob(pending, &pose);
             found += pose.found;
+            ghosts += pose.rejected;
             WriteLine(out, label, (int)pendingFrame, seconds(pendingFrame), W, H, pose);
         }
     }
     std::fclose(out);
-    std::printf("%s %s: %zu frames in %.1f s, a person in %d, %d detector runs -> %s\n", label.c_str(), order.c_str(),
-                jpegs.size(), (Ms() - started) / 1000, found, detections, outPath.c_str());
+    std::printf("%s %s%s: %zu frames in %.1f s, a person in %d, %d detector runs, %d ghosts rejected, %d dips, "
+                "%d frames with the sides put back -> %s\n",
+                label.c_str(), order.c_str(), idleLooks ? " idle" : "", jpegs.size(), (Ms() - started) / 1000, found,
+                detections, ghosts, dips, swaps, outPath.c_str());
     decode.Print("decode (JPEG)");
+    look.Print("detector look");
     crop.Print("landmark crop");
     run.Print("landmark run (NPU stage)");
     frame.Print("frame (no decode)");
@@ -352,27 +401,209 @@ static int RunPeople(PoseNpu& npu, const Picture& p, int frames, int loops) {
     return 0;
 }
 
+// --people N --clip (see the top of the file). focusLeft > 0: the person on the picture's left half has the focus
+// (PoseNpu::SetFocus) with that share of the runs, the whole clip (what a game does for the player who has to move).
+static int RunClipPeople(PoseNpu& npu, const std::string& label, const std::string& outDir, const std::string& clipPath,
+                         float focusLeft = 0) {
+    const std::vector<uint8_t> data = ReadFile(clipPath);
+    const auto jpegs = SplitJpegs(data);
+    std::vector<double> times = CaptureTimes(clipPath.substr(0, clipPath.rfind('.')) + ".log");
+    if (times.size() < jpegs.size()) {
+        times.clear();
+        for (size_t i = 0; i < jpegs.size(); i++) times.push_back(i / 30.0);
+    }
+    const std::string base = clipPath.substr(clipPath.find_last_of('/') + 1);
+    const std::string stem = outDir + "/" + base.substr(0, base.rfind('.')) + "." + label;
+    FILE* trace = std::fopen((stem + ".people.txt").c_str(), "w");
+    FILE* out = std::fopen((stem + ".jsonl").c_str(), "w");
+    if (!trace || !out || jpegs.empty()) {
+        std::fprintf(stderr, "can't read %s or write %s\n", clipPath.c_str(), stem.c_str());
+        return 2;
+    }
+    int withPose = 0, poses = 0, ended = 0, ghosts = 0, detections = 0, dips = 0, tracks = 0, two = 0, runs = 0, backoff = 0;
+    Frame picture;
+    for (size_t n = 0; n < jpegs.size(); n++) {
+        if (!Decode(data.data() + jpegs[n].first, jpegs[n].second, &picture)) continue;
+        const tundu::Rgba img{picture.pixels.data(), picture.width, picture.height, picture.stride};
+        const double seconds = times[n] - times[0];
+        tundu::Frame f;
+        npu.Process(img, (int64_t)std::llround(seconds * 1e9) + 1, &f);
+        detections += f.detected;
+        ended += f.lost;
+        ghosts += f.rejected;
+        dips += f.coasting;
+        runs += f.count;
+        two += f.followed >= 2;
+        backoff += f.backingOff;
+        int found = 0;
+        std::fprintf(trace, "%zu %c", n, f.detected ? 'd' : f.backingOff ? 'b' : '-');
+        for (int k = 0; k < f.count; k++) {
+            const Pose& p = f.people[k];
+            found += p.found;
+            tracks = std::max(tracks, p.track);
+            std::fprintf(trace, " %d%c%.2f", p.track, p.found ? 'f' : p.coasting ? 'c' : 'x', p.score);
+            if (p.found) WriteLine(out, label, (int)n, seconds, picture.width, picture.height, p, p.track);
+            if (p.found && focusLeft > 0 && p.lm[23][0] + p.lm[24][0] < 1.f) npu.SetFocus(p.track, focusLeft);
+        }
+        std::fprintf(trace, " | %d\n", f.followed);
+        withPose += found > 0;
+        poses += found;
+    }
+    std::fclose(trace);
+    std::fclose(out);
+    std::printf("%s people: %zu frames, a pose in %d (%d poses, %d landmark runs), %d tracks started, %d ended by a low "
+                "score or as another's double, %d ghosts rejected, %d dips, %d detector runs, %d frames backing off, two "
+                "followed after %d frames -> %s.people.txt\n", label.c_str(), jpegs.size(), withPose, poses, runs, tracks,
+                ended, ghosts, dips, detections, backoff, two, stem.c_str());
+    return 0;
+}
+
+// --selftest (see the top of the file). Random pictures: every byte differs from its neighbours, so a wrong pixel, row
+// or rounding shows.
+static int SelfTest() {
+    // this thread's own CPU time: a game may be running beside the test
+    const auto now = [] {
+        timespec t;
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t);
+        return t.tv_sec * 1e3 + t.tv_nsec * 1e-6;
+    };
+    const int runs = 40;
+    uint32_t seed = 12345;
+    const auto fill = [&](std::vector<uint8_t>& frame, int shift) {
+        for (auto& b : frame) {
+            seed = seed * 1664525u + 1013904223u;
+            b = uint8_t((seed >> 24) >> shift);
+        }
+    };
+    bool ok = true;
+
+    // the size a game gets for the width it wants: the camera's own or half of it
+    const int rule[][5] = {{1024, 768, 1024, 1024, 768}, {1024, 768, 640, 512, 384}, {1024, 768, 2000, 1024, 768},
+                           {1024, 768, 683, 1024, 768}, {1024, 768, 160, 512, 384}, {1280, 1024, 640, 640, 512},
+                           {1280, 1024, 1024, 1280, 1024}, {640, 480, 640, 640, 480}, {1921, 1081, 640, 960, 540}};
+    for (const auto& r : rule) {
+        int w, h;
+        tundu::SharedSize(r[0], r[1], r[2], &w, &h);
+        if (w != r[3] || h != r[4]) {
+            std::printf("size rule: a %d x %d camera, %d wanted: %d x %d, expected %d x %d\n", r[0], r[1], r[2], w, h, r[3], r[4]);
+            ok = false;
+        }
+    }
+
+    // the picture for the game: the box camera's size, and an odd one (the loops' tails)
+    const int cameras[][2] = {{1024, 768}, {1001, 767}};
+    for (const auto& camera : cameras) {
+        const int W = camera[0], H = camera[1], stride = W * 4 + 64;
+        std::vector<uint8_t> frame((size_t)stride * H);
+        fill(frame, 0);
+        for (int half = 0; half < 2; half++) {
+            const int w = half ? W / 2 : W, h = half ? H / 2 : H;
+            std::vector<uint8_t> fast((size_t)w * h * 4, 7), plain((size_t)w * h * 4, 9);
+            tundu::FrameScaler a, b;
+            b.Simd(false);
+            const bool ran = a.Run(frame.data(), W, H, stride, fast.data(), w, h)
+                          && b.Run(frame.data(), W, H, stride, plain.data(), w, h);
+            const bool same = ran && fast == plain;
+            // and against the definition: the picture's own pixels, or the rounded average of each 2 x 2, flipped, opaque
+            int wrong = 0;
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    const uint8_t* o = plain.data() + ((size_t)(h - 1 - y) * w + x) * 4;
+                    if (o[3] != 255) wrong++;
+                    for (int k = 0; k < 3; k++) {
+                        int want;
+                        if (!half) {
+                            want = frame[(size_t)y * stride + (size_t)x * 4 + k];
+                        } else {
+                            const uint8_t* p = frame.data() + (size_t)(2 * y) * stride + (size_t)(2 * x) * 4 + k;
+                            want = (p[0] + p[4] + p[stride] + p[stride + 4] + 2) >> 2;
+                        }
+                        if (want != o[k]) wrong++;
+                    }
+                }
+            }
+            const double t0 = now();
+            for (int i = 0; i < runs; i++) a.Run(frame.data(), W, H, stride, fast.data(), w, h);
+            const double t1 = now();
+            for (int i = 0; i < runs; i++) b.Run(frame.data(), W, H, stride, plain.data(), w, h);
+            const double t2 = now();
+            std::printf("camera picture %4d x %3d -> %4d x %3d: ARM %s plain C, %d bytes off the definition, "
+                        "%.2f ms of CPU a frame (plain C %.2f)\n", W, H, w, h, same ? "=" : "DIFFERS FROM", wrong,
+                        (t1 - t0) / runs, (t2 - t1) / runs);
+            ok = ok && same && wrong == 0;
+        }
+        tundu::FrameScaler other;
+        std::vector<uint8_t> out((size_t)W * H * 4);
+        if (other.Run(frame.data(), W, H, stride, out.data(), W * 5 / 8, H * 5 / 8)) {
+            std::printf("camera picture: a size that is neither the camera's nor half of it was made\n");
+            ok = false;
+        }
+    }
+
+    // the detector's eye: six looks (the newest alone and the average by turns), dark pictures among them (the gamma),
+    // for the box camera's size (4 x 4 blocks: the ARM code) and others (plain C either way)
+    const int eyes[][2] = {{1024, 768}, {1280, 1024}, {640, 480}};
+    for (const auto& camera : eyes) {
+        const int W = camera[0], H = camera[1], stride = W * 4 + 64, size = 224;
+        std::vector<uint8_t> frame((size_t)stride * H);
+        tundu::DetectorEye fastEye(size), plainEye(size);
+        plainEye.Simd(false);
+        bool same = true;
+        for (int i = 0; i < 6; i++) {
+            fill(frame, i % 3 == 2 ? 3 : 0);
+            const tundu::Rgba image{frame.data(), W, H, stride};
+            float box[3];
+            const int64_t ns = (int64_t)(i + 1) * 33333333;
+            const uint8_t* a = fastEye.Look(image, ns, box);
+            const std::vector<uint8_t> kept(a, a + (size_t)size * size * 3);
+            same = same && !std::memcmp(kept.data(), plainEye.Look(image, ns, box), kept.size());
+        }
+        const tundu::Rgba image{frame.data(), W, H, stride};
+        const double t0 = now();
+        for (int i = 0; i < runs; i++) fastEye.Watch(image, 1000000000 + i);
+        const double t1 = now();
+        for (int i = 0; i < runs; i++) plainEye.Watch(image, 1000000000 + i);
+        const double t2 = now();
+        std::printf("detector's eye %4d x %4d -> %d: ARM %s plain C, %.2f ms of CPU a frame (plain C %.2f)\n", W, H, size,
+                    same ? "=" : "DIFFERS FROM", (t1 - t0) / runs, (t2 - t1) / runs);
+        ok = ok && same;
+    }
+    std::printf(ok ? "selftest OK\n" : "selftest FAILED\n");
+    return ok ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
+    if (argc >= 2 && !std::strcmp(argv[1], "--selftest")) return SelfTest();
     if (argc < 6) {
         std::fprintf(stderr, "usage: %s <detector.rknn> <landmarks.rknn> <label> <out_dir> <name.WxH.rgba>... [--loops N]\n", argv[0]);
         return 2;
     }
     int loops = 50, frames = 1, people = 1;
-    float rate = 0;
-    bool perf = false, crop = false, twin = false;
+    bool peopleGiven = false;   // --people 1 --clip: the one-player engine with RunClipPeople's frame-by-frame account
+    float rate = 0, focusLeft = 0;
+    bool perf = false, crop = false, twin = false, idle = false;
     std::string clip, order = "serial";
     std::vector<Picture> pictures;
     for (int i = 5; i < argc; i++) {
         if (!std::strcmp(argv[i], "--people") && i + 1 < argc) {
             people = std::atoi(argv[++i]);
+            peopleGiven = true;
             continue;
         }
         if (!std::strcmp(argv[i], "--rate") && i + 1 < argc) {
             rate = (float)std::atof(argv[++i]);
             continue;
         }
+        if (!std::strcmp(argv[i], "--focus-left") && i + 1 < argc) {
+            focusLeft = (float)std::atof(argv[++i]);
+            continue;
+        }
         if (!std::strcmp(argv[i], "--twin")) {
             twin = true;
+            continue;
+        }
+        if (!std::strcmp(argv[i], "--idle")) {
+            idle = true;
             continue;
         }
         if (!std::strcmp(argv[i], "--clip") && i + 1 < argc) {
@@ -414,7 +645,11 @@ int main(int argc, char** argv) {
         return 1;
     }
     std::printf("%s\n", npu.Versions().c_str());
-    if (!clip.empty()) return RunClip(npu, argv[3], argv[4], clip, order);
+    if (!clip.empty() && (people > 1 || peopleGiven)) {
+        npu.SetPeople(people, rate, twin);
+        return RunClipPeople(npu, argv[3], argv[4], clip, focusLeft);
+    }
+    if (!clip.empty()) return RunClip(npu, argv[3], argv[4], clip, order, idle);
     if (people > 1 || twin) {
         npu.SetPeople(people, rate, twin);
         int status = 0;

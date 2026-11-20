@@ -15,19 +15,28 @@ namespace MoveIt.Games
         public string Name = "";
         /// <summary>Spiky, Fluffy, Shaggy, Buns, Short (or null: bald).</summary>
         public string Hair = "Spiky";
-        /// <summary>Cap, CapBack, CapStar, Bucket, Crown, FrogHat, CatHood.</summary>
+
+        public const string ChibiModel = "Chibi";
+        /// <summary>The figure: the chibi, or another with its bones and regions in Resources/Chibi ("Heroine": Zana!'s
+        /// tall fairies, art/fairy/heroine.py). Its piece names are the look's slots as for the chibi.</summary>
+        public string Model = ChibiModel;
+        public bool IsChibi => string.IsNullOrEmpty(Model) || Model == ChibiModel;
+        /// <summary>Cap, CapBack, CapStar, Bucket, Crown, FrogHat, CatHood, Tiara, Headgear (sparring), Headband (sits on the
+        /// hair), RobotHead (worn without hair).</summary>
         public string Hat;
-        /// <summary>CatEars, BunnyEars, BearEars, DevilHorns, UnicornHorn.</summary>
+        /// <summary>CatEars, BunnyEars, BearEars, DevilHorns, UnicornHorn, Antennae.</summary>
         public string Ears;
-        /// <summary>Hoodie, HoodieStar, BearHoodie, ZipHoodie, Jacket, TrackJacket, Checkered, Tee, TeeStar, Polo.</summary>
+        /// <summary>Hoodie, HoodieStar, BearHoodie, ZipHoodie, Jacket, TrackJacket, Checkered, Tee, TeeStar, Polo, SpaceSuit
+        /// (Yjet!'s astronaut: collar rings, a chest panel, gloves in top_trim).</summary>
         public string Top = "Tee";
-        /// <summary>Shorts, Pants, Skirt.</summary>
+        /// <summary>Shorts, Pants, Skirt, SpacePants (knee pads).</summary>
         public string Bottom = "Shorts";
-        /// <summary>Sneakers, HighTops.</summary>
+        /// <summary>Sneakers, HighTops, SpaceBoots.</summary>
         public string Shoes = "Sneakers";
-        /// <summary>Glasses, RoundGlasses, HeartGlasses, Headphones, StarClip, Mask.</summary>
+        /// <summary>Glasses, RoundGlasses, HeartGlasses, Headphones, StarClip, Mask, HeroMask (a superhero's).</summary>
         public string Accessory;
-        /// <summary>AngelWings, DevilWings, CatTail, DevilTail, RaccoonTail, BunnyTail.</summary>
+        /// <summary>AngelWings, DevilWings, CatTail, DevilTail, RaccoonTail, BunnyTail, Jetpack (two tanks and nozzles; the
+        /// flames are the game's).</summary>
         public string Back;
 
         /// <summary>The regions' colours (sRGB), by <see cref="ChibiData.Regions"/> index.</summary>
@@ -95,8 +104,10 @@ namespace MoveIt.Games
             if (!string.IsNullOrEmpty(Hair))
             {
                 string hair = $"Hair_{Hair}";
+                // the crown, the tiara and the headband sit on the hair; other hats press it down (Long and Pony have no
+                // pressed copy)
                 if (Hat == "CatHood") hair += "_Hood";
-                else if (!string.IsNullOrEmpty(Hat) && Hat != "Crown") hair += "_Hat";
+                else if (!string.IsNullOrEmpty(Hat) && Hat != "Crown" && Hat != "Tiara" && Hat != "Headband") hair += "_Hat";
                 list.Add(hair);
             }
             foreach (var p in new[] { Hat, Ears, Top, Bottom, Shoes, Accessory, Back })

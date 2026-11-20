@@ -34,7 +34,8 @@ def build(sources, output, extra, api=28):
 def main():
     os.makedirs(OUT, exist_ok=True)
     build(['pose_npu.cpp', 'pose_npu_jni.cpp', 'camera_controls.cpp', 'frame_share.cpp'], os.path.join(JNI, 'libtundupose.so'),
-          ['-shared', '-Wl,-soname,libtundupose.so', '-Wl,--no-undefined', '-ljnigraphics'])
+          ['-shared', '-Wl,-soname,libtundupose.so', '-Wl,--no-undefined', '-ljnigraphics',
+           '-lGLESv3'])   # frame_share.cpp uploads the camera picture on Unity's render thread
     # the test tool decodes camera clips with Android 11's AImageDecoder (the box runs Android 11; the app stays at 28)
     build(['pose_npu.cpp', 'pose_npu_test.cpp'], os.path.join(OUT, 'pose_npu_test'), ['-ljnigraphics', '-pthread'],
           api=30)

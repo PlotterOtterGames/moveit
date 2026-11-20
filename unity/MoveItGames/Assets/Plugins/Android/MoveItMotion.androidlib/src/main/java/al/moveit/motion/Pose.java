@@ -30,6 +30,8 @@ final class Pose {
     int count;
     /** Someone was found in this frame. */
     boolean found;
+    /** Someone's pose score dipped in this frame (the NPU engine: no pose from it, the person is still followed). */
+    boolean coasting;
     final Person[] people = new Person[MAX_PEOPLE];
 
     Pose() {
@@ -39,6 +41,7 @@ final class Pose {
     void set(NpuPose npu) {
         count = npu.count;
         found = false;
+        coasting = npu.coasting > 0;
         for (int i = 0; i < count; i++) {
             Person p = people[i];
             p.found = npu.found[i];
@@ -57,6 +60,7 @@ final class Pose {
         List<List<Landmark>> allWorld = result.worldLandmarks();
         count = all == null ? 0 : Math.min(all.size(), MAX_PEOPLE);
         found = count > 0;
+        coasting = false;
         for (int k = 0; k < count; k++) {
             Person p = people[k];
             p.found = true;

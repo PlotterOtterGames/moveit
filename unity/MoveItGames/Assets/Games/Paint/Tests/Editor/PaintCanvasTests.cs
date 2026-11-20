@@ -4,7 +4,8 @@ using UnityEngine;
 
 namespace MoveIt.Games.Paint.Tests
 {
-    /// <summary>The painting itself (GPU stamps, read back on the CPU), the paint bucket, undo, and the pen rule.</summary>
+    /// <summary>The painting itself (GPU stamps, read back on the CPU), the paint bucket, undo, and colouring inside the
+    /// lines of a page. (The pen rules are in PaintPenTests, the page's areas in PageRegionsTests.)</summary>
     public class PaintCanvasTests
     {
         const int W = 128, H = 64;
@@ -81,6 +82,9 @@ namespace MoveIt.Games.Paint.Tests
             Assert.AreEqual(0, At(px, 90, 30).a, "the blue stamp is undone");
             Assert.Greater(At(px, 30, 30).a, 200, "the red one, painted before, stays");
             Assert.IsFalse(_canvas.Undo(), "only one step was saved");
+            _canvas.PushUndo();
+            _canvas.ForgetUndo();
+            Assert.IsFalse(_canvas.Undo(), "forgotten (another sheet was loaded)");
         }
 
         [Test]
@@ -142,33 +146,93 @@ namespace MoveIt.Games.Paint.Tests
             Assert.Greater(At(px, 100, 32).a, 200, "the other hand's paint is kept");
         }
 
-        // ---------------------------------------------------------------- the pen rule
+        // ---------------------------------------------------------------- colouring pages: inside the lines
 
-        [Test]
-        public void Pen_PaintsOnlyWhileTheSwitchIsUp()
+        /// <summary>A page with a line down the middle (x 62..65): a left and a right area.</summary>
+        PageRegions TwoHalves()
         {
-            var pen = new PaintPen();
-            var p = new Vector2(0.5f, 0.5f);
-            Assert.AreEqual(0, pen.UpdateSwitch(true, p, true, true, false, false), "switch down: the brush moves freely");
-            Assert.AreEqual(PenState.Aiming, pen.State);
-            Assert.AreEqual(1, pen.UpdateSwitch(true, p, true, true, false, true), "switch up: paints at once");
-            Assert.AreEqual(0, pen.UpdateSwitch(true, p + Vector2.one * 0.1f, true, true, false, true), "keeps painting while it stays up");
-            Assert.AreEqual(-1, pen.UpdateSwitch(true, p, true, true, false, false), "switch down: stops at once");
-            pen.UpdateSwitch(true, p, true, true, false, true);
-            Assert.AreEqual(-1, pen.UpdateSwitch(true, p, true, false, false, true), "over a toolbar the brush never paints");
-            Assert.AreEqual(PenState.Aiming, pen.State, "...but the cursor stays, to press buttons");
-            Assert.AreEqual(0, pen.UpdateSwitch(true, p, true, true, true, true), "the painting arm resting at the side: no paint");
-            Assert.AreEqual(PenState.Away, pen.State);
+            var walls = new bool[W * H];
+            for (int y = 0; y < H; y++)
+            for (int x = 62; x <= 65; x++)
+                walls[y * W + x] = true;
+            var page = PageRegions.FromWalls(walls, W, H, minArea: 20, countArea: 100, backgroundShare: 0.6f);
+            Assert.AreEqual(2, page.Count);
+            _canvas.SetRegions(page);
+            return page;
         }
 
         [Test]
-        public void Switch_TurnsOnHighAndOffLow_SoItDoesNotFlicker()
+        public void AStampOnAPage_PaintsOnlyInsideItsArea()
         {
-            const float on = 0.6f, off = 0.35f;
-            Assert.IsFalse(PaintGame.SwitchState(false, 0.5f, on, off), "below 'on': stays off");
-            Assert.IsTrue(PaintGame.SwitchState(false, 0.65f, on, off), "raised to the chest: on");
-            Assert.IsTrue(PaintGame.SwitchState(true, 0.45f, on, off), "sagging a little doesn't switch it off");
-            Assert.IsFalse(PaintGame.SwitchState(true, 0.3f, on, off), "lowered: off");
+            var page = TwoHalves();
+            int left = page.At(20, 32), right = page.At(100, 32);
+            // a 40 px stamp right on the line, clipped to the left area
+            _canvas.Stamp(new Vector2(64, 32), 40f, 0f, Color.red, BrushShape.Round, region: left);
+            var px = _canvas.ReadPixels();
+            Assert.Greater(At(px, 52, 32).a, 200, "the left half of the stamp is painted");
+            Assert.Greater(At(px, 63, 32).a, 200, "...up to the middle of the line (the line is drawn on top)");
+            Assert.AreEqual(0, At(px, 66, 32).a, "nothing beyond the line");
+            Assert.AreEqual(0, At(px, 76, 32).a);
+            // an unclipped stamp (a decoration: stars, glitter) goes over the line
+            _canvas.Stamp(new Vector2(64, 12), 20f, 0f, Color.blue, BrushShape.Round);
+            px = _canvas.ReadPixels();
+            Assert.Greater(At(px, 70, 12).a, 200);
+            Assert.AreNotEqual(left, right);
+        }
+
+        [Test]
+        public void FillingAnArea_OverThePaint_OrBehindIt()
+        {
+            var page = TwoHalves();
+            int left = page.At(20, 32);
+            _canvas.Stamp(new Vector2(30, 32), 16f, 0f, Color.red, BrushShape.Round);
+            _canvas.FillRegion(left, Color.blue, behind: true);
+            var px = _canvas.ReadPixels();
+            Assert.Greater(At(px, 30, 32).r, 200, "behind: the red stroke stays");
+            Assert.Less(At(px, 30, 32).b, 60);
+            Assert.Greater(At(px, 8, 8).b, 200, "...and the rest of the area turns blue");
+            Assert.Greater(At(px, 8, 8).a, 250);
+            Assert.AreEqual(0, At(px, 100, 32).a, "the other area isn't touched");
+
+            _canvas.FillRegion(left, Color.green, behind: false);
+            px = _canvas.ReadPixels();
+            Assert.Greater(At(px, 30, 32).g, 200, "over: the bucket replaces everything in the area");
+            Assert.Less(At(px, 30, 32).r, 60);
+            Assert.AreEqual(0, At(px, 100, 32).a);
+        }
+
+        [Test]
+        public void AScribbleOnAPage_StaysInsideTheLines_AndTheAreaFillsUp()
+        {
+            var page = TwoHalves();
+            int left = page.At(20, 32), right = page.At(100, 32);
+            var stroke = new BrushStroke(3);
+            var s = new BrushSettings { Tool = PaintTool.Marker, Color = Color.red, Size = 10f, Regions = page, LineSlack = 14f };
+            // to and fro across the left area, 8 px over the line every time, from the bottom up; the top stays untouched
+            stroke.Begin(_canvas, s, new Vector2(8, 6));
+            for (int row = 0; row < 5; row++)
+            {
+                float y = 6 + row * 9;
+                stroke.MoveTo(_canvas, s, new Vector2(row % 2 == 0 ? 72 : 4, y), 0.05f);
+                stroke.MoveTo(_canvas, s, new Vector2(row % 2 == 0 ? 72 : 4, y + 9), 0.05f);
+            }
+            stroke.End(_canvas, s);
+            var px = _canvas.ReadPixels();
+            Assert.AreEqual(0, At(px, 70, 20).a, "the scribble went 8 px over the line: nothing is painted there");
+            Assert.AreEqual(0f, page.Coverage(right));
+            Assert.IsTrue(page.Done(left), "5 of 7 rows coloured: the area filled itself up");
+            CollectionAssert.Contains(stroke.Completed, left);
+            Assert.Greater(At(px, 20, 60).a, 250, "...also at the top, where the brush never was");
+            Assert.Greater(At(px, 20, 60).r, 200);
+
+            // going on, well into the right area: now that one is coloured
+            stroke.Begin(_canvas, s, new Vector2(40, 30));
+            stroke.MoveTo(_canvas, s, new Vector2(100, 30), 0.05f);
+            stroke.MoveTo(_canvas, s, new Vector2(110, 30), 0.05f);
+            stroke.End(_canvas, s);
+            px = _canvas.ReadPixels();
+            Assert.Greater(At(px, 95, 30).a, 200, "the brush crossed the line and went on: the next area takes the paint");
+            Assert.Greater(At(px, 70, 30).a, 200, "...from where it crossed the line");
         }
 
         [Test]

@@ -7,8 +7,11 @@ import java.nio.ByteBuffer;
 
 /**
  * The pose AI on a Rockchip NPU: MediaPipe's pose models converted to RKNN (tools/npu/convert.py), run by our native
- * engine (src/main/cpp/pose_npu.cpp, libtundupose.so) on Rockchip's runtime (librknnrt.so). Same landmarks, world
- * landmarks and smoothing as MediaPipe's VIDEO mode, without touching the GPU the games draw with. Follows up to
+ * engine (src/main/cpp/pose_npu.cpp, libtundupose.so) on Rockchip's runtime (librknnrt.so). MediaPipe's models and
+ * steps, without touching the GPU the games draw with, plus what the engine adds (src/main/cpp/pose_trust.h): each
+ * landmark's visibility is capped by how far the model's heatmap backs its position and reacts within a frame, unsure
+ * samples are held on the body instead of followed, a sudden left/right flip is put back, a followed person survives a
+ * few frames of a low pose score, and the person detector looks at averaged, brightened pictures. Follows up to
  * {@link #MAX_PEOPLE} people ({@link #setPeople}).
  */
 final class NpuPose implements AutoCloseable {
@@ -16,8 +19,8 @@ final class NpuPose implements AutoCloseable {
     static final int LANDMARKS = 33;
     static final int MAX_PEOPLE = 2;
     // pose_npu_jni.cpp: the frame (count, detected, detect ms, landmark ms, total ms, followed, crop ms, NPU ms, lost,
-    // -), then per person: track, found, score, -, landmarks, world landmarks, crop box
-    private static final int HEADER = 10;
+    // rejected, coasting), then per person: track, found, score, -, landmarks, world landmarks, crop box
+    private static final int HEADER = 11;
     private static final int PERSON = 4 + LANDMARKS * 5 + LANDMARKS * 3 + 4;
     private static int libraries = -1;     // -1 not tried, 0 failed, 1 loaded
 
@@ -33,9 +36,11 @@ final class NpuPose implements AutoCloseable {
     final float[][] landmarks = new float[MAX_PEOPLE][LANDMARKS * 5];
     final float[][] world = new float[MAX_PEOPLE][LANDMARKS * 3];
     /** landmarkMs: the landmark model's part (with the crops for process(), without them for run()); cropMs: the
-     *  crops; npuMs: the NPU's own time in the runs. followed: people followed after the frame; lost: people lost in it. */
+     *  crops; npuMs: the NPU's own time in the runs. followed: people followed after the frame; lost: people lost in it;
+     *  rejected: new tracks the engine's upright check ended in it (ghosts, e.g. a guitar lying on the couch);
+     *  coasting: people whose pose score dipped in it (no pose from this frame, still followed). */
     float detectMs, landmarkMs, totalMs, cropMs, npuMs;
-    int followed, lost;
+    int followed, lost, rejected, coasting;
     boolean detected;
 
     /** Loads libtundupose.so and Rockchip's runtime once; false on other chips' builds or a broken install. */
@@ -75,6 +80,14 @@ final class NpuPose implements AutoCloseable {
     }
 
     /**
+     * While two people share the landmark runs: the one followed as track (an id, a packet's "tid") gets share of them
+     * (0.67 = two frames in three), the other the rest; 0 = they take turns evenly. Any thread.
+     */
+    void setFocus(int track, float share) {
+        if (handle != 0) nativeSetFocus(handle, track, share);
+    }
+
+    /**
      * One camera frame (RGBA, read in place). Returns true when someone is there (the fields hold the poses), false when
      * nobody is. Throws when the NPU failed. timestampNs = the capture time on a monotonic clock (smoothing).
      */
@@ -85,6 +98,15 @@ final class NpuPose implements AutoCloseable {
     /** The same, straight from the camera's RGBA buffer (direct): no copy into a Bitmap first. */
     boolean process(ByteBuffer rgba, int width, int height, int rowStride, long timestampNs) {
         return unpack(nativeProcessBuffer(handle, rgba, width, height, rowStride, timestampNs, out));
+    }
+
+    /**
+     * A frame the person detector won't look at itself, for its running average: the frames just before a look while
+     * nobody is followed (in a dark room the detector finds people in the average of a few frames, not in one grainy
+     * one). Cheap, no NPU. On the thread that calls process().
+     */
+    void watch(ByteBuffer rgba, int width, int height, int rowStride, long timestampNs) {
+        if (handle != 0) nativeWatchBuffer(handle, rgba, width, height, rowStride, timestampNs);
     }
 
     /**
@@ -118,6 +140,8 @@ final class NpuPose implements AutoCloseable {
         cropMs = out[6];
         npuMs = out[7];
         lost = (int) out[8];
+        rejected = (int) out[9];
+        coasting = (int) out[10];
         for (int i = 0; i < count; i++) {
             int o = HEADER + i * PERSON;
             track[i] = (int) out[o];
@@ -148,11 +172,14 @@ final class NpuPose implements AutoCloseable {
     private static native String nativeCreateError();
     private static native String nativeError(long handle);
     private static native String nativeVersions(long handle);
+    private static native void nativeSetFocus(long handle, int track, float share);
     private static native void nativeSetPeople(long handle, int maxPeople, float runsPerSecond, boolean twin, int keep,
                                                boolean bench);
     private static native int nativeProcess(long handle, Bitmap frame, long timestampNs, float[] out);
     private static native int nativeProcessBuffer(long handle, ByteBuffer rgba, int width, int height, int rowStride,
                                                   long timestampNs, float[] out);
+    private static native void nativeWatchBuffer(long handle, ByteBuffer rgba, int width, int height, int rowStride,
+                                                 long timestampNs);
     private static native int nativePrepareBuffer(long handle, ByteBuffer rgba, int width, int height, int rowStride,
                                                   long timestampNs);
     private static native int nativeRunJob(long handle, int slot, float[] out);

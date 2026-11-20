@@ -28,6 +28,9 @@ Shader "Tundu/Sky"
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            // TUNDU_LITE (global, set by BoxGraphics for the TV box's two-player split screens): the clouds from two
+            // octaves of noise instead of four (four texture reads a sky pixel instead of eight), a little softer
+            #pragma multi_compile _ TUNDU_LITE
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
 
             CBUFFER_START(UnityPerMaterial)
@@ -59,8 +62,14 @@ Shader "Tundu/Sky"
             float Fbm(float2 p)
             {
                 float v = 0.0, a = 0.5;
-                for (int k = 0; k < 4; k++) { v += Noise(p) * a; p *= 2.03; a *= 0.5; }
-                return v;
+                #if defined(TUNDU_LITE)
+                    // two octaves, scaled to the four's range (0 .. 0.94) so the cover stays about the same
+                    for (int k = 0; k < 2; k++) { v += Noise(p) * a; p *= 2.03; a *= 0.5; }
+                    return v * 1.25;
+                #else
+                    for (int k = 0; k < 4; k++) { v += Noise(p) * a; p *= 2.03; a *= 0.5; }
+                    return v;
+                #endif
             }
 
             struct Attributes { float4 positionOS : POSITION; };

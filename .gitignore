@@ -72,3 +72,12 @@ tools/cloud-java-tests/build/
 # Fluturo! city texture previews (tools/fly/city_textures.py --preview)
 tools/fly/out/
 tools/dress/out/
+# Lunapark!'s sprite sheet previews (tools/arcade/art.py --preview)
+tools/arcade/out/
+# Zana!'s HUD sheet preview and dumped strokes (tools/fairy/art.py --preview, SpellDebug)
+tools/fairy/out/
+# every tool's previews (tools/<tool>/out/: boxing, motion, runner, space ... --preview)
+tools/*/out/
+# test runs' logs written next to the project, and dumps a game wrote from the editor's working folder
+unity/logs/
+unity/MoveItGames/tools/

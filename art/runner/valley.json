@@ -1,0 +1,274 @@
+{
+ "LogLow": {
+  "tris": 1197,
+  "verts": 750
+ },
+ "StoneRow": {
+  "tris": 766,
+  "verts": 466
+ },
+ "LogLong": {
+  "tris": 3457,
+  "verts": 2041
+ },
+ "VineBridge": {
+  "tris": 1796,
+  "verts": 1138
+ },
+ "BrontoNeck": {
+  "tris": 7811,
+  "verts": 4147
+ },
+ "Boulder": {
+  "tris": 2034,
+  "verts": 1232
+ },
+ "Trike": {
+  "tris": 6118,
+  "verts": 3211
+ },
+ "Egg": {
+  "tris": 396,
+  "verts": 200
+ },
+ "EggGold": {
+  "tris": 396,
+  "verts": 200
+ },
+ "GrassTuft": {
+  "tris": 90,
+  "verts": 126
+ },
+ "GrassTall": {
+  "tris": 70,
+  "verts": 98
+ },
+ "GrassFlowers": {
+  "tris": 314,
+  "verts": 222
+ },
+ "Fern": {
+  "tris": 796,
+  "verts": 1080
+ },
+ "FernBig": {
+  "tris": 1018,
+  "verts": 1416
+ },
+ "GiantLeaf": {
+  "tris": 1092,
+  "verts": 623
+ },
+ "GiantLeaf2": {
+  "tris": 1404,
+  "verts": 801
+ },
+ "FlowerBed": {
+  "tris": 1141,
+  "verts": 655
+ },
+ "FlowerBed2": {
+  "tris": 1139,
+  "verts": 654
+ },
+ "Verge": {
+  "tris": 1186,
+  "verts": 1394
+ },
+ "Verge2": {
+  "tris": 1186,
+  "verts": 1394
+ },
+ "FlowerPatch": {
+  "tris": 538,
+  "verts": 340
+ },
+ "FlowerPatchB": {
+  "tris": 604,
+  "verts": 378
+ },
+ "Bush": {
+  "tris": 1155,
+  "verts": 644
+ },
+ "BushBerry": {
+  "tris": 1805,
+  "verts": 987
+ },
+ "BushFlower": {
+  "tris": 1817,
+  "verts": 1024
+ },
+ "RockSmall": {
+  "tris": 105,
+  "verts": 77
+ },
+ "RockSmall2": {
+  "tris": 185,
+  "verts": 119
+ },
+ "Pebbles": {
+  "tris": 140,
+  "verts": 84
+ },
+ "Mushrooms": {
+  "tris": 462,
+  "verts": 288
+ },
+ "Horsetail": {
+  "tris": 1395,
+  "verts": 1134
+ },
+ "TreeFern": {
+  "tris": 1986,
+  "verts": 2616
+ },
+ "TreeFern2": {
+  "tris": 2092,
+  "verts": 2776
+ },
+ "Cycad": {
+  "tris": 1596,
+  "verts": 2261
+ },
+ "Cycad2": {
+  "tris": 1596,
+  "verts": 2261
+ },
+ "Palm": {
+  "tris": 1462,
+  "verts": 1663
+ },
+ "Araucaria": {
+  "tris": 3052,
+  "verts": 1658
+ },
+ "TreeRound": {
+  "tris": 1742,
+  "verts": 972
+ },
+ "TreeFernFar": {
+  "tris": 422,
+  "verts": 574
+ },
+ "TreeFern2Far": {
+  "tris": 472,
+  "verts": 650
+ },
+ "CycadFar": {
+  "tris": 399,
+  "verts": 548
+ },
+ "Cycad2Far": {
+  "tris": 399,
+  "verts": 548
+ },
+ "PalmFar": {
+  "tris": 478,
+  "verts": 651
+ },
+ "AraucariaFar": {
+  "tris": 714,
+  "verts": 443
+ },
+ "TreeRoundFar": {
+  "tris": 336,
+  "verts": 195
+ },
+ "VergeFar": {
+  "tris": 460,
+  "verts": 550
+ },
+ "Verge2Far": {
+  "tris": 460,
+  "verts": 550
+ },
+ "FlowerBedFar": {
+  "tris": 702,
+  "verts": 428
+ },
+ "FlowerBed2Far": {
+  "tris": 702,
+  "verts": 428
+ },
+ "FernFar": {
+  "tris": 200,
+  "verts": 322
+ },
+ "FernBigFar": {
+  "tris": 248,
+  "verts": 418
+ },
+ "GiantLeafFar": {
+  "tris": 560,
+  "verts": 350
+ },
+ "GiantLeaf2Far": {
+  "tris": 720,
+  "verts": 450
+ },
+ "BushFar": {
+  "tris": 323,
+  "verts": 191
+ },
+ "BushBerryFar": {
+  "tris": 684,
+  "verts": 391
+ },
+ "BushFlowerFar": {
+  "tris": 782,
+  "verts": 471
+ },
+ "HorsetailFar": {
+  "tris": 810,
+  "verts": 675
+ },
+ "RockBig": {
+  "tris": 560,
+  "verts": 350
+ },
+ "RockBig2": {
+  "tris": 560,
+  "verts": 350
+ },
+ "ForestFar": {
+  "tris": 1057,
+  "verts": 643
+ },
+ "ForestFar2": {
+  "tris": 1278,
+  "verts": 777
+ },
+ "Cliff": {
+  "tris": 1881,
+  "verts": 1060
+ },
+ "Volcano": {
+  "tris": 1240,
+  "verts": 641
+ },
+ "Mountains": {
+  "tris": 768,
+  "verts": 455
+ },
+ "Cloud1": {
+  "tris": 1032,
+  "verts": 563
+ },
+ "Cloud2": {
+  "tris": 832,
+  "verts": 447
+ },
+ "Cloud3": {
+  "tris": 827,
+  "verts": 446
+ },
+ "RockArch": {
+  "tris": 2404,
+  "verts": 1500
+ },
+ "RibArch": {
+  "tris": 2802,
+  "verts": 1599
+ }
+}

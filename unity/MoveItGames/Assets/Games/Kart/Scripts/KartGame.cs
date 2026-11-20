@@ -162,20 +162,32 @@ namespace MoveIt.Games.Kart
 
         void Start()
         {
+            // OnGUI uses no GUILayout: no layout pass (it ran all the HUD's code once more every frame)
+            useGUILayout = false;
             _input = BodyInput.Instance != null ? BodyInput.Instance : FindAnyObjectByType<BodyInput>();
             PlayerGate.Use(_input, Area);
             _mirror = MotionSystem.Instance != null ? MotionSystem.Instance.GetComponent<MotionDebugOverlay>() : null;
             if (_mirror != null) _mirrorWasVisible = _mirror.Visible;
             _menu.Load();
+            // PerfLab on the box (measurements): a mode for this visit only; the remembered choice is saved only when the
+            // menu is changed with the remote (the track: ChosenTrack)
+            switch (PerfSwitches.Get("mode"))
+            {
+                case "versus": _menu.Mode = KartMode.Versus; break;
+                case "together": _menu.Mode = KartMode.Together; break;
+                case "solo": _menu.Mode = KartMode.Solo; break;
+            }
             if (sun != null) sun.shadows = LightShadows.None;
             _dot = TennisArt.Dot();
             _cupIcon = TennisArt.Cup();
             _shadowAtlas = TennisArt.ShadowAtlas();
             _shadows = new Material(shadowMaterial) { name = "Shadows (atlas)" };
             _shadows.SetTexture("_BaseMap", _shadowAtlas);
-            _wheelTex = KartArt.Wheel();
-            for (int i = 1; i < 5; i++) _itemIcons[i] = KartArt.ItemIcon((KartItem)i);
-            for (int i = 0; i < 4; i++) _figures[i] = KartArt.MoveFigure((KartArt.Figure)i);
+            _wheelTex = KartArt.Wheel(readable: true);
+            for (int i = 1; i < 5; i++) _itemIcons[i] = KartArt.ItemIcon((KartItem)i, readable: true);
+            for (int i = 0; i < 4; i++) _figures[i] = KartArt.MoveFigure((KartArt.Figure)i, readable: true);
+            _hudAtlas = new KartHudAtlas(_itemIcons, _figures, _wheelTex);
+            _hud = new HudBatch(_hudAtlas.Texture, _hudAtlas.Texture);
             if (world.pads != null)
             {
                 _padTex = KartArt.PadArrows();
@@ -195,8 +207,7 @@ namespace MoveIt.Games.Kart
             BuildAudio();
             Difficulty = _menu.Difficulty;
             _drivers = KartCup.DrawDrivers(5, Random.Range(0, 1 << 30));
-            int track = _menu.Track == KartMenu.RandomTrack ? Random.Range(0, KartTracks.Count) : _menu.Track;
-            ShowGrid(track);
+            ShowGrid(ChosenTrack());
             SetPhase(Phase.Waiting);
             GameAudio.PlayMusic("kart");
         }
@@ -210,6 +221,9 @@ namespace MoveIt.Games.Kart
             if (_cupMesh != null) Destroy(_cupMesh);
             if (_shadows != null) Destroy(_shadows);
             if (_pads != null) Destroy(_pads);
+            _hud?.Dispose();
+            _hudAtlas?.Dispose();
+            models.Release();
             if (world.water != null) world.water.SetFloat("_FlowOffset", 0f);
             if (_mirror != null) _mirror.Visible = _mirrorWasVisible;
         }
@@ -240,6 +254,14 @@ namespace MoveIt.Games.Kart
 
         // ---------------------------------------------------------------- tracks and races
 
+        /// <summary>The track to show or race: the menu's (random = a new one each time), or PerfLab's track= (0-2) on the
+        /// box, so measurements compare the same track.</summary>
+        int ChosenTrack()
+        {
+            if (int.TryParse(PerfSwitches.Get("track"), out int forced)) return forced;
+            return _menu.Track == KartMenu.RandomTrack ? Random.Range(0, KartTracks.Count) : _menu.Track;
+        }
+
         /// <summary>Builds <paramref name="track"/>'s world (the old one goes) and its daylight.</summary>
         void SetTrack(int track)
         {
@@ -254,7 +276,8 @@ namespace MoveIt.Games.Kart
             if (sun != null) sun.shadows = LightShadows.None;
             if (cam != null) cam.farClipPlane = 900f;
             if (_minimap != null) Destroy(_minimap);
-            _minimap = KartArt.Minimap(t, 256, out _minimapBounds);
+            _minimap = KartArt.Minimap(t, 256, out _minimapBounds, readable: true);
+            _hudAtlas?.SetMap(_minimap);
             Debug.Log($"[Kart] Track {t.Id}: {t.Length:0} m, tightest corner {t.TightestRadius:0} m, {t.Features.Count} features");
         }
 
@@ -415,7 +438,17 @@ namespace MoveIt.Games.Kart
 
             if (_mirror != null) _mirror.Visible = _mirrorWasVisible && (Current is Phase.Waiting or Phase.Results or Phase.Standings || _paused);
             if (world.water != null) world.water.SetFloat("_FlowOffset", Time.time * 0.25f);
-            _world?.Animate(_race, Time.time);
+            if (_world != null)
+            {
+                // the pterodactyls (skinned and animated: as dear as a chibi each) only on one screen: the split screen
+                // draws everything twice (PerfLab ptero=1 keeps them for measuring)
+                _world.ShowFlyers(!Split || PerfSwitches.Get("ptero") == "1");
+                _world.Animate(_race, Time.time);
+            }
+            string kartDetail = PerfSwitches.Get("kart");
+            ApplyDetail();   // cheap when nothing changed (PerfLab chibi=full|low in a running race)
+            foreach (var v in _views)
+                if (v != null) v.ForceDetail(kartDetail);
             UpdateGantry();
             UpdateViews(dt);
             _fx.UpdateFrame(_race, _views);
@@ -551,7 +584,7 @@ namespace MoveIt.Games.Kart
             foreach (var h in _humans) h.Reset();
             _cup = Format == KartFormat.Cup ? new KartCup(Difficulty, Mode, Random.Range(0, 1 << 30)) : null;
             _drivers = _cup != null ? _cup.Drivers : KartCup.DrawDrivers(Mode == KartMode.Versus ? 4 : 5, Random.Range(0, 1 << 30));
-            int track = _cup != null ? _cup.Track : _menu.Track == KartMenu.RandomTrack ? Random.Range(0, KartTracks.Count) : _menu.Track;
+            int track = _cup != null ? _cup.Track : ChosenTrack();
             GameAudio.PlayMusic("kart");
             StartRace(_cup != null ? _cup.Level : KartLevel.For(Difficulty, 0), track);
         }
@@ -1057,6 +1090,7 @@ namespace MoveIt.Games.Kart
                 to.renderPostProcessing = from.renderPostProcessing;
                 to.renderShadows = from.renderShadows;
                 to.antialiasing = from.antialiasing;
+                _cam2.SetVolumeFrameworkUpdateMode(cam.GetVolumeFrameworkUpdateMode());
                 var listener = _cam2.GetComponent<AudioListener>();
                 if (listener != null) Destroy(listener);
             }
@@ -1172,22 +1206,52 @@ namespace MoveIt.Games.Kart
 
         const float MirrorLeft = 440f;
 
+        /// <summary>Which of the race HUD's parts a pass over its code draws: during a race the pictures go into one mesh
+        /// first (<see cref="HudBatch"/>: one draw call instead of ~25 in a split screen), then a second pass draws the
+        /// words with IMGUI; the other screens (and PerfLab's <c>hudbatch=0</c>) draw everything with IMGUI.</summary>
+        enum HudPass { All, Pictures, Words }
+
+        HudPass _pass;
+        KartHudAtlas _hudAtlas;
+        HudBatch _hud;
+        // the race HUD's words in the batch too (PerfLab hudtext=0: IMGUI's, after the batch)
+        bool _batchWords;
+
         void OnGUI()
         {
+            // nothing here takes input (the remote and the keys are read in Update): only the repaint draws
+            if (Event.current.type != EventType.Repaint) return;
             float w = GameHud.Begin();
+            bool batch = _hud != null && Current is Phase.Intro or Phase.Racing or Phase.Finish && !_paused && PerfSwitches.Get("hudbatch") != "0";
+            _batchWords = batch && PerfSwitches.Get("hudtext") != "0";
+            if (batch)
+            {
+                _hud.Clear();
+                _pass = HudPass.Pictures;
+                DrawHud(w);
+                _hud.Draw(GUI.matrix);
+                _pass = HudPass.Words;
+            }
+            DrawHud(w);
+            _pass = HudPass.All;
+        }
+
+        void DrawHud(float w)
+        {
             bool split = Split;
-            foreach (var p in _popups)
-                foreach (var c in Cameras())
-                {
-                    var screen = c.WorldToScreenPoint(p.World);
-                    if (screen.z <= 0f || !c.pixelRect.Contains(screen)) continue;
-                    var g = GameHud.FromScreen(screen);
-                    var color = p.Color;
-                    color.a = Mathf.Clamp01(1.3f - p.Age);
-                    float pop = 1f + 0.3f * Mathf.Exp(-p.Age * 8f);
-                    SportHud.Text(new Rect(g.x - 300f, g.y - 40f, 600f, 80f), p.Text, (int)(46 * pop), color, TextAnchor.MiddleCenter, 3f);
-                }
-            if (split) GameHud.Box(new Rect(w / 2f - 3f, 0f, 6f, GameHud.Height), new Color(0.05f, 0.08f, 0.1f, 0.9f));
+            if (_pass != HudPass.Pictures)
+                foreach (var p in _popups)
+                    foreach (var c in Cameras())
+                    {
+                        var screen = c.WorldToScreenPoint(p.World);
+                        if (screen.z <= 0f || !c.pixelRect.Contains(screen)) continue;
+                        var g = GameHud.FromScreen(screen);
+                        var color = p.Color;
+                        color.a = Mathf.Clamp01(1.3f - p.Age);
+                        float pop = 1f + 0.3f * Mathf.Exp(-p.Age * 8f);
+                        SportHud.Text(new Rect(g.x - 300f, g.y - 40f, 600f, 80f), p.Text, (int)(46 * pop), color, TextAnchor.MiddleCenter, 3f);
+                    }
+            if (split) Block(new Rect(w / 2f - 3f, 0f, 6f, GameHud.Height), new Color(0.05f, 0.08f, 0.1f, 0.9f));
 
             switch (Current)
             {
@@ -1205,7 +1269,7 @@ namespace MoveIt.Games.Kart
                     }
                     for (int p = 0; p < (split ? 2 : 1); p++) DrawRaceHud(w, p, split);
                     DrawMinimap(w, split);
-                    if (Mode == KartMode.Solo && !UsingKeys && Current == Phase.Racing) PlayerGate.DrawEdgeWarning(w, _input);
+                    if (Mode == KartMode.Solo && !UsingKeys && Current == Phase.Racing && _pass != HudPass.Pictures) PlayerGate.DrawEdgeWarning(w, _input);
                     break;
                 case Phase.Standings:
                     DrawStandings(w);
@@ -1214,6 +1278,7 @@ namespace MoveIt.Games.Kart
                     DrawResults(w);
                     break;
             }
+            if (_pass == HudPass.Pictures) return;
             if (_call != null && Time.time >= _callFrom && Time.time < _callUntil && Current is Phase.Intro or Phase.Racing or Phase.Finish)
             {
                 if (split)
@@ -1237,48 +1302,92 @@ namespace MoveIt.Games.Kart
 
         /// <summary>One player's race HUD: the place (big) and the lap top left, the item top middle, the wheel bottom
         /// middle (it turns with their hands; dim with the hands down), in their half of a split screen.</summary>
+        /// <summary>A player's HUD texts, made again only when what they say changes (they were new strings every frame,
+        /// each one laid out again by IMGUI); the speed at most ~7 times a second.</summary>
+        sealed class HudTexts
+        {
+            public int Place = -1, Karts = -1, Lap = -1, Laps = -1, Stars = -1, Kmh = -1;
+            public string PlaceText, OfText, LapText, StarsText, StarCount, KmhText;
+            public float KmhAt;
+        }
+
+        readonly HudTexts[] _hudTexts = { new HudTexts(), new HudTexts() };
+
         void DrawRaceHud(float w, int slot, bool split)
         {
             var k = _race.KartOf(slot);
             var h = _humans[slot];
+            var t = _hudTexts[slot];
             float x0 = split ? slot * w / 2f : 0f, half = split ? w / 2f : w;
             var night = new Color(SportHud.Night.r, SportHud.Night.g, SportHud.Night.b, 0.8f);
+            int lap = Mathf.Clamp(k.Lap + 1, 1, _race.Laps);
+            if (t.Place != k.Place)
+            {
+                t.Place = k.Place;
+                t.PlaceText = k.Place.ToString();
+            }
+            if (t.Karts != _race.Karts.Length)
+            {
+                t.Karts = _race.Karts.Length;
+                t.OfText = "/" + t.Karts;
+            }
+            if (t.Lap != lap || t.Laps != _race.Laps)
+            {
+                t.Lap = lap;
+                t.Laps = _race.Laps;
+                t.LapText = $"{lap}/{_race.Laps}";
+            }
+            if (t.Stars != k.Stars)
+            {
+                t.Stars = k.Stars;
+                t.StarsText = "★ " + k.Stars;
+                t.StarCount = k.Stars.ToString();
+            }
+            int kmh = Mathf.RoundToInt(k.Speed * 3.6f);
+            if (t.KmhText == null || kmh != t.Kmh && Time.unscaledTime >= t.KmhAt)
+            {
+                t.Kmh = kmh;
+                t.KmhText = kmh + " km/h";
+                t.KmhAt = Time.unscaledTime + 0.15f;
+            }
             // the place
             var placeRect = new Rect(x0 + 28f, 24f, 210f, 150f);
-            GameHud.Box(placeRect, night);
+            Block(placeRect, night);
             float flash = 1f + 0.25f * h.PlaceFlash;
             var placeColour = k.Place == 1 ? Sun : k.Place <= 3 ? Color.white : new Color(1f, 1f, 1f, 0.85f);
-            SportHud.Text(new Rect(placeRect.x + 10f, placeRect.y - 4f, 120f, 130f), k.Place.ToString(), (int)(118 * flash), placeColour, TextAnchor.MiddleCenter, 0f);
-            SportHud.Text(new Rect(placeRect.x + 116f, placeRect.y + 52f, 90f, 60f), $"/{_race.Karts.Length}", 40, new Color(1f, 1f, 1f, 0.7f), TextAnchor.MiddleLeft, 0f);
-            SportHud.Text(new Rect(placeRect.x, placeRect.y + 112f, placeRect.width, 34f), KartStrings.PlaceShort, 22, new Color(1f, 1f, 1f, 0.6f), TextAnchor.MiddleCenter, 0f);
+            Words(new Rect(placeRect.x + 10f, placeRect.y - 4f, 120f, 130f), t.PlaceText, 118, placeColour, TextAnchor.MiddleCenter, 0f, flash);
+            Words(new Rect(placeRect.x + 116f, placeRect.y + 52f, 90f, 60f), t.OfText, 40, new Color(1f, 1f, 1f, 0.7f), TextAnchor.MiddleLeft, 0f);
+            Words(new Rect(placeRect.x, placeRect.y + 112f, placeRect.width, 34f), KartStrings.PlaceShort, 22, new Color(1f, 1f, 1f, 0.6f), TextAnchor.MiddleCenter, 0f);
             // the lap
-            int lap = Mathf.Clamp(k.Lap + 1, 1, _race.Laps);
             var lapRect = new Rect(x0 + 252f, 24f, 190f, 70f);
-            GameHud.Box(lapRect, night);
-            SportHud.Text(new Rect(lapRect.x, lapRect.y + 2f, lapRect.width, 30f), KartStrings.LapShort, 22, new Color(1f, 1f, 1f, 0.6f), TextAnchor.MiddleCenter, 0f);
-            SportHud.Text(new Rect(lapRect.x, lapRect.y + 26f, lapRect.width, 44f), $"{lap}/{_race.Laps}", 38, lap == _race.Laps ? Sun : Color.white, TextAnchor.MiddleCenter, 0f);
+            Block(lapRect, night);
+            Words(new Rect(lapRect.x, lapRect.y + 2f, lapRect.width, 30f), KartStrings.LapShort, 22, new Color(1f, 1f, 1f, 0.6f), TextAnchor.MiddleCenter, 0f);
+            Words(new Rect(lapRect.x, lapRect.y + 26f, lapRect.width, 44f), t.LapText, 38, lap == _race.Laps ? Sun : Color.white, TextAnchor.MiddleCenter, 0f);
             // stars
             var starRect = new Rect(x0 + 252f, 104f, 190f, 70f);
-            GameHud.Box(starRect, night);
-            SportHud.Text(new Rect(starRect.x, starRect.y, starRect.width, starRect.height), $"★ {k.Stars}", 38, Sun, TextAnchor.MiddleCenter, 0f);
+            Block(starRect, night);
+            if (_pass != HudPass.All && _batchWords)
+            {
+                // the star drawn (the box's font may have none), the count beside it
+                Picture(new Rect(starRect.x + 52f, starRect.y + 19f, 32f, 32f), null, _hudAtlas.Star, Sun);
+                Words(new Rect(starRect.x + 90f, starRect.y, 90f, starRect.height), t.StarCount, 38, Sun, TextAnchor.MiddleLeft, 0f);
+            }
+            else Words(new Rect(starRect.x, starRect.y, starRect.width, starRect.height), t.StarsText, 38, Sun, TextAnchor.MiddleCenter, 0f);
             // the item
             float ix = x0 + half / 2f;
             var slotRect = new Rect(ix - 70f, 22f, 140f, 140f);
             bool hasItem = k.ItemRoll > 0f || k.Item != KartItem.None;
-            SportHud.Rounded(slotRect, hasItem ? night : new Color(night.r, night.g, night.b, 0.32f), 70f);
-            Texture2D icon = null;
-            if (k.ItemRoll > 0f) icon = _itemIcons[1 + (int)(Time.time * 14f) % 4];
-            else if (k.Item != KartItem.None) icon = _itemIcons[(int)k.Item];
-            if (icon != null)
+            Round(slotRect, hasItem ? night : new Color(night.r, night.g, night.b, 0.32f));
+            int icon = k.ItemRoll > 0f ? 1 + (int)(Time.time * 14f) % 4 : (int)k.Item;
+            if (icon > 0)
             {
                 float bob = k.ItemRoll > 0f ? 0f : 4f * Mathf.Sin(Time.time * 5f);
-                GUI.DrawTexture(new Rect(slotRect.x + 18f, slotRect.y + 16f + bob, 104f, 104f), icon);
+                Picture(new Rect(slotRect.x + 18f, slotRect.y + 16f + bob, 104f, 104f), _itemIcons[icon], _hudAtlas?.Items[icon] ?? default, Color.white);
                 if (k.ItemRoll <= 0f && !UsingKeys)
                 {
-                    var old = GUI.color;
-                    GUI.color = new Color(1f, 1f, 1f, 0.6f + 0.4f * Mathf.Sin(Time.time * 6f));
-                    GUI.DrawTexture(new Rect(slotRect.xMax - 10f, slotRect.y + 70f, 70f, 70f), _figures[(int)KartArt.Figure.HandsUp]);
-                    GUI.color = old;
+                    const int up = (int)KartArt.Figure.HandsUp;
+                    Picture(new Rect(slotRect.xMax - 10f, slotRect.y + 70f, 70f, 70f), _figures[up], _hudAtlas?.Figures[up] ?? default,
+                            new Color(1f, 1f, 1f, 0.6f + 0.4f * Mathf.Sin(Time.time * 6f)));
                 }
             }
             // the wheel: turned with their hands, a ring of the drift's sparks round it
@@ -1286,18 +1395,59 @@ namespace MoveIt.Games.Kart
             var wheelRect = new Rect(x0 + half / 2f - size / 2f, GameHud.Height - size - 34f, size, size);
             bool holding = UsingKeys || Practice || h.Moves.Holding;
             var tint = Mode == KartMode.Solo ? Color.white : Color.Lerp(Color.white, PlayerColors[slot], 0.5f);
-            if (k.Drifting && k.DriftTier > 0) SportHud.Rounded(new Rect(wheelRect.x - 10f, wheelRect.y - 10f, size + 20f, size + 20f), KartFx.SparkColours[k.DriftTier - 1] * new Color(1f, 1f, 1f, 0.5f), (size + 20f) / 2f);
-            var matrix = GUI.matrix;
-            var centre = wheelRect.center;
-            GUI.matrix = matrix * Matrix4x4.TRS(centre, Quaternion.Euler(0f, 0f, h.Wheel), Vector3.one) * Matrix4x4.TRS(-centre, Quaternion.identity, Vector3.one);
-            var oldC = GUI.color;
-            GUI.color = holding ? tint : new Color(tint.r, tint.g, tint.b, 0.35f);
-            GUI.DrawTexture(wheelRect, _wheelTex);
-            GUI.color = oldC;
-            GUI.matrix = matrix;
+            if (k.Drifting && k.DriftTier > 0) Round(new Rect(wheelRect.x - 10f, wheelRect.y - 10f, size + 20f, size + 20f), KartFx.SparkColours[k.DriftTier - 1] * new Color(1f, 1f, 1f, 0.5f));
+            Picture(wheelRect, _wheelTex, _hudAtlas?.Wheel ?? default, holding ? tint : new Color(tint.r, tint.g, tint.b, 0.35f), h.Wheel);
             // the speed under it
-            float kmh = k.Speed * 3.6f;
-            SportHud.Text(new Rect(wheelRect.x - 40f, wheelRect.yMax - 6f, size + 80f, 34f), $"{kmh:0} km/h", 24, new Color(1f, 1f, 1f, 0.8f), TextAnchor.MiddleCenter, 2f);
+            Words(new Rect(wheelRect.x - 40f, wheelRect.yMax - 6f, size + 80f, 34f), t.KmhText, 24, new Color(1f, 1f, 1f, 0.8f), TextAnchor.MiddleCenter, 2f);
+        }
+
+        /// <summary>A picture of the race HUD: into the batch on the pictures pass, IMGUI when not batching, nothing on the
+        /// words pass. Turned <paramref name="degrees"/> about its centre (clockwise, as GUI.matrix turns).</summary>
+        void Picture(Rect r, Texture texture, Rect uv, Color tint, float degrees = 0f)
+        {
+            if (_pass == HudPass.Pictures)
+            {
+                _hud.Image(r, uv, tint, degrees);
+                return;
+            }
+            if (_pass == HudPass.Words || texture == null) return;
+            var matrix = GUI.matrix;
+            if (degrees != 0f)
+            {
+                var centre = r.center;
+                GUI.matrix = matrix * Matrix4x4.TRS(centre, Quaternion.Euler(0f, 0f, degrees), Vector3.one) * Matrix4x4.TRS(-centre, Quaternion.identity, Vector3.one);
+            }
+            var old = GUI.color;
+            GUI.color = tint;
+            GUI.DrawTexture(r, texture);
+            GUI.color = old;
+            GUI.matrix = matrix;
+        }
+
+        /// <summary>A plain block of colour (<see cref="GameHud.Box"/>) in whichever pass draws pictures.</summary>
+        void Block(Rect r, Color colour)
+        {
+            if (_pass == HudPass.Pictures) _hud.Image(r, _hudAtlas.White, colour);
+            else if (_pass == HudPass.All) GameHud.Box(r, colour);
+        }
+
+        /// <summary>A disc filling the square <paramref name="r"/> (<see cref="SportHud.Rounded"/> with a radius of half
+        /// its width).</summary>
+        void Round(Rect r, Color colour)
+        {
+            if (_pass == HudPass.Pictures) _hud.Image(r, _hudAtlas.Circle, colour);
+            else if (_pass == HudPass.All) SportHud.Rounded(r, colour, r.width / 2f);
+        }
+
+        /// <summary>The race HUD's words: into the batch with its pictures, else IMGUI's (after the batch, or alone).
+        /// <paramref name="grow"/> pops the line (IMGUI: a bigger font size).</summary>
+        void Words(Rect r, string text, int size, Color colour, TextAnchor anchor, float outline, float grow = 1f)
+        {
+            if (_pass == HudPass.Pictures)
+            {
+                if (_batchWords) SportHud.Text(_hud, r, text, size, colour, anchor, outline, grow: grow);
+            }
+            else if (_pass == HudPass.All || !_batchWords) SportHud.Text(r, text, (int)(size * grow), colour, anchor, outline);
         }
 
         /// <summary>The track from above with a dot per kart (the players' bigger, in their colours).</summary>
@@ -1306,10 +1456,8 @@ namespace MoveIt.Games.Kart
             if (_minimap == null) return;
             const float size = 230f;
             var r = split ? new Rect(w / 2f - size / 2f, GameHud.Height - size - 24f, size, size) : new Rect(w - size - 26f, 24f, size, size);
-            GameHud.Box(r, new Color(SportHud.Night.r, SportHud.Night.g, SportHud.Night.b, 0.55f));
-            var old = GUI.color;
-            GUI.color = new Color(1f, 1f, 1f, 0.75f);
-            GUI.DrawTexture(r, _minimap);
+            Block(r, new Color(SportHud.Night.r, SportHud.Night.g, SportHud.Night.b, 0.55f));
+            Picture(r, _minimap, _hudAtlas?.Map ?? default, new Color(1f, 1f, 1f, 0.75f));
             for (int pass = 0; pass < 2; pass++)
                 foreach (var k in _race.Karts)
                 {
@@ -1318,10 +1466,9 @@ namespace MoveIt.Games.Kart
                     float u = (p.x - _minimapBounds.x) / _minimapBounds.width, v = (p.y - _minimapBounds.y) / _minimapBounds.height;
                     var at = new Vector2(r.x + u * r.width, r.yMax - v * r.height);
                     float d = k.IsHuman ? 22f : 14f;
-                    GUI.color = k.IsHuman ? (Mode == KartMode.Solo ? Coral : PlayerColors[k.Controller]) : KartLooks.DriverPaint(k.Driver).Body;
-                    GUI.DrawTexture(new Rect(at.x - d / 2f, at.y - d / 2f, d, d), _dot);
+                    var colour = k.IsHuman ? (Mode == KartMode.Solo ? Coral : PlayerColors[k.Controller]) : KartLooks.DriverPaint(k.Driver).Body;
+                    Picture(new Rect(at.x - d / 2f, at.y - d / 2f, d, d), _dot, _hudAtlas?.Dot ?? default, colour);
                 }
-            GUI.color = old;
         }
 
         void DrawCall(float centerX, float width)

@@ -9,7 +9,7 @@ namespace MoveIt.Shell
 {
     /// <summary>
     /// The box's home screen (the app is registered as Android's HOME, so the box boots here and the remote's Home
-    /// button returns here). A row of game tiles (ten): a step to the left or right (or ← →) moves one tile, stepping back to
+    /// button returns here). A row of game tiles (twelve): a step to the left or right (or ← →) moves one tile, stepping back to
     /// the middle keeps it; raise both hands or press OK to play. ↓ reaches the Settings button. Settings is remote-only and shows just what a family
     /// needs. Android's own settings are hidden behind 7 presses on "Device" (like Android's developer-mode trick).
     /// Game Pass: games in Game Pass show a lock while it isn't active; choosing one (or Settings → Game Pass) opens
@@ -62,9 +62,10 @@ namespace MoveIt.Shell
             },
             new Entry
             {
-                Scene = "Fly", Color = new Color(0.12f, 0.62f, 0.85f),
-                Title = () => T("Fluturo!", "Fly!"),
-                Description = () => T("Fluturo si superhero mbi qytet dhe godit robotët me grusht", "Fly like a superhero over the city and punch the robots"),
+                Scene = "Boxing", Color = new Color(0.12f, 0.62f, 0.85f),
+                Title = () => T("Superboks!", "Superboks!"),
+                Description = () => T("Bëhu superhero në ring: mund kampionët një nga një, nga palestra deri te yjet",
+                                      "Be a superhero in the ring: beat the champions one by one, from the gym to the stars"),
             },
             new Entry
             {
@@ -83,6 +84,27 @@ namespace MoveIt.Shell
                 Scene = "Kart", Color = new Color(0.35f, 0.4f, 0.95f),
                 Title = () => T("Gara!", "Race!"),
                 Description = () => T("Drejto makinën me një timon në ajër, kërce te rampat, gara me shokët", "Steer your kart with a wheel in the air, jump at the ramps, race your friends"),
+            },
+            new Entry
+            {
+                Scene = "Arcade", Color = new Color(0.62f, 0.32f, 0.95f),
+                Title = () => T("Lunapark!", "Fun Fair!"),
+                Description = () => T("Gjashtë lojëra të shpejta: godit, prit, kap, fluturo... vetëm ose me një shok",
+                                      "Six quick games: whack, slice, catch, fly... alone or with a friend"),
+            },
+            new Entry
+            {
+                Scene = "Space", Color = new Color(0.3f, 0.28f, 0.82f),
+                Title = () => T("Yjet!", "Stars!"),
+                Description = () => T("Fluturo si astronaut nga planeti në planet: hap krahët, mblidh yje, ulu në pistë",
+                                      "Fly like an astronaut from planet to planet: open your wings, catch stars, land on the pad"),
+            },
+            new Entry
+            {
+                Scene = "Fairy", Color = new Color(0.95f, 0.42f, 0.72f),
+                Title = () => T("Zana!", "Fairies!"),
+                Description = () => T("Fluturo si zanë, vizato forma në ajër dhe hidh magji mbi krijesat e hijes",
+                                      "Fly as a fairy, draw shapes in the air and cast spells on the shadow creatures"),
             },
             new Entry
             {
@@ -463,10 +485,11 @@ namespace MoveIt.Shell
                 var c = g.Color;
                 c.a = selected ? 1f : 0.55f;
                 GameHud.Box(r, c);
-                // more tiles on a 16:9 TV are narrower: smaller type (eight tiles are ~200 px wide, nine ~180, ten ~160)
-                TileTitle.fontSize = tileW >= 440f ? 76 : tileW >= 300f ? 60 : tileW >= 220f ? 50 : tileW >= 195f ? 36 : tileW >= 172f ? 31 : 27;
-                TileText.fontSize = tileW >= 300f ? 32 : tileW >= 220f ? 27 : tileW >= 195f ? 23 : tileW >= 172f ? 21 : 19;
-                float inset = tileW >= 172f ? 22f : 12f;
+                // more tiles on a 16:9 TV are narrower: smaller type (eight tiles are ~200 px wide, nine ~180, ten ~160,
+                // eleven ~144, twelve ~130, thirteen ~118)
+                TileTitle.fontSize = tileW >= 440f ? 76 : tileW >= 300f ? 60 : tileW >= 220f ? 50 : tileW >= 195f ? 36 : tileW >= 172f ? 31 : tileW >= 155f ? 27 : tileW >= 140f ? 24 : tileW >= 125f ? 21 : 19;
+                TileText.fontSize = tileW >= 300f ? 32 : tileW >= 220f ? 27 : tileW >= 195f ? 23 : tileW >= 172f ? 21 : tileW >= 155f ? 19 : tileW >= 140f ? 17 : tileW >= 125f ? 15 : 14;
+                float inset = tileW >= 172f ? 22f : tileW >= 155f ? 12f : tileW >= 140f ? 8f : tileW >= 125f ? 5f : 4f;
                 GameHud.Text(new Rect(r.x, r.y + 40, r.width, 120), g.Title(), TileTitle);
                 GameHud.Text(new Rect(r.x + inset, r.y + 190, r.width - inset * 2f, 190), g.Description(), TileText);
                 if (TunduCloud.AccessFor(g.Scene) == Access.Locked)

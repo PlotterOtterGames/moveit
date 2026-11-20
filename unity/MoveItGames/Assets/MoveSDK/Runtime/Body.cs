@@ -58,6 +58,9 @@ namespace MoveIt.Motion
         /// z = MediaPipe depth (negative = toward the camera). Only valid when <see cref="HasWorld"/>.
         /// </summary>
         public readonly Vector3[] World = new Vector3[Skeleton.JointCount];
+        /// <summary>The latest sample's world joints, unfiltered (like <see cref="Raw"/>): for code that does its own
+        /// smoothing or looks for the pose model's glitches (Vishu!'s OutfitTracker). Valid when <see cref="HasWorld"/>.</summary>
+        public readonly Vector3[] RawWorld = new Vector3[Skeleton.JointCount];
         public bool HasWorld { get; internal set; }
 
         internal readonly OneEuroFilter3[] SmoothFilters = new OneEuroFilter3[Skeleton.JointCount];
@@ -95,14 +98,19 @@ namespace MoveIt.Motion
         public float FastTorsoLength => Vector2.Distance(FastShoulderCenter, FastHipCenter);
 
         /// <summary>
-        /// A point past the wrist toward the fingertips, <paramref name="extension"/> forearm lengths further, on
-        /// <paramref name="track"/> (<see cref="Raw"/>, <see cref="Fast"/> or <see cref="Joints"/>). It fades in with
-        /// the elbow's visibility: switching it on and off at a threshold moved hand cursors ~100 px at once.
+        /// A hand's point for a cursor: the wrist on <paramref name="track"/> (<see cref="Raw"/>, <see cref="Fast"/> or
+        /// <see cref="Joints"/>) carried on out along the arm from the steady shoulder (<see cref="Joints"/>), as if the
+        /// arm were <paramref name="longer"/> longer: toward the hand's middle, and as far as a hand reaches.
+        /// Until 2026-11-17 the cursors pushed the wrist along the forearm (0.3 of it), which brought in a third of the
+        /// elbow's error, the joint the pose model gets most wrong while a hand moves in front of the body. On the box's
+        /// recordings (tools/motion/hand_replay.py, docs/hardware.md "The other hand cursors") this point made Pikturo!'s
+        /// brush and Lunapark!'s hands jump a fifth to a third less, as close to the hand in the picture and reaching as
+        /// far (0.1 longer: 96 % of the old reach; the wrist alone jumps least but reaches 0.15 torso lengths less).
         /// </summary>
-        public Vector2 HandTip(Vector3[] track, Joint elbow, Joint wrist, float extension)
+        public Vector2 HandPoint(Vector3[] track, Joint shoulder, Joint wrist, float longer = 0.1f)
         {
-            Vector2 w = track[(int)wrist], e = track[(int)elbow];
-            return w + (w - e) * (extension * Mathf.InverseLerp(0.2f, 0.4f, Visibility[(int)elbow]));
+            Vector2 s = Joints[(int)shoulder];
+            return s + ((Vector2)track[(int)wrist] - s) * (1f + longer);
         }
 
         /// <summary>Low-lag joint position extrapolated <paramref name="seconds"/> ahead (latency compensation).</summary>

@@ -16,7 +16,9 @@ namespace {
 std::string g_createError;
 
 // Layout of the float array handed back (NpuPose.java reads the same offsets): the frame, then one block per person.
-constexpr int kHeader = 10;  // count, detected, detect ms, landmark ms, total ms, followed, crop ms, NPU ms, lost, -
+constexpr int kHeader = 11;  // count, detected, detect ms, landmark ms, total ms, followed, crop ms, NPU ms, lost,
+                             // rejected (new tracks the upright check ended: ghosts), coasting (people whose pose
+                             // score dipped on this frame: no pose from it, still followed)
 constexpr int kPerson = 4 + tundu::kPoseLandmarks * 5 + tundu::kPoseLandmarks * 3 + 4;  // track, found, score, -, ...
 constexpr int kOutSize = kHeader + tundu::kMaxPeople * kPerson;
 
@@ -34,6 +36,8 @@ jint Pack(JNIEnv* env, const Frame& frame, jfloatArray out) {
     buf[6] = frame.cropMs;
     buf[7] = frame.npuMs;
     buf[8] = (float)frame.lost;
+    buf[9] = (float)frame.rejected;
+    buf[10] = (float)frame.coasting;
     for (int k = 0; k < frame.count; k++) {
         const Pose& pose = frame.people[k];
         float* p = buf + kHeader + k * kPerson;
@@ -93,6 +97,12 @@ JNIEXPORT void JNICALL Java_al_moveit_motion_NpuPose_nativeSetPeople(JNIEnv*, jc
     Get(handle)->SetPeople((int)maxPeople, (float)runsPerSecond, twin == JNI_TRUE, (int)keep, bench == JNI_TRUE);
 }
 
+// The person who gets more of the shared landmark runs (pose_npu.h SetFocus): their track, their share; 0 = nobody.
+JNIEXPORT void JNICALL Java_al_moveit_motion_NpuPose_nativeSetFocus(JNIEnv*, jclass, jlong handle, jint track,
+                                                                     jfloat share) {
+    Get(handle)->SetFocus((int)track, (float)share);
+}
+
 // -1 = failed (nativeError), else the number of people found (their poses in out).
 JNIEXPORT jint JNICALL Java_al_moveit_motion_NpuPose_nativeProcess(JNIEnv* env, jclass, jlong handle, jobject bitmap,
                                                                     jlong timestampNs, jfloatArray out) {
@@ -119,6 +129,14 @@ JNIEXPORT jint JNICALL Java_al_moveit_motion_NpuPose_nativeProcessBuffer(JNIEnv*
     Frame frame;
     const bool ok = Get(handle)->Process(tundu::Rgba{pixels, (int)width, (int)height, (int)rowStride}, timestampNs, &frame);
     return ok ? Pack(env, frame, out) : -1;
+}
+
+// A frame for the detector's running average (the frames just before a look while nobody is followed).
+JNIEXPORT void JNICALL Java_al_moveit_motion_NpuPose_nativeWatchBuffer(JNIEnv* env, jclass, jlong handle, jobject buffer,
+                                                                        jint width, jint height, jint rowStride,
+                                                                        jlong timestampNs) {
+    const uint8_t* pixels = (const uint8_t*)env->GetDirectBufferAddress(buffer);
+    if (pixels) Get(handle)->Watch(tundu::Rgba{pixels, (int)width, (int)height, (int)rowStride}, timestampNs);
 }
 
 // Pipelined tracking (pose_npu.h): this frame's landmark crops into a staging slot. The slot, -1 = nobody followed

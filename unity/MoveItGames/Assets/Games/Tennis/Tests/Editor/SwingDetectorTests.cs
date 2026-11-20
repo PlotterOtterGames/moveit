@@ -27,6 +27,8 @@ namespace MoveIt.Games.Tennis.Tests
             public int Frame, Frames;
             public Vector2 Offset;
             public float Collapse;
+            /// <summary>The visibility the pose model gives those samples (0 = 0.8, a glitch's).</summary>
+            public float Visibility;
         }
 
         /// <summary>A move of the right hand from <paramref name="from"/> to <paramref name="to"/> (torso lengths) taking
@@ -43,8 +45,11 @@ namespace MoveIt.Games.Tennis.Tests
             };
         }
 
+        /// <summary><paramref name="keep"/>: which camera frames reach the detector (null = all; two players: the box's pose
+        /// AI looks at each in turn, or at the one with the focus two frames in three).</summary>
         static List<SwingEvent> Run(Func<double, (Vector2 left, Vector2 right, Vector2 shoulders)> pose, float seconds, int seed = 1,
-                                    float visibility = 0.95f, float fps = 30f, Glitch[] glitches = null, SwingDetector detector = null)
+                                    float visibility = 0.95f, float fps = 30f, Glitch[] glitches = null, SwingDetector detector = null,
+                                    Func<int, bool> keep = null)
         {
             var d = detector ?? new SwingDetector();
             var rng = new System.Random(seed);
@@ -65,13 +70,14 @@ namespace MoveIt.Games.Tennis.Tests
                     {
                         if (i < g.Frame || i >= g.Frame + g.Frames) continue;
                         r = g.Collapse > 0f ? Vector2.Lerp(r, Elbow + s, g.Collapse) : r + g.Offset;
-                        vis = Mathf.Min(vis, 0.8f);
+                        vis = Mathf.Min(vis, g.Visibility > 0f ? g.Visibility : 0.8f);
                     }
                 // the moving hand is noisier (blur), the still one and the shoulders are not
                 Vector2 N(float n) => new Vector2(Gauss(), Gauss()) * (n * Torso);
                 var sh = Shoulders + s * Torso + N(0.006f);
                 var lw = Shoulders + l * Torso + N(0.009f);
                 var rw = Shoulders + r * Torso + N(0.009f + Mathf.Min(0.08f, speed * 0.01f));
+                if (keep != null && !keep(i + seed)) continue;
                 if (d.Update(t, sh, Torso, lw, visibility, rw, vis, out var e)) swings.Add(e);
             }
             return swings;
@@ -271,6 +277,29 @@ namespace MoveIt.Games.Tennis.Tests
         public void UnsureSamples_AreNoSwings()
         {
             Assert.AreEqual(0, Run(Move(ForehandBack, ForehandFront, 0.3f), 2.5f, visibility: 0.2f).Count);
+        }
+
+        /// <summary>The box's visibility is capped by how far the pose model's heatmap backs the position (2026-11-10): a
+        /// hand in a blur in the middle of a swing reads ~0.3-0.5. That sample is skipped and the swing goes on; until
+        /// 2026-11-12 it dropped the swing (two players, 15 poses a second each, lost a third of their strong swings that
+        /// way on a two-person recording).</summary>
+        [Test]
+        public void ABlurredSample_InTheMiddleOfASwing_DoesntLoseIt()
+        {
+            // every camera frame (one player), and two frames in three (two players, this one with the focus: the box's
+            // pose AI gives it to the player the ball is coming to). At one frame in two a blurred sample there still
+            // loses most swings, before and after: too few samples are left to tell the swing from a glitch's jump
+            foreach (var (name, keep, least) in new (string, Func<int, bool>, int)[] { ("every frame", null, 19), ("two in three", i => i % 3 != 2, 14) })
+                for (int at = 0; at < 4; at++)
+                {
+                    int found = 0;
+                    for (int seed = 1; seed <= 20; seed++)
+                    {
+                        var blur = new[] { new Glitch { Frame = Frame(1.04f + at * 0.05f, seed), Frames = 1, Visibility = 0.35f } };
+                        found += Run(Move(ForehandBack, ForehandFront, 0.3f), 2.5f, seed, glitches: blur, keep: keep).Count == 1 ? 1 : 0;
+                    }
+                    Assert.GreaterOrEqual(found, least, $"{name}, the blur at +{0.04f + at * 0.05f:0.00} s");
+                }
         }
 
         /// <summary>A hand along key points (time, torso lengths from the shoulders' middle), minimum-jerk between them.</summary>

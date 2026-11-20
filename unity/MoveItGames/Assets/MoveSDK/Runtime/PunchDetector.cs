@@ -33,6 +33,16 @@ namespace MoveIt.Motion
         public bool BothHands;
         /// <summary>How fast the fist was moving in the picture, torso lengths per second.</summary>
         public float Speed;
+        /// <summary>Which way the fist was moving in the picture (relative to its shoulder; x = the screen's right, y up;
+        /// zero when it was too slow to tell), when it was seen (2026-11-18, for Superboks!: a hook goes across, an
+        /// uppercut up).</summary>
+        public Vector2 Direction;
+        /// <summary>Seen by the arm straightening (in 3D) rather than by the fist's speed in the picture: a punch straight
+        /// at the TV.</summary>
+        public bool Straightened;
+        /// <summary>How fast the arm was straightening when it was seen (its straightness, 0..1, per second; 3D with world
+        /// joints): a jab straightens it fast, a hook or an uppercut hardly.</summary>
+        public float Extension;
     }
 
     /// <summary>
@@ -108,6 +118,8 @@ namespace MoveIt.Motion
             public Vector2 Velocity;
             public double PunchedAt = -10;
             public bool Armed = true;
+            /// <summary>The last punch was seen by the arm straightening alone.</summary>
+            public bool Straightened;
 
             public void Push(double time, float reach, float flat, Vector2 picture)
             {
@@ -169,7 +181,11 @@ namespace MoveIt.Motion
             if (!l && !r) return false;
             info.BothHands = l && r;
             info.RightHand = l && r ? _right.Speed >= _left.Speed : r;
-            info.Speed = (info.RightHand ? _right : _left).Speed;
+            var hand = info.RightHand ? _right : _left;
+            info.Speed = hand.Speed;
+            info.Direction = hand.Speed > 1e-4f ? hand.Velocity / hand.Speed : Vector2.zero;
+            info.Straightened = hand.Straightened;
+            info.Extension = hand.ReachSpeed;
             return true;
         }
 
@@ -216,6 +232,7 @@ namespace MoveIt.Motion
             bool fast = h.Speed >= StrikeSpeed && !bends && !returning && !Drops(h.Velocity);
             bool straightens = h.ReachSpeed >= StraightenSpeed && reach >= StraightenTo && !Drops(h.Velocity);
             if (!fast && !straightens) return false;
+            h.Straightened = !fast;
             h.PunchedAt = time;
             h.MoveFlat = flat;
             h.Armed = false;

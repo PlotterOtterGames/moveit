@@ -16,19 +16,39 @@ namespace {
 constexpr int kDetSize = 224;
 constexpr int kLmSize = 256;
 constexpr int kAnchors = 2254;
-constexpr int kHeat = 64;
-constexpr int kHeatKernel = 7;
+constexpr int kHeat = kHeatSize;
 constexpr float kDetMinScore = 0.5f;
 constexpr float kNmsIou = 0.3f;
 constexpr float kRoiScale = 1.25f;
 constexpr float kMinPresence = 0.5f;
 constexpr float kPi = 3.14159265358979f;
+// The detector's local contrast: CLAHE with OpenCV's clip limit 4 on 8 x 8 tiles (docs/hardware.md "Picture filters for
+// the pose AI": the setting that found the player soonest in a dark room).
+constexpr float kBoostClip = 4.f;
+constexpr int kBoostTiles = 8;
+// A new track must look upright for its first landmark runs (~0.5 s with one player, ~1 s with two).
+constexpr int kUprightFrames = 15;
+// A followed person whose pose score dips under the minimum is kept for this many landmark runs in a row (their frames
+// carry no pose) before the track ends. MediaPipe ends it at the first: on the user's clips the score dipped for single
+// frames (0.39, 0.44, 0.28 between 0.9s), and each time the detector had to find the player again: 19 frames in
+// evening light, 12 s in the dark room.
+constexpr int kCoastFrames = 6;
+// Someone half in view (sitting at the picture's edge, moving): the detector finds them on its picture, the landmark
+// model loses them on the next frame's crop, and with nobody followed the detector looks again at once. On 2026-11-11
+// that was a 41-45 ms look 7 times a second for half a minute in Lunapark!'s hall (26.7-28.6 fps). After kYoungEnds
+// tracks that ended young (lost or rejected within kUprightFrames runs) inside kYoungWindowNs, the detector looks once
+// every kBackoffNs while nobody is followed (as when nobody is in view), until a track lives past kUprightFrames. The
+// frames just before each look still go into its running average (Watch).
+constexpr int kYoungEnds = 3;
+constexpr int64_t kYoungWindowNs = 2000000000;
+constexpr int64_t kBackoffNs = 250000000;
+constexpr int64_t kBackoffWatchNs = 105000000;
 
 double NowMs() {
     return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 
-float Sigmoid(float x) { return 1.f / (1.f + std::exp(-x)); }
+float Sigmoid(float x) { return Sigmoidf(x); }
 
 // SsdAnchorsCalculator with the pose detector's options: 5 layers, strides 8 16 32 32 32, 2 anchors per layer and
 // cell (aspect ratio 1 + the interpolated scale), fixed size; layers with the same stride share a grid. 2254 anchors.
@@ -149,6 +169,93 @@ void Warp(const Rgba& src, const float m[6], const Target& dst, int dw, int dh, 
     helper.join();
 }
 
+// Local contrast (CLAHE) on the rectangle [x0, x1) x [y0, y1) of an RGB picture (rowPixels pixels a row), in place:
+// OpenCV's algorithm (createCLAHE(clipLimit, 8 x 8 tiles)) on the luma, each pixel's colour moved by its luma's change
+// (its chroma kept). Each tile's histogram is clipped at clipLimit times its mean bin count, the excess spread evenly
+// over the bins, and its running sum is the tile's mapping; a pixel blends the mappings of the four tiles around it by
+// its distance to their centres. Only for the person detector's input (the landmark model never sees it): in a dark
+// room it found the player in 1.2 s instead of 22 on the user's footage, and tracking stayed as accurate.
+void LocalContrast(uint8_t* rgb, int rowPixels, int x0, int y0, int x1, int y1, float clipLimit) {
+    constexpr int kTiles = kBoostTiles;
+    const int w = x1 - x0, h = y1 - y0;
+    if (w < 2 * kTiles || h < 2 * kTiles) return;
+    std::vector<uint8_t> luma((size_t)w * h);
+    for (int y = 0; y < h; y++) {
+        const uint8_t* p = rgb + ((size_t)(y0 + y) * rowPixels + x0) * 3;
+        uint8_t* l = luma.data() + (size_t)y * w;
+        for (int x = 0; x < w; x++, p += 3) l[x] = (uint8_t)((77 * p[0] + 150 * p[1] + 29 * p[2] + 128) >> 8);
+    }
+    static thread_local uint8_t lut[kTiles][kTiles][256];
+    for (int ty = 0; ty < kTiles; ty++)
+        for (int tx = 0; tx < kTiles; tx++) {
+            const int ax = tx * w / kTiles, bx = (tx + 1) * w / kTiles, ay = ty * h / kTiles, by = (ty + 1) * h / kTiles;
+            int hist[256] = {};
+            for (int y = ay; y < by; y++) {
+                const uint8_t* l = luma.data() + (size_t)y * w;
+                for (int x = ax; x < bx; x++) hist[l[x]]++;
+            }
+            const int area = (bx - ax) * (by - ay);
+            const int limit = std::max(1, int(clipLimit * area / 256));
+            int excess = 0;
+            for (int& n : hist)
+                if (n > limit) {
+                    excess += n - limit;
+                    n = limit;
+                }
+            const int batch = excess / 256;
+            int residual = excess - batch * 256;
+            for (int& n : hist) n += batch;
+            if (residual > 0)
+                for (int i = 0, step = std::max(256 / residual, 1); i < 256 && residual > 0; i += step, residual--) hist[i]++;
+            const float scale = 255.f / float(area);
+            int sum = 0;
+            for (int i = 0; i < 256; i++) {
+                sum += hist[i];
+                lut[ty][tx][i] = (uint8_t)std::min(255L, std::lround(sum * scale));
+            }
+        }
+    // each column's two tiles and weight (OpenCV: position / tile size - 0.5, the tiles clamped at the edges)
+    std::vector<int> c1(w), c2(w);
+    std::vector<float> ca(w);
+    const float tw = float(w) / kTiles, th = float(h) / kTiles;
+    for (int x = 0; x < w; x++) {
+        const float f = x / tw - 0.5f;
+        const int t = (int)std::floor(f);
+        ca[x] = f - t;
+        c1[x] = std::max(t, 0);
+        c2[x] = std::min(t + 1, kTiles - 1);
+    }
+    for (int y = 0; y < h; y++) {
+        const float f = y / th - 0.5f;
+        const int t = (int)std::floor(f);
+        const float ya = f - t;
+        const int r1 = std::max(t, 0), r2 = std::min(t + 1, kTiles - 1);
+        uint8_t* p = rgb + ((size_t)(y0 + y) * rowPixels + x0) * 3;
+        const uint8_t* l = luma.data() + (size_t)y * w;
+        for (int x = 0; x < w; x++, p += 3) {
+            const int v = l[x];
+            const float xa = ca[x];
+            const float top = lut[r1][c1[x]][v] * (1 - xa) + lut[r1][c2[x]][v] * xa;
+            const float bottom = lut[r2][c1[x]][v] * (1 - xa) + lut[r2][c2[x]][v] * xa;
+            const int d = (int)std::lround(top * (1 - ya) + bottom * ya) - v;
+            for (int c = 0; c < 3; c++) p[c] = (uint8_t)std::min(255, std::max(0, p[c] + d));
+        }
+    }
+}
+
+// Someone standing or sitting: in the picture (y grows downward) the nose above the shoulders' middle, with a tenth of
+// the torso's length to spare, and the shoulders above the hips. The person detector also "finds" things like a guitar
+// lying on cushions; the landmark model then draws a body lying down, its "nose" below its "hips".
+bool Upright(const Pose& p) {
+    const float shoulders = 0.5f * (p.lm[11][1] + p.lm[12][1]), hips = 0.5f * (p.lm[23][1] + p.lm[24][1]);
+    return shoulders < hips && p.lm[0][1] < shoulders + 0.1f * (hips - shoulders);
+}
+
+bool EnvOff(const char* name) {
+    const char* v = std::getenv(name);
+    return v && std::strcmp(v, "0") == 0;
+}
+
 // AlignmentPointsRects (the body upright, the box twice the distance between the points) + RectTransformation
 // (scaled, square): centre x, y and size in pixels, rotation in radians within [-pi, pi).
 void RoiFromPoints(float cx, float cy, float px, float py, float scale, float roi[4]) {
@@ -160,17 +267,6 @@ void RoiFromPoints(float cx, float cy, float px, float py, float scale, float ro
     roi[3] = r - 2 * kPi * std::floor((r + kPi) / (2 * kPi));
 }
 
-// Takes a point of the 256 x 256 crop to the picture: the rotated square ROI (also projects the landmarks back).
-void CropMatrix(const float roi[4], float m[6]) {
-    const float k = roi[2] / kLmSize, c = std::cos(roi[3]) * k, s = std::sin(roi[3]) * k, h = kLmSize * 0.5f;
-    m[0] = c;
-    m[1] = -s;
-    m[2] = roi[0] - c * h + s * h;
-    m[3] = s;
-    m[4] = c;
-    m[5] = roi[1] - s * h - c * h;
-}
-
 // The landmark crop of roi from the picture into dst (the NPU's input, or a staging slot). Returns its time in ms.
 float CropLandmarks(const Rgba& image, const float roi[4], const Target& dst) {
     float m[6];
@@ -178,31 +274,6 @@ float CropLandmarks(const Rgba& image, const float roi[4], const Target& dst) {
     const double w0 = NowMs();
     Warp(image, m, dst, kLmSize, kLmSize, true);
     return float(NowMs() - w0);
-}
-
-// RefineLandmarksFromHeatmap: the score-weighted centre of a 7 x 7 window of the landmark's heatmap (64 x 64). The
-// heatmap as the NPU gave it (float16: only these windows get converted, not its 160 000 values) or as floats.
-template <typename T>
-void Refine(const T* heat, bool channelsFirst, int i, float* x, float* y) {
-    const int col = int(*x * kHeat), row = int(*y * kHeat);
-    if (col < 0 || col >= kHeat || row < 0 || row >= kHeat) return;
-    const int off = (kHeatKernel - 1) / 2;
-    const int r0 = std::max(0, row - off), r1 = std::min(kHeat, row + off + 1);
-    const int c0 = std::max(0, col - off), c1 = std::min(kHeat, col + off + 1);
-    float sum = 0, maxConf = 0, wc = 0, wr = 0;
-    for (int r = r0; r < r1; r++)
-        for (int c = c0; c < c1; c++) {
-            const float v = float(channelsFirst ? heat[(i * kHeat + r) * kHeat + c] : heat[(r * kHeat + c) * kLandmarks + i]);
-            const float conf = Sigmoid(v);
-            sum += conf;
-            maxConf = std::max(maxConf, conf);
-            wc += c * conf;
-            wr += r * conf;
-        }
-    if (maxConf >= 0.5f && sum > 0) {
-        *x = wc / kHeat / sum;
-        *y = wr / kHeat / sum;
-    }
 }
 
 }  // namespace
@@ -215,7 +286,7 @@ struct PoseNpu::Net {
     std::vector<std::vector<float>> out;
     std::vector<std::vector<int8_t>> codes;   // an INT8 output as the NPU gave it (dequantized into out by us)
     // A large float16 output kept as float16 (the landmark heatmap, keepHalf): converting all of it to floats was most
-    // of the ~1.7 ms rknn_outputs_get took per frame on the RK3566; Refine converts the few values it reads.
+    // of the ~1.7 ms rknn_outputs_get took per frame on the RK3566; the decoding converts the few values it reads.
     bool keepHalf = false;
     std::vector<std::vector<__fp16>> half;
     std::vector<rknn_output> request;
@@ -436,23 +507,24 @@ bool SamePerson(const float a[4], const float b[4]) {
 
 }  // namespace
 
-PoseNpu::Track::Track() {
-    for (int i = 0; i < kPoseLandmarks * 3; i++) {
-        lm.emplace_back(0.05, 80.0, 1.0);     // MediaPipe's pose landmarks (scaled by the body's size)
-        world.emplace_back(0.1, 40.0, 1.0);   // and world landmarks (no scaling)
-    }
-    vis.assign(kPoseLandmarks, LowPassFilter(0.1));
-    for (int i = 0; i < 4; i++) aux.emplace_back(5, 10.f);
-}
-
 void PoseNpu::Track::ResetFilters() {
-    for (auto& f : lm) f.Reset();
-    for (auto& f : world) f.Reset();
-    for (auto& f : vis) f.Reset();
-    for (auto& f : aux) f.Reset();
+    smoother.Reset();
+    low = 0;
 }
 
-PoseNpu::PoseNpu() : anchors_(MakeAnchors()) {}
+PoseNpu::PoseNpu() : anchors_(MakeAnchors()), eye_(kDetSize) {
+    const char* boost = std::getenv("TUNDU_NPU_BOOST");
+    if (boost && std::strcmp(boost, "0") == 0) detInput_ = kDetPlain;
+    else if (boost && std::strcmp(boost, "clahe") == 0) detInput_ = kDetClahe;
+    upright_ = !EnvOff("TUNDU_NPU_UPRIGHT");
+    trust_ = !EnvOff("TUNDU_NPU_TRUST");
+    hold_ = !EnvOff("TUNDU_NPU_HOLD");
+    cap_ = !EnvOff("TUNDU_NPU_CAP");
+    rescue_ = !EnvOff("TUNDU_NPU_RESCUE");
+    swap_ = !EnvOff("TUNDU_NPU_SWAP");
+    coast_ = !EnvOff("TUNDU_NPU_COAST");
+    backoff_ = !EnvOff("TUNDU_NPU_BACKOFF");
+}
 
 PoseNpu::~PoseNpu() = default;
 
@@ -529,15 +601,23 @@ void PoseNpu::SetPeople(int maxPeople, float runsPerSecond, bool twin, int keepT
     lastDetectNs_ = 0;   // more wanted: look for them at once
 }
 
+void PoseNpu::SetFocus(int trackId, float share) {
+    std::lock_guard<std::mutex> lock(state_);
+    focusId_ = std::max(0, trackId);
+    focusShare_ = std::min(std::max(share, 0.f), 0.9f);   // the others keep at least a tenth (and stay followed)
+}
+
 void PoseNpu::Reset() {
     std::lock_guard<std::mutex> lock(state_);
     for (Track& t : tracks_) {
         t.active = false;
         t.ResetFilters();
     }
+    for (double& owed : turns_) owed = 0;
     credit_ = 0;
     creditNs_ = 0;
     lastDetectNs_ = 0;
+    youngEnds_ = 0;
 }
 
 int PoseNpu::FollowedLocked() const {
@@ -567,7 +647,11 @@ int PoseNpu::Followed() const {
     return FollowedLocked();
 }
 
-void PoseNpu::DetectorInput(const Rgba& image, uint8_t* dst, float letterbox[3]) {
+void PoseNpu::Watch(const Rgba& image, int64_t timestampNs) {
+    if (detInput_ == kDetAveraged) eye_.Watch(image, timestampNs);
+}
+
+void PoseNpu::DetectorInput(const Rgba& image, int64_t timestampNs, uint8_t* dst, float letterbox[3]) {
     // the whole picture fitted into 224 x 224, black bars
     const float s = float(kDetSize) / float(std::max(image.width, image.height));
     const float padX = (kDetSize - image.width * s) * 0.5f, padY = (kDetSize - image.height * s) * 0.5f;
@@ -575,7 +659,31 @@ void PoseNpu::DetectorInput(const Rgba& image, uint8_t* dst, float letterbox[3])
     Target t = det_->target;
     t.bytes = dst;
     const double w0 = NowMs();
-    Warp(image, m, t, kDetSize, kDetSize, false);
+    if (detInput_ == kDetAveraged) {
+        // pose_trust.h: shrunk by averaging blocks of camera pixels, the last few frames averaged on every other look,
+        // brightened when dark; then into the NPU's layout
+        const uint8_t* rgb = eye_.Look(image, timestampNs, letterbox);
+        for (int v = 0; v < kDetSize; v++)
+            for (int u = 0; u < kDetSize; u++) t.Store(u, v, rgb + ((size_t)v * kDetSize + u) * 3);
+        warpMs_[0] = float(NowMs() - w0);
+        return;
+    }
+    if (detInput_ == kDetClahe) {
+        // the letterboxed picture as RGB first, then its local contrast (the picture's area, not the black bars), then
+        // into the NPU's layout
+        Target rgb;
+        rgb.rowPixels = kDetSize;
+        detRgb_.resize((size_t)kDetSize * kDetSize * 3);
+        rgb.bytes = detRgb_.data();
+        Warp(image, m, rgb, kDetSize, kDetSize, false);
+        const int x0 = (int)std::ceil(padX), x1 = std::min(kDetSize, (int)std::floor(padX + image.width * s));
+        const int y0 = (int)std::ceil(padY), y1 = std::min(kDetSize, (int)std::floor(padY + image.height * s));
+        LocalContrast(detRgb_.data(), kDetSize, x0, y0, x1, y1, kBoostClip);
+        for (int v = 0; v < kDetSize; v++)
+            for (int u = 0; u < kDetSize; u++) t.Store(u, v, detRgb_.data() + ((size_t)v * kDetSize + u) * 3);
+    } else {
+        Warp(image, m, t, kDetSize, kDetSize, false);
+    }
     warpMs_[0] = float(NowMs() - w0);
     letterbox[0] = s;
     letterbox[1] = padX;
@@ -653,6 +761,8 @@ void PoseNpu::StartTracks(const Detection* found, int count) {
             if (t.active) continue;
             t.active = true;
             t.id = nextId_++;
+            t.frames = 0;
+            turns_[i] = 0;
             std::copy(found[k].roi, found[k].roi + 4, t.roi);
             t.ResetFilters();
             break;
@@ -690,6 +800,31 @@ int PoseNpu::Schedule(int64_t timestampNs, int runs[kMaxPeople]) {
         credit_ = 0;
     }
     creditNs_ = timestampNs;
+    // someone has the focus (SetFocus) and not everyone runs this frame: weighted turns, the focused person runs
+    // focusShare_ of the frames, the others the rest (each track's owed runs grow by its share and the most owed run)
+    int focused = -1;
+    if (!twin && count < n && focusId_ > 0)
+        for (int k = 0; k < n; k++)
+            if (tracks_[active[k]].id == focusId_) focused = k;
+    if (focused >= 0) {
+        for (int k = 0; k < n; k++) {
+            const double share = k == focused ? focusShare_ : (1.0 - focusShare_) / (n - 1);
+            turns_[active[k]] = std::min(turns_[active[k]] + share * count, 2.0);
+        }
+        for (int c = 0; c < count; c++) {
+            int best = -1;
+            for (int k = 0; k < n; k++) {
+                bool taken = false;
+                for (int j = 0; j < c; j++) taken = taken || runs[j] == active[k];
+                if (taken) continue;
+                const double owed = turns_[active[k]];
+                if (best < 0 || owed > turns_[active[best]] || (owed == turns_[active[best]] && k == focused)) best = k;
+            }
+            runs[c] = active[best];
+            turns_[active[best]] = std::max(turns_[active[best]] - 1.0, -2.0);
+        }
+        return count;
+    }
     // taking turns: this frame starts with whoever's turn it is
     for (int k = 0; k < count; k++) {
         const int pick = (nextTurn_ + k) % people;
@@ -702,8 +837,6 @@ int PoseNpu::Schedule(int64_t timestampNs, int runs[kMaxPeople]) {
 bool PoseNpu::RunLandmarks(const float roi[4], int width, int height, Pose* out, float aux[2][2]) {
     if (!lm_->Run(kLmSize, &error_, "landmarks")) return false;
     out->npuMs = float(lm_->npuMs);
-    float m[6];
-    CropMatrix(roi, m);
     const float* raw = lm_->out[lm_->Find(kLandmarks * 5)].data();
     const float* world = lm_->out[lm_->Find(kLandmarks * 3)].data();
     const int hi = lm_->Find(kHeat * kHeat * kLandmarks);
@@ -711,29 +844,15 @@ bool PoseNpu::RunLandmarks(const float roi[4], int width, int height, Pose* out,
     const __fp16* heat16 = hi >= 0 && !lm_->half[hi].empty() ? lm_->half[hi].data() : nullptr;
     const float* heat = hi >= 0 && !heat16 ? lm_->out[hi].data() : nullptr;
     out->score = lm_->out[lm_->Find(1)][0];
-    const float c = std::cos(roi[3]), s = std::sin(roi[3]);
-    for (int i = 0; i < kLandmarks; i++) {
-        const float* r = raw + i * 5;
-        float x = r[0] / kLmSize, y = r[1] / kLmSize;
-        if (heat16) Refine(heat16, channelsFirst, i, &x, &y);
-        else if (heat) Refine(heat, channelsFirst, i, &x, &y);
-        const float X = m[0] * x * kLmSize + m[1] * y * kLmSize + m[2];
-        const float Y = m[3] * x * kLmSize + m[4] * y * kLmSize + m[5];
-        if (i == 33 || i == 34) {
-            aux[i - 33][0] = X;
-            aux[i - 33][1] = Y;
-        }
-        if (i >= kPoseLandmarks) continue;
-        out->lm[i][0] = X / width;
-        out->lm[i][1] = Y / height;
-        out->lm[i][2] = r[2] / kLmSize * roi[2] / width;
-        out->lm[i][3] = Sigmoid(r[3]);
-        out->lm[i][4] = Sigmoid(r[4]);
-        const float* w = world + i * 3;
-        out->world[i][0] = c * w[0] - s * w[1];
-        out->world[i][1] = s * w[0] + c * w[1];
-        out->world[i][2] = w[2];
-    }
+    // into the picture (pose_trust.h): each landmark's regression answer nudged by the heatmap (MediaPipe) or moved
+    // onto its peak, and its trust from the heatmap's score under where it ends up. The heatmap as the NPU gave it
+    // (float16: only the cells read get converted, not its 160 000 values) or as floats.
+    if (heat16)
+        LandmarksFromModel(raw, world, heat16, channelsFirst, roi, width, height, trust_, out->lm, out->world, out->trust, aux,
+                           nullptr, rescue_);
+    else
+        LandmarksFromModel(raw, world, heat, channelsFirst, roi, width, height, trust_, out->lm, out->world, out->trust, aux,
+                           nullptr, rescue_);
     return true;
 }
 
@@ -745,31 +864,45 @@ bool PoseNpu::Follow(int index, int id, int width, int height, int64_t timestamp
         return true;
     }
     pose->found = pose->score >= kMinPresence;
-    if (!pose->found) {  // lost: the detector looks again (at once if nobody is left)
+    if (!pose->found) {
         std::lock_guard<std::mutex> lock(state_);
+        // a dip in the pose score: someone who has been followed for a while is kept (the same crop box next frame,
+        // the smoothing as it was); this frame carries no pose
+        if (coast_ && t.active && t.id == id && t.frames >= kUprightFrames && t.low < kCoastFrames) {
+            t.low++;
+            pose->coasting = true;
+            return true;
+        }
+        // lost: the detector looks again (at once if nobody is left, unless tracks keep ending young: Backoff)
         if (t.active && t.id == id) {
+            if (t.frames < kUprightFrames) YoungEnd(timestampNs);
             t.active = false;
             t.ResetFilters();
         }
         return false;
     }
-    // MediaPipe's pose filtering: visibility low-passed, landmarks One Euro in picture pixels with speeds relative to
-    // the body's size (the alignment points' box), world landmarks One Euro in metres; the alignment points the next
-    // crop comes from go through the relative velocity filter.
-    const float box = 2.f * std::hypot(aux[1][0] - aux[0][0], aux[1][1] - aux[0][1]);
-    const double scale = box > 1e-6f ? 1.0 / box : 0.0;
-    const float size[3] = {(float)width, (float)height, (float)width};
-    for (int i = 0; i < kPoseLandmarks; i++) {
-        pose->lm[i][3] = (float)t.vis[i].Apply(pose->lm[i][3]);
-        if (scale > 0)
-            for (int k = 0; k < 3; k++)
-                pose->lm[i][k] = float(t.lm[i * 3 + k].Apply(timestampNs, scale, pose->lm[i][k] * size[k]) / size[k]);
-        for (int k = 0; k < 3; k++)
-            pose->world[i][k] = float(t.world[i * 3 + k].Apply(timestampNs, 1.0, pose->world[i][k]));
+    t.low = 0;
+    // A new track counts only while it looks upright (2026-11-09, docs/hardware.md "Picture filters for the pose AI"):
+    // on the user's empty couch the lite model followed a guitar and its cushions in 73 % of one clip's frames, and the
+    // detector's local contrast finds such ghosts 2-5x as often. A ghost would keep the AI awake and, with one player,
+    // keep the detector from looking for the real one. It ends unsent and the detector looks again; someone already
+    // followed is never dropped by it (bending down is fine). On the user's recordings it never rejected the player.
+    if (upright_ && t.frames < kUprightFrames && !Upright(*pose)) {
+        std::lock_guard<std::mutex> lock(state_);
+        if (t.active && t.id == id) {
+            YoungEnd(timestampNs);
+            t.active = false;
+            t.ResetFilters();
+        }
+        pose->found = false;
+        pose->rejected = true;
+        return false;
     }
-    if (scale > 0)
-        for (int j = 0; j < 2; j++)
-            for (int k = 0; k < 2; k++) aux[j][k] = t.aux[j * 2 + k].Apply(timestampNs, (float)scale, aux[j][k]);
+    // MediaPipe's pose filtering (visibility low-passed, landmarks One Euro in picture pixels with speeds relative to
+    // the body's size, world landmarks One Euro in metres, the alignment points the next crop comes from through the
+    // relative velocity filter), behind the trust, the hold and the left/right guard (pose_trust.h)
+    pose->swapped = t.smoother.Apply(timestampNs, width, height, pose->lm, pose->world, pose->trust, aux, trust_, swap_,
+                                     hold_, cap_);
     float next[4];
     RoiFromPoints(aux[0][0], aux[0][1], aux[1][0], aux[1][1], kRoiScale, next);
     std::lock_guard<std::mutex> lock(state_);
@@ -787,7 +920,18 @@ bool PoseNpu::Follow(int index, int id, int width, int height, int64_t timestamp
             return false;
         }
     std::copy(next, next + 4, t.roi);
+    if (++t.frames == kUprightFrames) youngEnds_ = 0;   // someone followed for real: no back-off
     return true;
+}
+
+void PoseNpu::YoungEnd(int64_t timestampNs) {
+    youngEndNs_[youngEnds_ % kYoungEnds] = timestampNs;
+    youngEnds_++;
+}
+
+bool PoseNpu::BackingOff(int64_t timestampNs) const {
+    // the oldest of the last kYoungEnds young ends: all of them inside the window
+    return backoff_ && youngEnds_ >= kYoungEnds && timestampNs - youngEndNs_[youngEnds_ % kYoungEnds] <= kYoungWindowNs;
 }
 
 bool PoseNpu::LandmarksAt(const Rgba& image, const float roi[4], Pose* out) {
@@ -808,20 +952,26 @@ bool PoseNpu::Process(const Rgba& image, int64_t timestampNs, Frame* out) {
     const double t0 = NowMs();
     error_.clear();
     *out = Frame();
-    // the detector: nobody followed (every frame), or fewer than wanted (once per redetect interval)
-    bool detect;
+    // the detector: nobody followed (every frame, or every kBackoffNs while tracks keep ending young), or fewer than
+    // wanted (once per redetect interval)
+    bool detect, watch;
     {
         std::lock_guard<std::mutex> lock(state_);
         if (bench_) FillBench(image.width, image.height);
         const int n = FollowedLocked();
-        detect = !bench_ && (n == 0 || (!twin_ && n < maxPeople_ && timestampNs - lastDetectNs_ >= kRedetectNs));
+        const bool backingOff = n == 0 && BackingOff(timestampNs);
+        detect = !bench_ && (n == 0 ? !backingOff || timestampNs - lastDetectNs_ >= kBackoffNs
+                                    : !twin_ && n < maxPeople_ && timestampNs - lastDetectNs_ >= kRedetectNs);
         if (detect) lastDetectNs_ = timestampNs;
+        watch = backingOff && !detect && timestampNs - lastDetectNs_ >= kBackoffNs - kBackoffWatchNs;
+        out->backingOff = backingOff;
     }
+    if (watch) Watch(image, timestampNs);
     if (detect) {
         out->detected = true;
         const double d0 = NowMs();
         float letterbox[3];
-        DetectorInput(image, det_->target.bytes, letterbox);
+        DetectorInput(image, timestampNs, det_->target.bytes, letterbox);
         Detection found[kMaxDetections];
         int count = 0;
         const bool ok = RunDetector(letterbox, found, &count);
@@ -866,7 +1016,9 @@ bool PoseNpu::Process(const Rgba& image, int64_t timestampNs, Frame* out) {
         if (runs[k] < 0) continue;   // the twin: only its cost counts
         std::copy(rois[k], rois[k] + 4, pose.roi);
         pose.detected = out->detected;
-        if (!Follow(runs[k], ids[k], image.width, image.height, timestampNs, &pose, aux)) out->lost++;
+        if (!Follow(runs[k], ids[k], image.width, image.height, timestampNs, &pose, aux))
+            (pose.rejected ? out->rejected : out->lost)++;
+        out->coasting += pose.coasting ? 1 : 0;
         out->people[out->count++] = pose;
     }
     out->landmarkMs = float(NowMs() - l0);
@@ -935,7 +1087,7 @@ int PoseNpu::Prepare(const Rgba& image, int64_t timestampNs) {
         job.cropMs += warpMs_[1] = CropLandmarks(image, rois[k], lm_->Staging(slot, k));
     }
     job.detect = detect;
-    if (detect) DetectorInput(image, det_->Staging(slot, 0).bytes, job.letterbox);
+    if (detect) DetectorInput(image, timestampNs, det_->Staging(slot, 0).bytes, job.letterbox);
     return slot;
 }
 
@@ -957,7 +1109,9 @@ bool PoseNpu::RunJob(int slot, Frame* out) {
         if (job.track[k] < 0) continue;   // the twin: only its cost counts
         std::copy(job.roi[k], job.roi[k] + 4, pose.roi);
         pose.cropMs = job.cropMs / job.count;
-        if (!Follow(job.track[k], job.id[k], job.width, job.height, job.timestampNs, &pose, aux)) out->lost++;
+        if (!Follow(job.track[k], job.id[k], job.width, job.height, job.timestampNs, &pose, aux))
+            (pose.rejected ? out->rejected : out->lost)++;
+        out->coasting += pose.coasting ? 1 : 0;
         out->people[out->count++] = pose;
     }
     out->landmarkMs = float(NowMs() - t0);

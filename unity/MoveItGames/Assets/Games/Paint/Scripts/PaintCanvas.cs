@@ -15,6 +15,9 @@ namespace MoveIt.Games.Paint
     /// once (<see cref="Shown"/> = the picture plus the wet stamps) but only dry into the picture later. When a brush
     /// lifts because the arm dropped, the game wipes the stamps of that fast last movement (<see cref="Wipe"/>), so
     /// strokes don't get a tail down to where the hand came to rest.
+    ///
+    /// <b>Colouring pages:</b> with <see cref="SetRegions"/> a stamp can be clipped to one area of the page (the paint
+    /// stays inside the lines), and <see cref="FillRegion"/> colours a whole area at once, over or behind what is there.
     /// </summary>
     public sealed class PaintCanvas : IDisposable
     {
@@ -31,14 +34,19 @@ namespace MoveIt.Games.Paint
         public float WetSeconds = 0.4f;
         public int WetCount => _wet.Count;
 
+        /// <summary>How a stamp meets the paint already there (the brush shader's passes, in this order).</summary>
+        enum StampMode { Paint, Erase, Behind }
+
         struct StampData
         {
             public Vector2 Center;
             public float Size, Degrees, Time;
             public Color Color;
             public BrushShape Shape;
-            public bool Erase;
+            public StampMode Mode;
             public int Owner;
+            /// <summary>Paints only inside this area of the colouring page (0 = anywhere).</summary>
+            public byte Region;
         }
 
         /// <summary>Stamps turned into one mesh (quads with atlas UVs and vertex colours).</summary>
@@ -46,6 +54,7 @@ namespace MoveIt.Games.Paint
         {
             readonly List<Vector3> _vertices = new List<Vector3>();
             readonly List<Vector2> _uvs = new List<Vector2>();
+            readonly List<Vector2> _clips = new List<Vector2>();
             readonly List<Color> _colors = new List<Color>();
             readonly List<int> _indices = new List<int>();
             public readonly Mesh Mesh;
@@ -75,7 +84,12 @@ namespace MoveIt.Games.Paint
                 _uvs.Add(new Vector2(uv.xMin, uv.yMax));
                 var c = s.Color;
                 if (linear) c = new Color(c.r, c.g, c.b).linear.WithAlpha(c.a);   // vertex colours aren't converted
-                for (int i = 0; i < 4; i++) _colors.Add(c);
+                var clip = new Vector2(s.Region, 0f);
+                for (int i = 0; i < 4; i++)
+                {
+                    _colors.Add(c);
+                    _clips.Add(clip);
+                }
             }
 
             /// <summary>Builds the mesh from the stamps and empties the list.</summary>
@@ -84,6 +98,7 @@ namespace MoveIt.Games.Paint
                 Mesh.Clear();
                 Mesh.SetVertices(_vertices);
                 Mesh.SetUVs(0, _uvs);
+                Mesh.SetUVs(1, _clips);
                 Mesh.SetColors(_colors);
                 _indices.Clear();
                 for (int q = 0; q < _vertices.Count; q += 4)
@@ -100,6 +115,7 @@ namespace MoveIt.Games.Paint
             {
                 _vertices.Clear();
                 _uvs.Clear();
+                _clips.Clear();
                 _colors.Clear();
             }
         }
@@ -112,7 +128,7 @@ namespace MoveIt.Games.Paint
         readonly RenderTexture[] _undo = new RenderTexture[MaxUndo];
         int _undoHead, _undoCount;
         RenderTexture _shown;
-        Texture2D _cpu;
+        Texture2D _cpu, _regionTex;
         readonly bool _linear = QualitySettings.activeColorSpace == ColorSpace.Linear;
 
         public PaintCanvas(int width, int height, Material brushMaterial)
@@ -145,6 +161,7 @@ namespace MoveIt.Games.Paint
                 }
             foreach (var b in _batches) Discard(b.Mesh);
             if (_cpu != null) Discard(_cpu);
+            if (_regionTex != null) Discard(_regionTex);
             _cmd.Release();
         }
 
@@ -172,15 +189,54 @@ namespace MoveIt.Games.Paint
         /// <paramref name="size"/> pixels across, rotated by <paramref name="degrees"/>. <paramref name="color"/> is the
         /// straight colour with the stamp's opacity in alpha. Erase stamps remove paint instead. A hand's stamps
         /// (<paramref name="owner"/> 0 or more) start wet; others go straight into the next <see cref="Flush"/>.
+        /// With <paramref name="region"/> above 0 the stamp paints only inside that area of the colouring page
+        /// (<see cref="SetRegions"/>).
         /// </summary>
-        public void Stamp(Vector2 center, float size, float degrees, Color color, BrushShape shape, bool erase = false, int owner = -1)
+        public void Stamp(Vector2 center, float size, float degrees, Color color, BrushShape shape, bool erase = false, int owner = -1,
+                          int region = 0)
         {
             if (size <= 0.5f || color.a <= 0f) return;
             var s = new StampData
             {
-                Center = center, Size = size, Degrees = degrees, Color = color, Shape = shape, Erase = erase, Owner = owner, Time = Clock,
+                Center = center, Size = size, Degrees = degrees, Color = color, Shape = shape, Owner = owner, Time = Clock,
+                Mode = erase ? StampMode.Erase : StampMode.Paint, Region = (byte)(Regions != null ? Mathf.Clamp(region, 0, 255) : 0),
             };
             (owner >= 0 && WetSeconds > 0f ? _wet : _dry).Add(s);
+        }
+
+        // ---------------------------------------------------------------- colouring pages
+
+        /// <summary>The colouring page's areas the stamps can be clipped to (null = a blank page).</summary>
+        public PageRegions Regions { get; private set; }
+
+        /// <summary>Sets (or with null, removes) the colouring page whose areas stamps are clipped to. The page must be the
+        /// canvas's size.</summary>
+        public void SetRegions(PageRegions regions)
+        {
+            if (regions != null && (regions.Width != Width || regions.Height != Height || regions.Count == 0)) regions = null;
+            Regions = regions;
+            if (regions == null) return;
+            if (_regionTex == null)
+                _regionTex = new Texture2D(Width, Height, TextureFormat.R8, false, true)
+                {
+                    name = "Paint page areas", wrapMode = TextureWrapMode.Clamp, filterMode = FilterMode.Point,
+                };
+            _regionTex.LoadRawTextureData(regions.Labels);
+            _regionTex.Apply(false, false);
+        }
+
+        /// <summary>
+        /// Colours a whole area of the page: over what is there (the bucket), or <paramref name="behind"/> it (only where
+        /// the canvas is still clear: the gaps of a mostly coloured area, so strokes of other colours inside it stay).
+        /// </summary>
+        public void FillRegion(int region, Color color, bool behind)
+        {
+            if (Regions == null || region <= 0 || region > Regions.Count) return;
+            _dry.Add(new StampData
+            {
+                Center = new Vector2(Width * 0.5f, Height * 0.5f), Size = Mathf.Max(Width, Height) * 1.1f, Color = color.WithAlpha(1f),
+                Shape = BrushShape.Block, Mode = behind ? StampMode.Behind : StampMode.Paint, Owner = -1, Time = Clock, Region = (byte)region,
+            });
         }
 
         /// <summary>Dries the wet stamps that are old enough (they join the next <see cref="Flush"/>).</summary>
@@ -219,24 +275,30 @@ namespace MoveIt.Games.Paint
             Draw(_shown, _wet);
         }
 
-        /// <summary>One mesh per run of paint or erase stamps, drawn in order (erasing a fresh stroke must work).</summary>
+        /// <summary>One mesh per run of stamps of a kind (paint, erase, behind), drawn in order (erasing a fresh stroke
+        /// must work).</summary>
         void Draw(RenderTexture target, List<StampData> stamps)
         {
+            // (the brush material is shared by the paper's and the camera picture's canvases)
+            _brush.SetVector(CanvasSizeId, new Vector4(Width, Height, 0f, 0f));
+            _brush.SetTexture(RegionTexId, Regions != null && _regionTex != null ? _regionTex : Texture2D.blackTexture);
             _cmd.Clear();
             _cmd.SetRenderTarget(target);
             _cmd.SetViewProjectionMatrices(Matrix4x4.identity, Matrix4x4.Ortho(0f, Width, 0f, Height, -1f, 1f));
             int run = 0;
             for (int i = 0; i < stamps.Count;)
             {
-                bool erase = stamps[i].Erase;
+                var mode = stamps[i].Mode;
                 if (run == _batches.Count) _batches.Add(new Batch($"Paint stamps {run}"));
                 var batch = _batches[run++];
-                for (; i < stamps.Count && stamps[i].Erase == erase; i++) batch.Add(stamps[i], _linear);
+                for (; i < stamps.Count && stamps[i].Mode == mode; i++) batch.Add(stamps[i], _linear);
                 batch.Build(Width, Height);
-                _cmd.DrawMesh(batch.Mesh, Matrix4x4.identity, _brush, 0, erase ? 1 : 0);
+                _cmd.DrawMesh(batch.Mesh, Matrix4x4.identity, _brush, 0, (int)mode);
             }
             Graphics.ExecuteCommandBuffer(_cmd);
         }
+
+        static readonly int CanvasSizeId = Shader.PropertyToID("_CanvasSize"), RegionTexId = Shader.PropertyToID("_RegionTex");
 
         // ---------------------------------------------------------------- undo
 
@@ -250,6 +312,9 @@ namespace MoveIt.Games.Paint
             _undoHead = (_undoHead + 1) % MaxUndo;
             _undoCount = Mathf.Min(_undoCount + 1, MaxUndo);
         }
+
+        /// <summary>Forgets every undo step (another sheet's painting was loaded: undo doesn't reach back onto it).</summary>
+        public void ForgetUndo() => _undoCount = 0;
 
         public bool Undo()
         {

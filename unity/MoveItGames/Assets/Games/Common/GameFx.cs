@@ -158,7 +158,7 @@ namespace MoveIt.Games
                 if (b.Gravity) b.Velocity += Vector3.down * (9f * dt);
                 if (b.Drag > 0f) b.Velocity *= Mathf.Exp(-b.Drag * dt);
                 b.T.position += b.Velocity * dt;
-                if (b.Cube) b.T.Rotate(b.Spin * dt, Space.World);
+                if (b.Cube) b.T.Rotate(b.Spin * dt, UnityEngine.Space.World);
                 else if (!b.Flat) b.T.rotation = camRot * Quaternion.Euler(0f, 0f, b.Spin.z * b.Age);
                 float grow = 1f + b.Grow * b.Age / b.Life;
                 b.T.localScale = b.Scale * grow * (b.Cube ? fade : Mathf.Lerp(0.5f, 1f, fade));

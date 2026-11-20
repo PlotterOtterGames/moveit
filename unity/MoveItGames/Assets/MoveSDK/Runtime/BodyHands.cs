@@ -48,8 +48,9 @@ namespace MoveIt.Motion
         float zoneBelowHips = 0.3f;
         [SerializeField, Tooltip("Zone top edge, torso lengths above the shoulder center.")]
         float zoneAboveShoulders = 1.3f;
-        [SerializeField, Tooltip("Push the point past the wrist toward the fingertips (fraction of forearm length).")]
-        float handExtension = 0.3f;
+        [SerializeField, Tooltip("The hand's point: the wrist carried on out along the arm from the shoulder, as if the arm " +
+                                 "were this much longer (Body.HandPoint).")]
+        float armExtension = 0.1f;
         [SerializeField, Range(0f, 0.9f), Tooltip("Velocity smoothing (0 = raw, higher = smoother but laggier).")]
         float velocitySmoothing = 0.4f;
         [Header("Cursor (tools/motion/cursor_sim.py)")]
@@ -110,8 +111,8 @@ namespace MoveIt.Motion
                 {
                     _lastSampleTime = body.SampleTime;
                     _unit = _unit <= 0f ? torso : Mathf.Lerp(_unit, torso, 0.1f);
-                    Sample(body, Joint.LeftElbow, Joint.LeftWrist, _left, now);
-                    Sample(body, Joint.RightElbow, Joint.RightWrist, _right, now);
+                    Sample(body, Joint.LeftShoulder, Joint.LeftWrist, _left, now);
+                    Sample(body, Joint.RightShoulder, Joint.RightWrist, _right, now);
                 }
             }
 
@@ -141,7 +142,7 @@ namespace MoveIt.Motion
         }
 
         /// <summary>One camera sample of a hand: the cursor's raw position, and the low-lag one with its velocity.</summary>
-        void Sample(Body body, Joint elbow, Joint wrist, Track track, double now)
+        void Sample(Body body, Joint shoulder, Joint wrist, Track track, double now)
         {
             // Unsure frames are skipped: the cursor glides on, and the hand is lost only if they go on (HandPresence).
             if (!track.Presence.Sample(body.Visibility[(int)wrist], now)) return;
@@ -155,15 +156,15 @@ namespace MoveIt.Motion
             float bottom = body.HipCenter.y - zoneBelowHips * _unit;
             float top = shoulders.y + zoneAboveShoulders * _unit;
             float width = 2f * zoneHalfWidth * _unit, height = Mathf.Max(0.01f, top - bottom);
-            Vector2 Zone(Vector2 tip) => new Vector2(0.5f + (tip.x - shoulders.x) / width, (tip.y - bottom) / height);
+            Vector2 Zone(Vector2 p) => new Vector2(0.5f + (p.x - shoulders.x) / width, (p.y - bottom) / height);
 
             // The cursor smooths the raw sample itself (smoothing twice made fast moves uneven).
-            Vector2 raw = Zone(body.HandTip(body.Raw, elbow, wrist, handExtension));
+            Vector2 raw = Zone(body.HandPoint(body.Raw, shoulder, wrist, armExtension));
             track.Cursor.Sample(body.SampleTime, raw, false, now);
 
             // Speed from the last two low-lag samples: it follows starts and stops at once (quick swipes).
             var previous = track.Sample;
-            Vector2 fast = Zone(body.HandTip(body.Fast, elbow, wrist, handExtension));
+            Vector2 fast = Zone(body.HandPoint(body.Fast, shoulder, wrist, armExtension));
             var hand = new Hand { Tracked = true, SamplePosition = raw, SampleTime = body.SampleTime };
             float dt = (float)(hand.SampleTime - previous.SampleTime);
             if (previous.Tracked && dt > 0f && dt < 0.25f)

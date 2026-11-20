@@ -10,8 +10,13 @@ Scripts:
     jumps  real jumps (knees bend first, then take-off, landing): hop, small hop, big jump; then a duck and a fast
            stand-up. Must give 3 jumps (the dips must not turn them into crouches) and the stand-up must NOT be a jump
     runner  plays Vrapo! for a visual check: hands up to start, countdown, then sidesteps, hops and ducks
-    paint  Pikturo!: picks a colour on the right edge (hold), then paints with the right hand while the left hand is
-           raised as the switch: a circle, then (switch down) moves to a new spot and paints a line
+    paint  Pikturo! the easy way ("raise a hand and it paints"): the right hand holds on a colour pot (blue), then
+           rises to a spot on the paper, stops there (the brush goes down), paints a slow circle, stops and drops;
+           then it rises to another spot, paints a line downward, stops and drops. The left hand never moves
+    paint2 Pikturo! with two hands: picks the colour, then paints with the right hand while the left hand is raised
+           as the switch: a circle, then (switch down) moves to a new spot and paints a line
+    paint_page  Pikturo!'s dino colouring page: the right hand rubs to and fro across the volcano, a little over its
+           edges on both sides (the paint must stay inside the lines, and the volcano fill up when mostly coloured)
     sword  Shpata! (sword right hand, shield left hand): hands up, waits for the knight, swings at its guard, then
            holds the shield overhead, left and right, each followed by a counterattack, then lets one blow through
     brawl  Fluturo!: fists up, then jabs left and right without a break (~3 a second) for 2.5 minutes, stepping side
@@ -55,6 +60,27 @@ Scripts:
     volley_duo  Volejboll! for two: both calibrate and raise their hands, then each holds the bump, then the set, then
            spikes, in 6 s cycles, player 2 three seconds after player 1 (the poses are held long: balls the computer doesn't
            time still find a move)
+
+    arcade_whack  Lunapark!'s Godit!: calibrates, then both hands peck at the seven holes in turn (in, out, in: a hand that
+           stays in a hole bonks nothing), 8 s cycles. ArcadeGameTests starts the booth itself
+    arcade_slice  Fruta!: quick swipes of each hand across the booth at three heights, one every second
+    arcade_wall   Muri!: both arms up in a Y, held (ArcadeGameTests makes every wall a Y)
+    arcade_catch  Kap!: steps to the left and to the right, a 3 s sway
+    arcade_flap   Zogu!: both arms flapping (from out to the side down to the hips), ~1.5 a second
+    arcade_keepup Topi!: both hands up in front of the head, bobbing (the ball falls on them and the head)
+    arcade_duo    two players pecking at their holes (Godit!), player 2 half a cycle later; --alternate as on the box
+
+    box    Superboks!: calibrates, both hands up (the map's start), the fists up through the intro, then 20 s cycles of a
+           boxer's moves: jabs (right, left), a held guard, a dodge to the left (a step), an uppercut, a punch at the body,
+           a duck, a hook, a dodge to the right, a flurry (getting up when down), both arms up (the super punch)
+
+    space  Yjet!: hands up (start), stands on the pad, jumps (the take-off), then 8 s cycles: the arms out as wings with a
+           step to the left, the wings tilted right (the left hand higher) with a step to the right, both arms up (a
+           rocket) back in the middle, a duck, standing up, a jump (a hop in flight). Every change of the arms eases from
+           the shape before (0.3 s): a slow raise to the rocket is no "arms thrown up"
+    space_duo  Yjet! for two: both calibrate and raise their hands, player 1 jumps off the pad while player 2 throws both
+           arms up (the sitting way to take off), then the same cycles with the steps mirrored (player 2 steps right while
+           player 1 steps left) and player 2's wings tilted left; --alternate as on the box
 
 While the game asks for camera frames (Pikturo's camera mode), it also sends a drawn "camera picture" of the room
 and the player, exactly where the joints are (video.py), so the camera mode can be checked without a camera.
@@ -166,11 +192,23 @@ RUNNER = [  # plays Vrapo!: start with hands up, wait out the countdown, then do
       ("step RIGHT", 1.1, dict(IDLE, x=-0.40)), ("HOP", 1.2, dict(IDLE, x=-0.40, hop=(0.12, 0.40))),
       ("back to center", 0.9, IDLE)] * 2,
 ]
-PAINT = [  # Pikturo!: hand targets are given in screen ("zone") coordinates, see zone_hand()
+PAINT = [  # Pikturo! the easy way: hand targets are HUD pixels of its 1920x1080 screen, see easel_hand()
     ("idle (calibration)", 2.5, IDLE),
-    ("CHOOSE A COLOUR (right hand holds on the right edge)", 2.6, dict(IDLE, arm="paint_pick")),
-    ("PAINT A CIRCLE (right hand paints while the left hand is raised)", 4.6, dict(IDLE, arm="paint_circle")),
-    ("MOVE (switch down), THEN PAINT A LINE", 4.0, dict(IDLE, arm="paint_line")),
+    ("CHOOSE A COLOUR (right hand holds on the blue pot)", 2.6, dict(IDLE, arm="paint_pick")),
+    ("RAISE THE HAND, STOP, PAINT A CIRCLE, STOP, LOWER IT", 4.6, dict(IDLE, arm="paint_circle")),
+    ("RAISE IT ELSEWHERE, STOP, PAINT A LINE DOWN, STOP, LOWER IT", 4.0, dict(IDLE, arm="paint_line")),
+    ("idle", 1.0, IDLE),
+]
+PAINT2 = [  # Pikturo! with two hands: the left hand raised to the chest is the switch
+    ("idle (calibration)", 2.5, IDLE),
+    ("CHOOSE A COLOUR (right hand holds on the blue pot)", 2.6, dict(IDLE, arm="paint_pick")),
+    ("PAINT A CIRCLE (right hand paints while the left hand is raised)", 4.6, dict(IDLE, arm="paint2_circle")),
+    ("MOVE (switch down), THEN PAINT A LINE", 4.0, dict(IDLE, arm="paint2_line")),
+    ("idle", 1.0, IDLE),
+]
+PAINT_PAGE = [  # Pikturo!'s dino page: rubbing across the volcano, 24 px over its edges
+    ("idle (calibration)", 2.5, IDLE),
+    ("RUB THE VOLCANO (to and fro, a little over the lines)", 7.0, dict(IDLE, arm="paint_rub")),
     ("idle", 1.0, IDLE),
 ]
 SWORD = [  # Shpata!: a swing at the knight's guard (bounces off), then three shield blocks, each with a counterattack
@@ -375,12 +413,136 @@ KART_DUO = [  # Gara! for two: KartGameTests sets the mode (versus or together) 
     *[("both steer, player 2 half a cycle later", 8.0, (dict(IDLE, arm="kart_drive", hop=(0.1, 0.36)), dict(IDLE, arm="kart_drive_late")))
       for _ in range(5)],
 ]
+SPACE_CYCLE = [  # Yjet!'s moves, 8 s: (name, seconds, x, crouch, the arms from -> to, a jump)
+    ("WINGS out, a step to the left", 2.0, 0.32, 0, "space_rest_wings", False),
+    ("the wings TILTED RIGHT (left hand higher), a step to the right", 2.0, -0.32, 0, "space_wings_tilt_r", False),
+    ("ROCKET: both arms up, back in the middle", 1.4, 0.0, 0, "space_tilt_r_up", False),
+    ("DUCK, the arms down", 1.2, 0.0, 1, "space_up_rest", False),
+    ("stand up", 0.6, 0.0, 0, None, False),
+    ("a JUMP (a hop in flight; on a pad it takes off)", 0.8, 0.0, 0, None, True),
+]
+
+
+def space_segment(x, crouch, arm, jump):
+    target = dict(IDLE, x=x, crouch=crouch)
+    if arm:
+        target["arm"] = arm
+    if jump:
+        target["jump"] = True
+    return target
+
+
+SPACE = [
+    ("idle (calibration)", 2.5, IDLE),
+    *START,
+    ("on the pad, standing still", 1.5, IDLE),
+    ("a JUMP: take off", 1.2, dict(IDLE, jump=True)),
+    ("flying, the arms down", 1.3, IDLE),
+    *[(name, sec, space_segment(x, c, arm, jump)) for _ in range(13) for name, sec, x, c, arm, jump in SPACE_CYCLE],
+]
+# player 2 in the same 8 s: steps mirrored, the wings tilted left, no jump at the end
+SPACE_CYCLE_2 = [(-0.32, 0, "space_rest_wings", False), (0.32, 0, "space_wings_tilt_l", False), (0.0, 0, "space_tilt_l_up", False),
+                 (0.0, 1, "space_up_rest", False), (0.0, 0, None, False), (0.0, 0, None, False)]
+SPACE_DUO = [  # Yjet! for two: SpaceGameTests sets the together mode before the hands go up
+    ("both idle (calibration)", 3.0, (IDLE, IDLE)),
+    ("both HANDS UP (start)", 1.4, (dict(IDLE, hands=1), dict(IDLE, hands=1))),
+    ("hands down", 1.0, (IDLE, IDLE)),
+    ("on the pad", 1.5, (IDLE, IDLE)),
+    ("take off: player 1 jumps, player 2 throws both arms up", 1.2, (dict(IDLE, jump=True), dict(IDLE, arm="space_throw"))),
+    ("flying, the arms down", 1.3, (IDLE, dict(IDLE, arm="space_up_rest"))),
+    *[(name, sec, (space_segment(x, c, arm, jump), space_segment(*p2))) for _ in range(5)
+      for (name, sec, x, c, arm, jump), p2 in zip(SPACE_CYCLE, SPACE_CYCLE_2)],
+]
+# Yjet!'s exploration (2026-11-14): the body steers the astronaut. 15 s cycles: straight on, a step to the right (turn
+# right), back in the middle with BOTH ARMS UP (a boost), a step to the left (turn left), a DUCK (slow down). x > 0 is the
+# player's left, like every script here.
+SPACE_FLY_CYCLE = [
+    ("straight on, the arms resting", 3.0, dict(IDLE)),
+    ("a STEP to the right: turn right", 2.5, dict(IDLE, x=-0.32)),
+    ("back in the middle, BOTH ARMS UP: boost", 3.0, dict(IDLE, arm="space_throw")),
+    ("the arms down", 1.0, dict(IDLE, arm="space_up_rest")),
+    ("a STEP to the left: turn left", 2.5, dict(IDLE, x=0.32)),
+    ("DUCK: slow down", 1.6, dict(IDLE, crouch=1)),
+    ("stand up", 1.4, dict(IDLE)),
+]
+SPACE_FLY = [
+    ("idle (calibration)", 2.5, IDLE),
+    *START,
+    *[seg for _ in range(20) for seg in SPACE_FLY_CYCLE],
+]
+SPACE_FLY_DUO = [  # two side by side: player 2 the mirror of player 1 (their leans cancel: straight on), both boost together
+    ("both idle (calibration)", 3.0, (IDLE, IDLE)),
+    ("both HANDS UP (start)", 1.4, (dict(IDLE, hands=1), dict(IDLE, hands=1))),
+    ("hands down", 1.0, (IDLE, IDLE)),
+    *[(name, sec, (target, dict(target, x=-target.get("x", 0.0)))) for _ in range(8) for name, sec, target in SPACE_FLY_CYCLE],
+]
+ARCADE_CALM = [("idle (calibration), then the booth's countdown", 6.5, IDLE)]
+ARCADE_WHACK = [*ARCADE_CALM, *[("GODIT: both hands peck at the holes in turn", 8.0, dict(IDLE, arm="arcade_whack")) for _ in range(9)]]
+ARCADE_SLICE = [*ARCADE_CALM, *[("FRUTA: swipes at three heights", 6.0, dict(IDLE, arm="arcade_slice")) for _ in range(12)]]
+ARCADE_WALL = [*ARCADE_CALM, ("MURI: arms up in a Y, held", 72.0, dict(IDLE, arm="arcade_y"))]
+ARCADE_CATCH = [*ARCADE_CALM, ("KAP: stepping left and right", 72.0, dict(IDLE, move="arcade_steps"))]
+ARCADE_FLAP = [*ARCADE_CALM, ("ZOGU: flapping both arms", 72.0, dict(IDLE, arm="arcade_flap"))]
+ARCADE_KEEPUP = [*ARCADE_CALM, ("TOPI: hands up under the ball, bobbing", 72.0, dict(IDLE, arm="arcade_keepup"))]
+ARCADE_DUO = [("both idle (calibration), the countdown", 7.0, (IDLE, IDLE)),
+              *[("both peck at their holes, player 2 half a cycle later", 8.0,
+                 (dict(IDLE, arm="arcade_whack"), dict(IDLE, arm="arcade_whack_late"))) for _ in range(9)]]
+# Zana!'s garden with the wand (2026-11-16; only spells purify since that evening): the left hand raised follows the
+# lightning bolt over the left path with the wand, then the right hand follows the shield's circle round the tree (the
+# PlayMode test offers those two shapes by turns); 11.2 s cycles. Two fairies: player 1's left hand down the left
+# bolt and player 2's right hand down the right bolt at once.
+FAIRY_CYCLE = [
+    # (Zana! reads shapes drawn in the air since 2026-11-17: the bolt casts the lightning on the left, the circle the
+    # shield; each stroke ends as the hand drops)
+    ("the WAND (left hand) draws a LIGHTNING bolt on the LEFT", 4.0, dict(IDLE, arm="wand_bolt_left")),
+    ("rest", 1.0, IDLE),
+    ("the WAND (right hand) draws the shield's CIRCLE", 5.2, dict(IDLE, arm="wand_circle")),
+    ("rest", 1.0, IDLE),
+]
+FAIRY = [
+    ("idle (calibration)", 2.5, IDLE),
+    *START,
+    ("the wave's title", 3.0, IDLE),
+    *[seg for _ in range(8) for seg in FAIRY_CYCLE],
+]
+FAIRY_DUO = [  # two fairies side by side: FairyGameTests chooses two players before the hands go up
+    ("both idle (calibration)", 3.0, (IDLE, IDLE)),
+    ("both HANDS UP (start)", 1.4, (dict(IDLE, hands=1), dict(IDLE, hands=1))),
+    ("hands down", 1.0, (IDLE, IDLE)),
+    ("the wave's title", 3.0, (IDLE, IDLE)),
+    *[seg for _ in range(8) for seg in (
+        ("player 1's WAND down the LEFT bolt, player 2's down the RIGHT", 4.0, (dict(IDLE, arm="wand_bolt_left"), dict(IDLE, arm="wand_bolt_right"))),
+        ("both rest", 1.2, (IDLE, IDLE)))],
+]
+BOX = [  # Superboks!: a boxer's moves in a loop (the map's start: both hands up)
+    ("idle (calibration)", 2.5, IDLE),
+    *START,
+    ("the intro, fists up", 4.6, dict(IDLE, arm="raise_guard")),
+    *[seg for _ in range(10) for seg in (
+        ("JAB RIGHT", 1.1, dict(IDLE, arm="guard_jab_right")),
+        ("JAB LEFT", 1.1, dict(IDLE, arm="guard_jab_left")),
+        ("GUARD held", 1.4, GUARD),
+        ("DODGE LEFT (a step)", 1.0, dict(GUARD, x=0.34)),
+        ("back", 0.6, GUARD),
+        ("UPPERCUT RIGHT", 1.2, dict(IDLE, arm="guard_upper_right")),
+        ("BODY PUNCH LEFT", 1.2, dict(IDLE, arm="guard_body_left")),
+        ("DUCK", 1.0, dict(GUARD, crouch=0.8)),
+        ("stand", 0.6, GUARD),
+        ("HOOK RIGHT (across)", 1.4, dict(IDLE, arm="guard_hook_in_right")),
+        ("DODGE RIGHT (a step)", 1.0, dict(GUARD, x=-0.34)),
+        ("back", 0.6, GUARD),
+        ("FLURRY", 3.0, dict(IDLE, arm="flurry")),
+        ("BOTH ARMS UP (super)", 1.4, dict(IDLE, hands=1)),
+        ("guard", 1.0, GUARD))],
+]
 SCRIPTS = {"basic": BASIC, "bowl": BOWL, "slash": SLASH, "idle": IDLE_FIDGET, "dropout": DROPOUT, "jumps": JUMPS,
-           "runner": RUNNER, "paint": PAINT, "sword": SWORD, "fly": FLY, "turns": TURNS, "brawl": BRAWL, "dress": DRESS,
+           "runner": RUNNER, "paint": PAINT, "paint2": PAINT2, "paint_page": PAINT_PAGE, "sword": SWORD, "fly": FLY, "turns": TURNS, "brawl": BRAWL, "dress": DRESS,
            "runway": RUNWAY, "turn": TURN, "tennis": TENNIS, "tennis_move": TENNIS_MOVE, "place": PLACE,
            "sp_run": SP_RUN, "sp_kick": SP_KICK, "tennis_duo": TENNIS_DUO,
            "tennis_flick": TENNIS_FLICK, "volley": VOLLEY, "volley_duo": VOLLEY_DUO, "kart": KART,
-           "kart_duo": KART_DUO}
+           "kart_duo": KART_DUO, "arcade_whack": ARCADE_WHACK, "arcade_slice": ARCADE_SLICE, "arcade_wall": ARCADE_WALL,
+           "arcade_catch": ARCADE_CATCH, "arcade_flap": ARCADE_FLAP, "arcade_keepup": ARCADE_KEEPUP, "arcade_duo": ARCADE_DUO,
+           "space": SPACE, "space_duo": SPACE_DUO, "space_fly": SPACE_FLY, "space_fly_duo": SPACE_FLY_DUO,
+           "fairy": FAIRY, "fairy_duo": FAIRY_DUO, "box": BOX}
 TRANSITION_S = 0.25
 JUMP_HEIGHT_M = 0.35
 JUMP_TIME_S = 0.55
@@ -476,9 +638,10 @@ def cross_arms(t):
 
 
 # Unity's BodyHands maps a hand into a "zone" that is the screen: x 0..1 = 1.6 torso lengths either side of the
-# shoulders, y 0..1 = from 0.3 torso lengths below the hips to 1.3 above the shoulders. Its point is the wrist pushed
-# 30% of the forearm further. With the elbow halfway between shoulder and wrist that is wrist + 15% of (wrist -
-# shoulder), so a screen target can be turned back into a wrist position for the standing player.
+# shoulders, y 0..1 = from 0.3 torso lengths below the hips to 1.3 above the shoulders. Its point (Body.HandPoint, since
+# 2026-11-17; Pikturo! and Lunapark! too) is the wrist carried on out along the arm from the shoulder, as if the arm were
+# 10% longer, so a screen target can be turned back into a wrist position for the standing player.
+ARM_LONGER = 1.1
 TORSO_M = STAND["left_shoulder"][1] - STAND["left_hip"][1]
 ZONE_BOTTOM_M = STAND["left_hip"][1] - 0.3 * TORSO_M
 ZONE_HEIGHT_M = STAND["left_shoulder"][1] + 1.3 * TORSO_M - ZONE_BOTTOM_M
@@ -490,15 +653,31 @@ def zone_hand(side, zx, zy):
     player's right hand (negative x) appears on the right."""
     tip = (-(zx - 0.5) * ZONE_WIDTH_M, ZONE_BOTTOM_M + zy * ZONE_HEIGHT_M)
     sx, sy = STAND[f"{side}_shoulder"]
-    wx, wy = sx + (tip[0] - sx) / 1.15, sy + (tip[1] - sy) / 1.15
+    wx, wy = sx + (tip[0] - sx) / ARM_LONGER, sy + (tip[1] - sy) / ARM_LONGER
     return {f"{side}_wrist": (wx, wy, -0.30), f"{side}_elbow": ((sx + wx) / 2, (sy + wy) / 2, -0.12)}
 
 
-def hand_path(side, keys):
-    """keys: [(time s, (zx, zy) screen point, or None = arm resting)], linear in between (keys are dense where the
-    path curves), eased when leaving or reaching the rest pose. Returns an arm motion."""
+# Pikturo! since 2026-11-10 (PaintGame.Layout): a hand's place on the screen is its place around the body, 480 HUD
+# pixels per torso length both ways, the shoulders' middle at HUD (960, 578) of a 1920x1080 screen. The paper is
+# x 432..1488, y 160..952; the colour pots are right of it (blue: 1560, 620), the brushes left, the buttons above.
+EASEL_SCALE, EASEL_X, EASEL_Y = 480.0, 960.0, 578.0
+
+
+def easel_hand(side, hx, hy):
+    """Wrist and elbow (metres) that put this hand's cursor at HUD point (hx, hy) of Pikturo's screen (a mirror: the
+    player's right hand, negative x, is on the screen's right; HUD y grows downward)."""
+    sx, sy = STAND[f"{side}_shoulder"]
+    tip = (-(hx - EASEL_X) / EASEL_SCALE * TORSO_M, STAND["left_shoulder"][1] + (EASEL_Y - hy) / EASEL_SCALE * TORSO_M)
+    wx, wy = sx + (tip[0] - sx) / ARM_LONGER, sy + (tip[1] - sy) / ARM_LONGER
+    return {f"{side}_wrist": (wx, wy, -0.30), f"{side}_elbow": ((sx + wx) / 2, (sy + wy) / 2, -0.12)}
+
+
+def hand_path(side, keys, at=zone_hand):
+    """keys: [(time s, a screen point for `at` (zone_hand: BodyHands' zone, easel_hand: Pikturo's HUD pixels), or
+    None = arm resting)], linear in between (keys are dense where the path curves), eased when leaving or reaching the
+    rest pose. Returns an arm motion."""
     rest = {f"{side}_wrist": (*STAND[f"{side}_wrist"], 0.0), f"{side}_elbow": (*STAND[f"{side}_elbow"], 0.0)}
-    poses = [(t, rest if p is None else zone_hand(side, *p)) for t, p in keys]
+    poses = [(t, rest if p is None else at(side, *p)) for t, p in keys]
 
     def arm(t):
         if t <= poses[0][0]:
@@ -538,6 +717,27 @@ def both(*arms):
 def circle_keys(start, center, rx, ry, seconds, steps=32):
     return [(start + seconds * i / steps, (center[0] + rx * math.cos(2 * math.pi * i / steps),
                                           center[1] + ry * math.sin(2 * math.pi * i / steps))) for i in range(steps + 1)]
+
+
+def rub_keys(over=24):
+    """Pikturo!'s dino page: the volcano is a trapezoid on the screen, from HUD (1207..1469, 857) at its foot to
+    (1304..1373, 588) at its top. The hand rises to its foot, stops (the brush goes down), then rubs to and fro, row
+    by row upward, `over` pixels past the outline on both sides, stops and drops."""
+    def edges(y):
+        k = (857 - y) / (857 - 588)
+        return 1207 + 97 * k, 1469 - 96 * k
+    rows = [835, 795, 755, 715, 675, 635]
+    start = (edges(rows[0])[0] + 50, rows[0])
+    keys, t = [(0, None), (0.7, start), (1.2, start)], 1.2
+    for i, y in enumerate(rows):
+        left, right = edges(y)
+        ends = [(right + over, y), (left - over, y)] if i % 2 == 0 else [(left - over, y), (right + over, y)]
+        t += 0.25 if i else 0.4
+        keys.append((t, ends[0]))
+        t += 0.5
+        keys.append((t, ends[1]))
+    keys += [(t + 0.3, keys[-1][1]), (t + 0.9, None)]
+    return keys
 
 
 def arm_keys(side, keys):
@@ -699,6 +899,23 @@ ARM_MOTIONS = {"bowl": bowl_arm, "swipe": swipe_arm, "scratch": scratch_arm, "cr
                "guard_jab_right": guard_punch("right", (-0.17, 1.44, -0.60), (-0.18, 1.43, -0.30)),
                "guard_jab_left": guard_punch("left", (0.17, 1.44, -0.60), (0.18, 1.43, -0.30)),
                "guard_hook_right": guard_punch("right", (-0.70, 1.48, -0.30), (-0.45, 1.45, -0.15), extend=0.18, fold=True),
+               # Superboks!: an uppercut (the fist dips to the belly, then drives up past the chin) and a punch at the
+               # body (forward and down to the belly), from the guard and back
+               "guard_upper_right": both(arm_keys("right", [(0, *guard_pose("right")), (0.25, *guard_pose("right")),
+                                                            (0.5, (-0.16, 1.08, -0.30), (-0.24, 1.10, -0.10)),
+                                                            (0.7, (-0.10, 1.66, -0.42), (-0.20, 1.36, -0.30)),
+                                                            (0.8, (-0.10, 1.66, -0.42), (-0.20, 1.36, -0.30)),
+                                                            (1.1, *guard_pose("right"))]),
+                                         guard_hold("left")),
+               "guard_body_left": guard_punch("left", (0.12, 1.06, -0.58), (0.20, 1.12, -0.28), extend=0.18),
+               # a right hook: the fist cocked out to the side (slowly), then swung across in front of the face to the
+               # other side, the elbow bent, and back to the guard
+               "guard_hook_in_right": both(arm_keys("right", [(0, *guard_pose("right")), (0.2, *guard_pose("right")),
+                                                              (0.75, (-0.44, 1.40, -0.18), (-0.36, 1.30, -0.02)),
+                                                              (0.95, (0.08, 1.42, -0.36), (-0.20, 1.36, -0.30)),
+                                                              (1.05, (0.08, 1.42, -0.36), (-0.20, 1.36, -0.30)),
+                                                              (1.35, *guard_pose("right"))]),
+                                           guard_hold("left")),
                # Tenis! (metres; x > 0 = the player's left, z < 0 = toward the camera). The racket is the hand: it
                # meets a ball on the right as the hand passes ~0.25 m right of the shoulders' middle (on the left: left
                # of it), at about the hand's height; the practice feeds arrive ~1.1 m up
@@ -722,39 +939,50 @@ ARM_MOTIONS = {"bowl": bowl_arm, "swipe": swipe_arm, "scratch": scratch_arm, "cr
                "tennis_toss_serve": toss_serve(),
                "shield_left": shield_hold((0.45, 1.5, -0.35), (0.36, 1.2, -0.25)),
                "shield_right": shield_hold((-0.32, 1.48, -0.38), (0.02, 1.28, -0.3)),
-               # hold on the colour column (right edge), long enough for a dwell selection, then back down
-               "paint_pick": hand_path("right", [(0, None), (0.7, (0.955, 0.45)), (2.0, (0.955, 0.45)), (2.6, None)]),
-               # the right hand goes to the start, the left hand switches on, one slow circle, switch off, lower
-               "paint_circle": both(hand_path("right", [(0, None), (0.7, (0.78, 0.55)), (1.1, (0.78, 0.55)),
-                                                        *circle_keys(1.1, (0.62, 0.55), 0.16, 0.2, 2.4)[1:],
-                                                        (3.9, (0.78, 0.55)), (4.6, None)]),
-                                    switch_hand("left", [(0.9, 3.6)])),
+               # Pikturo! (HUD pixels, easel_hand): hold on the blue pot long enough to pick it, then back down
+               "paint_pick": hand_path("right", [(0, None), (0.7, (1560, 620)), (1.9, (1560, 620)), (2.6, None)], easel_hand),
+               # the easy way: up to the circle's start, a stop there (the brush goes down), one slow circle, a stop, down
+               "paint_circle": hand_path("right", [(0, None), (0.7, (1200, 520)), (1.2, (1200, 520)),
+                                                   *circle_keys(1.2, (1050, 520), 150, 150, 2.4)[1:],
+                                                   (3.9, (1200, 520)), (4.6, None)], easel_hand),
+               # ...up to a new spot (lowering the arm is how the brush moves without painting), a line down, down
+               "paint_line": hand_path("right", [(0, None), (0.8, (700, 330)), (1.3, (700, 330)),
+                                                 (2.5, (700, 700)), (2.9, (700, 700)), (3.5, None)], easel_hand),
+               # two hands: the right hand goes to the start, the left hand switches on, one slow circle, switch off, lower
+               "paint2_circle": both(hand_path("right", [(0, None), (0.7, (1200, 520)), (1.1, (1200, 520)),
+                                                         *circle_keys(1.1, (1050, 520), 150, 150, 2.4)[1:],
+                                                         (3.9, (1200, 520)), (4.6, None)], easel_hand),
+                                     switch_hand("left", [(0.9, 3.6)])),
                # with the switch down the right hand crosses to a new spot (no line!), switch on, a line down, off
-               "paint_line": both(hand_path("right", [(0, None), (0.8, (0.3, 0.75)), (1.2, (0.3, 0.75)),
-                                                      (2.4, (0.3, 0.35)), (2.7, (0.3, 0.35)), (3.3, None)]),
-                                  switch_hand("left", [(1.0, 2.45)]))}
+               "paint2_line": both(hand_path("right", [(0, None), (0.8, (700, 330)), (1.2, (700, 330)),
+                                                       (2.4, (700, 700)), (2.7, (700, 700)), (3.3, None)], easel_hand),
+                                   switch_hand("left", [(1.0, 2.45)])),
+               "paint_rub": hand_path("right", rub_keys(), easel_hand)}
+
 
 # Vishu!'s wardrobe (DressGame.Layout): the picture is framed so a torso length is the same on screen for everybody,
 # and the bubbles sit at fixed offsets from the shoulder centre (torso lengths, x = the screen's right, y = up):
 # categories at x -1.36, items at x +1.36, from y 0.86 down in steps of 0.303 (item 0 = nothing); the top row at
-# y 1.14, x = (k - 2) * 0.42. The cursor is the wrist pushed 30% of the forearm further (BodyHands, Pikturo).
+# y 1.14, x = (k - 2) * 0.42. Vishu!'s cursor is the wrist pushed 30% of the forearm further (on its fitted pose): with
+# the elbow halfway between shoulder and wrist that is the arm 15% longer. Lunapark!'s hands are Body.HandPoint (10%).
 DRESS_COL, DRESS_TOP, DRESS_STEP = 1.36, 0.86, 0.303
 
 
-def dress_hand(side, dx, dy):
+def dress_hand(side, dx, dy, longer=1.15):
     """Wrist and elbow (metres) that put this hand's cursor at (dx, dy) torso lengths from the shoulder centre on the
-    mirrored screen (the screen's right = the player's right = negative x here)."""
+    mirrored screen (the screen's right = the player's right = negative x here); `longer` = how much longer than the
+    arm the cursor's point is (Vishu! 1.15, Lunapark! ARM_LONGER)."""
     sy = STAND["left_shoulder"][1]
     tip = (-dx * TORSO_M, sy + dy * TORSO_M)
     shx, shy = STAND[f"{side}_shoulder"]
-    wx, wy = shx + (tip[0] - shx) / 1.15, shy + (tip[1] - shy) / 1.15
+    wx, wy = shx + (tip[0] - shx) / longer, shy + (tip[1] - shy) / longer
     return {f"{side}_wrist": (wx, wy, -0.25), f"{side}_elbow": ((shx + wx) / 2, (shy + wy) / 2 - 0.03, -0.1)}
 
 
-def dress_path(side, keys):
+def dress_path(side, keys, longer=1.15):
     """keys: [(time s, (dx, dy) or None = resting)], min-jerk between them."""
     rest = {f"{side}_wrist": (*STAND[f"{side}_wrist"], 0.0), f"{side}_elbow": (*STAND[f"{side}_elbow"], 0.0)}
-    poses = [(t, rest if p is None else dress_hand(side, *p)) for t, p in keys]
+    poses = [(t, rest if p is None else dress_hand(side, *p, longer=longer)) for t, p in keys]
 
     def arm(t):
         if t <= poses[0][0]:
@@ -948,11 +1176,253 @@ ARM_MOTIONS.update({
 })
 
 
-# Whole-body offsets (dx, dy) in metres over time.
-BODY_MOTIONS = {
-    "sway": lambda t: (0.06 * math.sin(2 * math.pi * 0.5 * t), 0.0),
-    "tiptoe": lambda t: (0.0, 0.04 * smoothstep(t / 0.6) * (1 - smoothstep((t - 1.2) / 0.6))),
+# Lunapark! (2026-11-09). A booth's stage: torso lengths from the hips on the mirrored screen (x to the screen's right), y
+# up; the game's hand point is the wrist pushed 30 % of the forearm past it (dress_hand puts it there, from the shoulders).
+ARCADE_HOLES = [(-1.25, 2.05), (0.0, 2.35), (1.25, 2.05), (-1.45, 1.15), (1.45, 1.15), (-1.05, 0.25), (1.05, 0.25)]
+
+
+def arcade_path(side, keys):
+    """keys: [(time s, (stage x, stage y) or None = resting)], min-jerk between them."""
+    return dress_path(side, [(t, None if p is None else (p[0], p[1] - 1.0)) for t, p in keys], longer=ARM_LONGER)
+
+
+def arcade_peck(start, hole, taps=3):
+    """Pecks at a hole: in, out toward the body, in again (each time from outside: it bonks)."""
+    hx, hy = ARCADE_HOLES[hole]
+    ax, ay = hx * 0.55, hy * 0.6 + 0.45                       # out: toward the chest
+    keys = [(start, (ax, ay))]
+    t = start
+    for _ in range(taps):
+        keys += [(t + 0.28, (hx, hy)), (t + 0.5, (ax, ay))]
+        t += 0.55
+    return keys
+
+
+def arcade_whack():
+    left = [(0.0, None)] + arcade_peck(0.25, 3) + arcade_peck(2.25, 0) + arcade_peck(4.25, 5) + arcade_peck(6.25, 1) + [(7.95, None)]
+    right = [(0.0, None)] + arcade_peck(1.25, 6) + arcade_peck(3.25, 4) + arcade_peck(5.25, 2) + [(7.0, None), (7.95, None)]
+    return both(arcade_path("left", left), arcade_path("right", right))
+
+
+def arcade_slice():
+    """Each hand swipes across the booth (3.4 torso lengths in 0.22 s), after a slow wind-up to its start."""
+    def swipes(side, starts, heights, sign):
+        keys = [(0.0, None)]
+        for t0, h in zip(starts, heights):
+            keys += [(t0 - 0.55, (1.7 * sign, h)), (t0, (1.7 * sign, h)), (t0 + 0.22, (-1.7 * sign, h - 0.15)), (t0 + 0.7, None)]
+        keys.append((5.95, None))
+        return arcade_path(side, keys)
+    return both(swipes("right", (0.8, 2.8, 4.8), (1.9, 0.9, 1.5), 1), swipes("left", (1.8, 3.8, 5.6), (1.3, 2.0, 0.8), -1))
+
+
+def arm_angles(side, upper, fore, upper_m=0.30, fore_m=0.27):
+    """Wrist and elbow (metres) for an arm at these angles from hanging down (+ = outward; the player's left is x > 0)."""
+    sx, sy = STAND[f"{side}_shoulder"]
+    out = 1.0 if side == "left" else -1.0
+    ex, ey = sx + out * math.sin(math.radians(upper)) * upper_m, sy - math.cos(math.radians(upper)) * upper_m
+    wx, wy = ex + out * math.sin(math.radians(fore)) * fore_m, ey - math.cos(math.radians(fore)) * fore_m
+    return {f"{side}_wrist": (wx, wy, -0.05), f"{side}_elbow": (ex, ey, 0.0)}
+
+
+def arcade_flap(period=0.66, down=0.2):
+    def m(t):
+        u = t % period
+        a = 100.0 - 80.0 * smoothstep(u / down) if u < down else 20.0 + 80.0 * smoothstep((u - down) / (period - down))
+        return {**arm_angles("left", a, a), **arm_angles("right", a, a)}
+    return m
+
+
+def arcade_keepup():
+    def m(t):
+        bob = 0.08 * math.sin(2 * math.pi * 1.2 * t)
+        return {"left_wrist": (0.16, 1.72 + bob, -0.2), "left_elbow": (0.3, 1.42 + bob * 0.5, -0.1),
+                "right_wrist": (-0.16, 1.72 + bob, -0.2), "right_elbow": (-0.3, 1.42 + bob * 0.5, -0.1)}
+    return m
+
+
+ARM_MOTIONS.update({
+    "arcade_whack": arcade_whack(),
+    "arcade_whack_late": (lambda m: (lambda t: m((t + 4.0) % 8.0)))(arcade_whack()),
+    "arcade_slice": arcade_slice(),
+    "arcade_y": lambda t: {**arm_angles("left", 150, 155), **arm_angles("right", 150, 155)},
+    "arcade_flap": arcade_flap(),
+    "arcade_keepup": arcade_keepup(),
+})
+
+
+# Yjet! (2026-11-14): the arms' shapes, from hanging to wings (straight out at the shoulders), wings tilted (the left hand
+# higher = a tilt to the right) and both arms up (a rocket). A segment eases its arms from the shape before (0.3 s, or the
+# throw's 0.22 s: both arms up at once, the sitting way to take off).
+SPACE_POSES = {
+    "rest": {"left_wrist": (0.26, 0.85, 0.0), "left_elbow": (0.24, 1.12, 0.0),
+             "right_wrist": (-0.26, 0.85, 0.0), "right_elbow": (-0.24, 1.12, 0.0)},
+    "wings": {**arm_angles("left", 88, 92), **arm_angles("right", 88, 92)},
+    "tilt_r": {**arm_angles("left", 118, 120), **arm_angles("right", 62, 60)},
+    "tilt_l": {**arm_angles("left", 62, 60), **arm_angles("right", 118, 120)},
+    "up": dict(UP_POSE),
 }
+
+
+def space_arms(a, b, ramp=0.3, start=0.0):
+    pa, pb = SPACE_POSES[a], SPACE_POSES[b]
+
+    def m(t):
+        k = smoothstep((t - start) / ramp)
+        return {n: tuple(x + (y - x) * k for x, y in zip(pa[n], pb[n])) for n in pa}
+    return m
+
+
+ARM_MOTIONS.update({
+    "space_rest_wings": space_arms("rest", "wings"),
+    "space_wings_tilt_r": space_arms("wings", "tilt_r"),
+    "space_wings_tilt_l": space_arms("wings", "tilt_l"),
+    "space_tilt_r_up": space_arms("tilt_r", "up"),
+    "space_tilt_l_up": space_arms("tilt_l", "up"),
+    "space_up_rest": space_arms("up", "rest"),
+    "space_throw": space_arms("rest", "up", ramp=0.22, start=0.2),
+})
+
+
+def fairy_shape_points(shape):
+    """Zana!'s shapes as a hand draws them, in units of the shape's half size (u > 0 = the player's left, v up)."""
+    if shape == "swipe":   # from the player's left to their right: a beam to the right
+        return [(1.0, 0.0), (-1.0, 0.0)]
+    if shape == "swipe_l":   # back across: a beam to the left
+        return [(-1.0, 0.0), (1.0, 0.0)]
+    if shape == "vee":
+        return [(0.65, 0.55), (0.0, -0.55), (-0.65, 0.55)]
+    if shape == "peak":
+        return [(0.65, -0.55), (0.0, 0.55), (-0.65, -0.55)]
+    if shape == "bolt":
+        return [(0.75, 0.65), (-0.75, 0.65), (0.75, -0.65), (-0.75, -0.65)]
+    if shape == "circle":
+        return [(0.85 * math.sin(2 * math.pi * k / 40), 0.85 * math.cos(2 * math.pi * k / 40)) for k in range(41)]
+    pts = []
+    for k in range(49):   # a heart from its top dip round the left lobe, down to the point, up round the right lobe
+        a = 2 * math.pi * k / 48
+        x = 16 * math.sin(a) ** 3
+        y = 13 * math.cos(a) - 5 * math.cos(2 * a) - 2 * math.cos(3 * a) - math.cos(4 * a)
+        pts.append((x / 17 * 0.95, (y + 2) / 17 * 0.95))
+    return pts
+
+
+def fairy_draw(shape, half=0.2, centre=(-0.31, 1.48), raise_=0.45, hold=0.25, speed=2.2, end_hold=0.3, drop=0.5):
+    """The right arm draws a shape in the air (Zana!): raised from resting to the shape's start in front of the
+    shoulder, a moment's stop, the shape at `speed` torso lengths a second (easing in and out), a stop, the arm back
+    down. Metres; the wrist in front of the body (toward the camera)."""
+    pts = [(centre[0] + u * half, centre[1] + v * half) for u, v in fairy_shape_points(shape)]
+    lengths = [0.0]
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        lengths.append(lengths[-1] + math.hypot(x1 - x0, y1 - y0))
+    total = lengths[-1]
+    draw = total / (speed * TORSO_M)
+    side = "right"
+    sx, sy = STAND["right_shoulder"]
+    rest_w, rest_e = (*STAND["right_wrist"], 0.0), (*STAND["right_elbow"], 0.0)
+
+    def at(dist):
+        for i in range(len(pts) - 1):
+            if dist <= lengths[i + 1] or i == len(pts) - 2:
+                seg = max(1e-6, lengths[i + 1] - lengths[i])
+                k = min(1.0, max(0.0, (dist - lengths[i]) / seg))
+                return (pts[i][0] + (pts[i + 1][0] - pts[i][0]) * k, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * k)
+        return pts[-1]
+
+    def pose(w):
+        wrist = (w[0], w[1], -0.30)
+        elbow = ((sx + w[0]) / 2 + 0.02, (sy + w[1]) / 2 - 0.06, -0.14)
+        return wrist, elbow
+
+    def arm(t):
+        t1, t2, t3, t4, t5 = raise_, raise_ + hold, raise_ + hold + draw, raise_ + hold + draw + end_hold, \
+            raise_ + hold + draw + end_hold + drop
+        if t < t1:
+            k = minjerk(t / t1)
+            w, e = pose(pts[0])
+            wrist = tuple(a + (b - a) * k for a, b in zip(rest_w, w))
+            elbow = tuple(a + (b - a) * k for a, b in zip(rest_e, e))
+        elif t < t2:
+            wrist, elbow = pose(pts[0])
+        elif t < t3:
+            u = (t - t2) / draw
+            eased = u * u * u * (u * (u * 6 - 15) + 10)       # smootherstep: easing in and out
+            wrist, elbow = pose(at(eased * total))
+        elif t < t4:
+            wrist, elbow = pose(pts[-1])
+        else:
+            k = minjerk(min(1.0, (t - t4) / drop))
+            w, e = pose(pts[-1])
+            wrist = tuple(a + (b - a) * k for a, b in zip(w, rest_w))
+            elbow = tuple(a + (b - a) * k for a, b in zip(e, rest_e))
+        return {f"{side}_wrist": wrist, f"{side}_elbow": elbow}
+    return arm
+
+
+ARM_MOTIONS.update({f"fairy_{name}": fairy_draw(name) for name in ("swipe", "vee", "peak", "circle", "bolt", "heart")})
+
+
+# Zana!'s wand (Wand.cs): a raised hand's wrist round the shoulders' middle in torso lengths (x to the player's right,
+# y up) maps onto the whole screen: across, WAND_HALF each way round a middle WAND_INWARD toward the hand's own side; up,
+# from WAND_BOTTOM to WAND_TOP. HUD pixels of a 1920 x 1080 screen (a wider one moves points a little: well inside the
+# shapes' tolerance). Since 2026-11-17 evening the wrist itself, no longer pushed along the forearm.
+WAND_HALF, WAND_INWARD, WAND_BOTTOM, WAND_TOP = 1.25, 0.36, -0.82, 0.83
+
+
+def wand_hand(side, hx, hy):
+    """Wrist and elbow (metres) that point the wand at HUD point (hx, hy): the game takes the wrist itself, the elbow is
+    put halfway between it and the shoulder; fake x > 0 is the player's left."""
+    sx, sy = STAND[f"{side}_shoulder"]
+    mid_y = (STAND["left_shoulder"][1] + STAND["right_shoulder"][1]) / 2
+    own = 1.0 if side == "right" else -1.0
+    vx = own * WAND_INWARD + (hx / 1920.0 - 0.5) * 2 * WAND_HALF
+    vy = WAND_BOTTOM + (1 - hy / 1080.0) * (WAND_TOP - WAND_BOTTOM)
+    wx, wy = -vx * TORSO_M, mid_y + vy * TORSO_M
+    return {f"{side}_wrist": (wx, wy, -0.30), f"{side}_elbow": ((sx + wx) / 2, (sy + wy) / 2, -0.12)}
+
+
+def wand_sweep(side, points, seconds, lead=0.6):
+    """The hand raised to the first point, along the points (HUD pixels) in `seconds`, then down."""
+    keys = [(0, None), (lead, points[0])]
+    for i, pt in enumerate(points[1:], 1):
+        keys.append((lead + seconds * i / (len(points) - 1), pt))
+    keys.append((lead + seconds + 0.6, None))
+    return hand_path(side, keys, at=wand_hand)
+
+
+def wand_circle(side, centre=(960, 600), r=210, seconds=3.2, lead=0.7, hold=0.5):
+    """The shield's circle round the tree (SpellShapes.PathOf): the wand to its top, a moment there, round it clockwise
+    on the screen, then down."""
+    top = (centre[0], centre[1] - r)
+    keys = [(0, None), (lead, top), (lead + hold, top)]
+    for i in range(1, 33):
+        ang = -math.pi / 2 + i / 32 * 2 * math.pi
+        keys.append((lead + hold + seconds * i / 32, (centre[0] + r * math.cos(ang), centre[1] + r * math.sin(ang))))
+    keys.append((lead + hold + seconds + 0.6, None))
+    return hand_path(side, keys, at=wand_hand)
+
+
+def wand_follow(side, points, seconds, lead=0.7, hold=0.5, after=0.6):
+    """The wand to the first point (HUD pixels), a moment there, along the polyline at an even pace in `seconds`, then
+    down."""
+    lengths = [0.0]
+    for (x0, y0), (x1, y1) in zip(points, points[1:]):
+        lengths.append(lengths[-1] + math.hypot(x1 - x0, y1 - y0))
+    keys = [(0, None), (lead, points[0]), (lead + hold, points[0])]
+    for pt, length in zip(points[1:], lengths[1:]):
+        keys.append((lead + hold + seconds * length / lengths[-1], pt))
+    keys.append((lead + hold + seconds + after, None))
+    return hand_path(side, keys, at=wand_hand)
+
+
+def lightning_points(side, mid=960):
+    """Zana!'s lightning bolt over one side's path, from its top (SpellShapes.PathOf: keep them in step); side -1 = the
+    screen's left."""
+    return [(mid + side * x, y) for x, y in ((530, 430), (630, 620), (500, 620), (620, 840))]
+
+
+ARM_MOTIONS["wand_circle"] = wand_circle("right")
+ARM_MOTIONS["wand_bolt_left"] = wand_follow("left", lightning_points(-1), 2.2)
+ARM_MOTIONS["wand_bolt_right"] = wand_follow("right", lightning_points(1), 2.2)
 
 
 def body_at(state, jump_y, arm=None):
@@ -1114,11 +1584,18 @@ def room_background():
     return _room.copy()
 
 
-def render_camera(joints_m):
-    """The player drawn over the room: trousers, shirt, bare forearms, head. Raw camera view (not mirrored)."""
+def render_camera(joints_m, others=()):
+    """The player drawn over the room: trousers, shirt, bare forearms, head. Raw camera view (not mirrored). `others`:
+    more people (two-player scripts)."""
+    img = room_background()
+    for person in (joints_m, *others):
+        draw_person(img, person)
+    return img
+
+
+def draw_person(img, joints_m):
     import cv2
     import numpy as np
-    img = room_background()
 
     def px(name):
         x, y, _ = joints_m[name]
@@ -1139,7 +1616,6 @@ def render_camera(joints_m):
     head_r = int(0.11 / VIEW_HEIGHT_M * VIDEO_H)
     cv2.circle(img, (nose[0], nose[1] - head_r // 3), head_r, skin, -1, cv2.LINE_AA)
     cv2.ellipse(img, (nose[0], nose[1] - head_r // 2), (head_r, head_r), 0, 180, 360, hair, -1, cv2.LINE_AA)
-    return img
 
 
 def main():
@@ -1180,12 +1656,13 @@ def main():
                 seg_start = time.perf_counter()
                 while (t := time.perf_counter() - seg_start) < duration:
                     if duo:
-                        people = []
+                        people, drawn = [], []
                         for i, (pv, tg) in enumerate(zip(prev, target)):
                             if tg.get("absent"):
                                 continue
                             joints, near = frame_joints(pv, tg, t)
                             joints = {n: (x + DUO_X[i], y, z) for n, (x, y, z) in joints.items()}
+                            drawn.append(joints)
                             people.append(to_person(joints, near=near, track=i + 1 if args.alternate else 0))
                         if args.alternate and people:
                             people = [people[frame % len(people)]]
@@ -1197,8 +1674,11 @@ def main():
                     packet = build_packet("py-fake", frame, t_ms, WIDTH, HEIGHT, fps_meter.tick(), 0.0, people,
                                           camera_fps=30.0, model="fake")
                     sender.send(packet)
-                    if video and video.wanted() and not duo:
-                        video.send(render_camera(joints_m) if people else room_background(), t_ms, frame)
+                    if video and video.wanted():
+                        if duo:
+                            video.send(render_camera(drawn[0], drawn[1:]) if drawn else room_background(), t_ms, frame)
+                        else:
+                            video.send(render_camera(joints_m) if people else room_background(), t_ms, frame)
                     frame += 1
                     next_tick += period
                     time.sleep(max(0.0, next_tick - time.perf_counter()))

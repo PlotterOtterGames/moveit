@@ -49,10 +49,10 @@ namespace MoveIt.Games.Dress
         {
             public Joint Shoulder, Elbow, Wrist;
             public Color Tint;
-            public readonly HandInterpolator Cursor = new HandInterpolator(1f, 4f, 2f) { Margin = 0.5f, MaxExtrapolation = 0.08f };
-            public readonly HandPresence Presence = new HandPresence();
             public Vector2 Position;
-            public bool Visible;
+            /// <summary>How fast the cursor moves (HUD pixels a second, smoothed): a hand passing over a bubble isn't pressing it.</summary>
+            public float Speed;
+            public bool Visible, Seen;
             public Button Hover;
             public float Dwell;
             public bool Pressed;
@@ -62,7 +62,9 @@ namespace MoveIt.Games.Dress
         [SerializeField] Camera cam;
         [SerializeField, Tooltip("Tundu/Outfit")] Material outfitMaterial;
         [SerializeField, Tooltip("Tundu/BodyMask")] Material maskMaterial;
-        [SerializeField, Tooltip("Tundu/Fx (particles and the camera picture)")] Material fxMaterial;
+        [SerializeField, Tooltip("Tundu/Fx (particles; the camera picture in scenes built before the mirror)")] Material fxMaterial;
+        [SerializeField, Tooltip("Tundu/Mirror: the camera picture as a flattering mirror")] Material mirrorMaterial;
+        [SerializeField, Tooltip("Hidden/Tundu/MirrorPrep: its denoise, blur and person passes")] Material mirrorPrepMaterial;
 
         [Header("Art (tools/dress)")]
         [SerializeField] TextAsset atlasJson;
@@ -77,6 +79,12 @@ namespace MoveIt.Games.Dress
         [Header("Framing (torso lengths, like Pikturo's camera mode)")]
         [SerializeField] float belowHips = 1f;
         [SerializeField] float aboveShoulders = 1.3f;
+        [SerializeField, Tooltip("The picture re-frames only when the player is this far (torso lengths) from where the framing put them.")]
+        float reframeAfter = 0.55f;
+
+        [Header("Tracking")]
+        [SerializeField, Tooltip("Camera frames the picture waits for the poses after it (OutfitTracker): the clothes then neither shake nor trail the body.")]
+        int lookaheadFrames = 2;
 
         [Header("Fashion show")]
         [SerializeField] float dressSeconds = 60f;
@@ -117,6 +125,8 @@ namespace MoveIt.Games.Dress
         MotionDebugOverlay _mirror;
         bool _mirrorWasVisible;
         Material _picture, _thumbMaterial;
+        MirrorLook _mirrorLook;
+        int _requestWidthBefore;
         Texture2D _backdrop;
         RenderTexture _roomLight;
         float _roomLightAt;
@@ -124,8 +134,8 @@ namespace MoveIt.Games.Dress
         Transform _pictureQuad;
         readonly OutfitPose _pose = new OutfitPose();
         readonly OutfitMotion _motion = new OutfitMotion();
-        readonly PoseTimeline _timeline = new PoseTimeline();
-        readonly Vector3[] _viewJoints = new Vector3[Skeleton.JointCount];
+        readonly OutfitTracker _tracker = new OutfitTracker();
+        readonly Vector2[] _fitJoints = new Vector2[Skeleton.JointCount];
         readonly float[] _vis = new float[Skeleton.JointCount];
         readonly Vector2[] _camJoints = new Vector2[Skeleton.JointCount];
         readonly float[] _flash = new float[DressCatalog.SlotCount], _pop = new float[DressCatalog.SlotCount];
@@ -135,8 +145,8 @@ namespace MoveIt.Games.Dress
         readonly List<Button> _buttons = new List<Button>();
         readonly System.Random _rng = new System.Random();
         Rect _crop = new Rect(0f, 0f, 16f / 9f, 1f);
-        bool _cropValid, _doll = true, _layoutDirty = true, _remoteFocus, _saveLook, _anchorValid;
-        float _cropUnit, _guiWidth, _unit;
+        bool _doll = true, _layoutDirty = true, _remoteFocus, _saveLook;
+        float _guiWidth, _unit = 327f;
         Vector2 _anchor;
         double _lastSample, _lastShown, _handSampleTime;
         int _focus;
@@ -161,6 +171,8 @@ namespace MoveIt.Games.Dress
         void Start()
         {
             _art = OutfitArt.Load(atlasJson, uiJson, atlas, atlasMask, thumbs, thumbsMask, uiSheet, fxSheet);
+            _shapes = MakeShapes();
+            _hud = new HudBatch(_art.Ui, _shapes);
             _outfit = new OutfitRenderer(_art, outfitMaterial, maskMaterial, transform);
             _fx = new DressFx(transform, fxMaterial, fxSheet);
             _thumbMaterial = new Material(outfitMaterial);
@@ -168,11 +180,19 @@ namespace MoveIt.Games.Dress
             _thumbMaterial.SetTexture("_MaskTex", thumbsMask);
             _thumbMaterial.SetFloat("_UseExtra", 0f);
             _thumbMaterial.SetFloat("_LinearOut", 0f);
-            _picture = new Material(fxMaterial);
-            _picture.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
-            _picture.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.Zero);
+            if (mirrorMaterial != null)
+            {
+                _picture = new Material(mirrorMaterial);
+                if (mirrorPrepMaterial != null) _mirrorLook = new MirrorLook(mirrorPrepMaterial);
+            }
+            else
+            {
+                _picture = new Material(fxMaterial);
+                _picture.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.One);
+                _picture.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.Zero);
+                _picture.EnableKeyword("_VIGNETTE");   // the mirror's darker edges, with the picture (DrawMirrorFrame)
+            }
             _picture.renderQueue = 2990;
-            _picture.EnableKeyword("_VIGNETTE");   // the mirror's darker edges, with the picture (DrawMirrorFrame)
             _backdrop = MakeBackdrop();
             _pictureQuad = MakeQuad("Camera picture", _picture);
 
@@ -182,10 +202,24 @@ namespace MoveIt.Games.Dress
                 _mirrorWasVisible = _mirror.Visible;
                 _mirror.Visible = false;
             }
+#if UNITY_ANDROID && !UNITY_EDITOR
+            // the camera's own width (the box runs it at 1024 x 768 for the pose AI): the picture fills the TV, 640 was
+            // blown up more than 2x
+            _requestWidthBefore = CameraFeed.RequestWidth;
+            CameraFeed.RequestWidth = 1024;
+#endif
             _feed = CameraFeed.Request();
+            _feed.History = 6;
+            _tracker.Lookahead = lookaheadFrames;
+            _pose.Prefiltered = true;
             Progress = DressProgress.Load(PlayerPrefs.GetString(ProgressKey, ""));
             var saved = DressLook.Load(PlayerPrefs.GetString(LookKey, ""), Progress.Finishes);
             Look.CopyFrom(saved);
+#if UNITY_EDITOR
+            // hands-off checks (like DevCapture): Temp/moveit_dress_look.txt holds a look to start in (DressLook.Save format)
+            string lookFile = Path.Combine(Application.dataPath, "../Temp/moveit_dress_look.txt");
+            if (File.Exists(lookFile)) Look.CopyFrom(DressLook.Load(File.ReadAllText(lookFile).Trim(), DressCatalog.FinishStars.Length));
+#endif
             RightHandHolds = PlayerPrefs.GetInt(HandKey, 1) == 1;
             _outfit.RightHandHolds = RightHandHolds;
             _left.Tint = Brand.Current.PlayerColor(1);
@@ -201,10 +235,20 @@ namespace MoveIt.Games.Dress
         void OnDestroy()
         {
             SaveLook();
-            if (_feed != null) CameraFeed.Release();
+            if (_feed != null)
+            {
+                _feed.ShowAt = 0;
+                _feed.History = 1;
+                CameraFeed.Release();
+            }
             _feed = null;
             if (_mirror != null) _mirror.Visible = _mirrorWasVisible;
             _outfit?.Dispose();
+            _mirrorLook?.Dispose();
+            _hud?.Dispose();
+            if (_shapes != null) Destroy(_shapes);
+            if (_photoPreview != null) _photoPreview.Release();
+            if (_requestWidthBefore > 0) CameraFeed.RequestWidth = _requestWidthBefore;
             _fx?.Dispose();
             if (_picture != null) Destroy(_picture);
             if (_thumbMaterial != null) Destroy(_thumbMaterial);
@@ -224,10 +268,10 @@ namespace MoveIt.Games.Dress
             FitCamera();
             var body = MotionSystem.Instance != null ? MotionSystem.Instance.ActiveBody : null;
             if (body != null && !body.IsTracking) body = null;
+            FeedPose(body, dt);
             UpdateFraming(body, dt);
             UpdatePicture(body);
             UpdateRoomLight();
-            FeedPose(body, dt);
             _motion.Update(_pose, dt);
             Layout(body, dt);
             UpdateHands(body, dt);
@@ -236,6 +280,7 @@ namespace MoveIt.Games.Dress
             Animate(dt);
             var toWorld = ToWorld();
             _outfit.Build(Look, _pose, _motion, _flash, _pop, _dollUnder, toWorld, _guiWidth);
+            if (_mirrorLook != null && _feed != null && _feed.IsLive && PerfSwitches.Get("mirrorprep") != "0") _mirrorLook.UpdatePerson(_guiWidth, _pictureST);
             _fx.ToWorld = toWorld;
             for (int s = 0; s < DressCatalog.SlotCount; s++)
                 if (_poofPending[s] && _outfit.SlotDrawn[s])
@@ -276,36 +321,68 @@ namespace MoveIt.Games.Dress
             return Matrix4x4.TRS(new Vector3(-_crop.xMin * ImageUnits * k, -_crop.yMin * ImageUnits * k, 0f), Quaternion.identity, new Vector3(k, k, 1f));
         }
 
-        /// <summary>Framed on the player from the knees to above the head (the hands reach the bubbles); it follows the
-        /// player, but holds still while a hand is pressing something or a photo is being taken.</summary>
+        /// <summary>
+        /// Framed on the player from the knees to above the head (the hands reach the bubbles). The framing stays put
+        /// while the player sways, steps a little or reaches for a bubble (a moving picture moves the bubbles and the
+        /// clothes with it: players saw the screen "moving around"); only when they are clearly elsewhere (more than
+        /// <see cref="reframeAfter"/> torso lengths away, or a fifth nearer or farther) does it glide over to them, then
+        /// stays put again. It never starts moving while a hand is pressing something or a photo is being taken.
+        /// </summary>
         void UpdateFraming(Body body, float dt)
         {
             float imageAspect = body != null ? body.Aspect : _feed != null && _feed.HasFrame ? _feed.Aspect : 16f / 9f;
             float screenAspect = (float)Screen.width / Mathf.Max(1, Screen.height);
-            Rect target;
-            if (body != null && body.ShouldersVisible)
+            bool player = !_doll && _pose.Valid;
+            if (player)
             {
-                float u = body.TorsoLength;
-                _cropUnit = _cropUnit <= 0f ? u : Mathf.Lerp(_cropUnit, u, Mathf.Clamp01(dt * 2f));
-                float shoulders = body.ShoulderCenter.y;
-                float bottom = shoulders - (1f + belowHips) * _cropUnit, top = shoulders + aboveShoulders * _cropUnit;
-                target = Fit(body.ShoulderCenter.x, (top + bottom) * 0.5f, top - bottom, imageAspect, screenAspect);
+                Vector2 shoulders = _pose.ShoulderC / ImageUnits;
+                float unit = Mathf.Max(_pose.T / ImageUnits, 0.02f);
+                _playerGoneFor = 0f;
+                if (!_framed)
+                {
+                    _framed = true;
+                    _reframing = false;
+                    _refShoulder = shoulders;
+                    _refUnit = unit;
+                }
+                bool hold = _left.Hover != null || _right.Hover != null || _countdown >= 0f;
+                bool away = Vector2.Distance(shoulders, _refShoulder) > reframeAfter * _refUnit || Mathf.Abs(unit / _refUnit - 1f) > 0.2f;
+                if (!_reframing && !hold && away)
+                {
+                    _reframing = true;
+                    Debug.Log($"[Dress] Re-framing: shoulders {shoulders} (were {_refShoulder}), torso {unit:0.000} (was {_refUnit:0.000})");
+                }
+                if (_reframing)
+                {
+                    _refShoulder = Vector2.SmoothDamp(_refShoulder, shoulders, ref _refVelocity, 0.32f, Mathf.Infinity, dt);
+                    _refUnit = Mathf.SmoothDamp(_refUnit, unit, ref _refUnitVelocity, 0.32f, Mathf.Infinity, dt);
+                    if (Vector2.Distance(_refShoulder, shoulders) < 0.03f * unit && Mathf.Abs(_refUnit / unit - 1f) < 0.01f)
+                    {
+                        _reframing = false;
+                        _refVelocity = Vector2.zero;
+                        _refUnitVelocity = 0f;
+                    }
+                }
             }
-            else target = Fit(imageAspect * 0.5f, 0.5f, 1f, imageAspect, screenAspect);
-            bool hold = _left.Hover != null || _right.Hover != null || _countdown >= 0f;
-            if (!_cropValid)
+            else if (_framed && (_playerGoneFor += dt) > 3f)
             {
-                _crop = target;
-                _cropValid = true;
+                _framed = false;   // nobody for a while: the whole picture (and the paper doll in it)
+                _reframing = false;
             }
-            else if (!hold)
-            {
-                float k = 1f - Mathf.Exp(-dt / 0.6f);
-                bool clearMove = Vector2.Distance(target.center, _crop.center) > 0.02f * _crop.height ||
-                                 Mathf.Abs(target.height / _crop.height - 1f) > 0.03f;
-                if (clearMove) _crop = new Rect(Vector2.Lerp(_crop.position, target.position, k), Vector2.Lerp(_crop.size, target.size, k));
-            }
+            _crop = _framed ? FrameOn(_refShoulder, _refUnit, imageAspect, screenAspect) : Fit(imageAspect * 0.5f, 0.5f, 1f, imageAspect, screenAspect);
         }
+
+        /// <summary>The framing for shoulders at <paramref name="shoulders"/> (view space) with a torso of <paramref name="unit"/>.</summary>
+        Rect FrameOn(Vector2 shoulders, float unit, float imageAspect, float screenAspect)
+        {
+            float bottom = shoulders.y - (1f + belowHips) * unit, top = shoulders.y + aboveShoulders * unit;
+            return Fit(shoulders.x, (top + bottom) * 0.5f, top - bottom, imageAspect, screenAspect);
+        }
+
+        // the framing's reference: where the shoulders were (view space) and the torso's length when it was set
+        Vector2 _refShoulder, _refVelocity;
+        float _refUnit = 0.25f, _refUnitVelocity, _playerGoneFor;
+        bool _framed, _reframing;
 
         static Rect Fit(float cx, float cy, float height, float imageAspect, float screenAspect)
         {
@@ -324,12 +401,28 @@ namespace MoveIt.Games.Dress
             if (live)
             {
                 float imageAspect = body != null ? body.Aspect : _feed.Aspect;
-                _picture.SetTexture("_BaseMap", _feed.Texture);
-                _picture.SetTextureScale("_BaseMap", new Vector2(-_crop.width / imageAspect, _crop.height));
-                _picture.SetTextureOffset("_BaseMap", new Vector2(1f - _crop.xMin / imageAspect, _crop.yMin));
+                Texture tex = _feed.Texture;
+                if (_mirrorLook != null && PerfSwitches.Get("mirrorprep") != "0")   // PerfLab: the picture as it comes
+                {
+                    // the part of the picture on the screen, in its texture coordinates (mirrored: see the offset below)
+                    var shown = PerfSwitches.Get("mirrorcrop") == "0" ? new Rect(0f, 0f, 1f, 1f)
+                        : new Rect(1f - (_crop.xMin + _crop.width) / imageAspect, _crop.yMin, _crop.width / imageAspect, _crop.height);
+                    _mirrorLook.NewFrame(_feed.Texture, _feed.CaptureTime, shown);
+                    if (_mirrorLook.Picture != null) tex = _mirrorLook.Picture;
+                    if (_mirrorLook.Person != null) _picture.SetTexture("_PersonMap", _mirrorLook.Person);
+                    _picture.SetVector("_PersonRect", new Vector4(0f, 0f, 1f / Mathf.Max(1f, _guiWidth), 1f / 1080f));
+                    // only a real player: the paper doll's body mask made a sharp, grainy halo of the room round her
+                    _picture.SetFloat("_PersonOn", _mirrorLook.Person != null && !_doll && _pose.Valid ? 1f : 0f);
+                }
+                _picture.SetFloat("_Live", 1f);
+                _picture.SetTexture("_BaseMap", tex);
+                _pictureST = new Vector4(-_crop.width / imageAspect, _crop.height, 1f - _crop.xMin / imageAspect, _crop.yMin);
+                _picture.SetTextureScale("_BaseMap", new Vector2(_pictureST.x, _pictureST.y));
+                _picture.SetTextureOffset("_BaseMap", new Vector2(_pictureST.z, _pictureST.w));
             }
             else
             {
+                _picture.SetFloat("_Live", 0f);
                 _picture.SetTexture("_BaseMap", _backdrop);
                 _picture.SetTextureScale("_BaseMap", Vector2.one);
                 _picture.SetTextureOffset("_BaseMap", Vector2.zero);
@@ -339,6 +432,9 @@ namespace MoveIt.Games.Dress
             bool mirror = CurrentMode == Mode.Mirror || CurrentMode == Mode.ShowDressing || CurrentMode == Mode.ShowIntro;
             _picture.SetColor("_VignetteColor", new Color(16f / 255f, 18f / 255f, 48f / 255f, mirror ? 1f : 0f));
         }
+
+        /// <summary>The mirror's mapping from the screen (0..1) to the camera picture's texture coordinates: scale xy, offset zw.</summary>
+        Vector4 _pictureST = new Vector4(1f, 1f, 0f, 0f);
 
         /// <summary>The camera picture's average colour, for the clothes' light (Tundu/Outfit): a 16 x 9 copy, four
         /// times a second, whose last mip level is the average.</summary>
@@ -362,18 +458,27 @@ namespace MoveIt.Games.Dress
         }
 
         /// <summary>
-        /// The body the clothes are drawn on: the player's joints at the moment of the camera picture on the screen, or
-        /// the paper doll when nobody is there (it is also drawn under the clothes while the camera picture is missing).
+        /// The body the clothes are drawn on: the player's joints fitted for the moment of the camera picture on the
+        /// screen (<see cref="OutfitTracker"/>: the picture waits a couple of camera frames for the poses after it, so the
+        /// joints come from both sides of its moment: no shaking, no trailing), or the paper doll when nobody is there (it
+        /// is also drawn under the clothes while the camera picture is missing).
         /// </summary>
         void FeedPose(Body body, float dt)
         {
-            bool live = _feed != null && _feed.IsLive;
             if (body != null && body.SampleTime != _lastSample)
             {
                 _lastSample = body.SampleTime;
-                _timeline.Add(body.SampleTime, body.Raw, body.Visibility);
+                _tracker.Add(body.SampleTime, body.Raw, body.Visibility, body.HasWorld ? body.RawWorld : null);
             }
-            if (body != null && _timeline.Count > 0)
+            bool tracking = body != null && _tracker.Count > 0;
+            if (_feed != null)
+            {
+                // the newest picture captured by the moment the poses reach (a few ms of slack for the clocks' rounding)
+                _feed.ShowAt = tracking ? (long)Math.Round(_tracker.ShowTime * 1000.0) + 4 : 0;
+                _feed.Pump();
+            }
+            bool live = _feed != null && _feed.IsLive;
+            if (tracking)
             {
                 if (_doll)
                 {
@@ -383,18 +488,15 @@ namespace MoveIt.Games.Dress
                     _lastShown = 0;
                     Debug.Log($"[Dress] Player seen (camera picture {(live ? "on" : "not yet")})");
                 }
-                double t = live ? _feed.CaptureTime / 1000.0 : _timeline.Newest;
-                if (live && (t < _timeline.Oldest - 0.5 || t > _timeline.Newest + 0.5)) t = _timeline.Newest;   // clocks apart
+                double t = live ? _feed.CaptureTime / 1000.0 : _tracker.ShowTime;
+                if (live && (t < _tracker.Oldest - 0.5 || t > _tracker.Newest + 0.5)) t = _tracker.ShowTime;   // clocks apart
                 if (t != _lastShown)
                 {
-                    _timeline.At(t, _viewJoints, _vis);
-                    for (int i = 0; i < _camJoints.Length; i++) _camJoints[i] = new Vector2(_viewJoints[i].x * ImageUnits, _viewJoints[i].y * ImageUnits);
+                    _tracker.At(t, _fitJoints, _vis);
+                    for (int i = 0; i < _camJoints.Length; i++) _camJoints[i] = _fitJoints[i] * ImageUnits;
                     float camDt = _lastShown > 0 ? Mathf.Clamp((float)(t - _lastShown), 0.001f, 0.2f) : 0f;
                     // the body's turn from the camera AI's depth estimates, when it sends world joints
-                    float worldYaw = body.HasWorld
-                        ? OutfitPose.WorldYaw(body.World[(int)Joint.LeftShoulder], body.World[(int)Joint.RightShoulder],
-                                              body.World[(int)Joint.LeftHip], body.World[(int)Joint.RightHip])
-                        : float.NaN;
+                    float worldYaw = _tracker.WorldYawAt(t, out float yaw) ? yaw : float.NaN;
                     _pose.Update(_camJoints, _vis, camDt, worldYaw);
                     _lastShown = t;
                 }
@@ -406,7 +508,8 @@ namespace MoveIt.Games.Dress
                 _doll = true;
                 _pose.Reset();
                 _motion.Reset();
-                _timeline.Clear();
+                Debug.Log($"[Dress] Player gone ({_tracker.Swaps} side swaps put right so far)");
+                _tracker.Clear();
             }
             _dollUnder = true;
             OutfitPose.DollJoints(new Vector2((_crop.xMin + _crop.width * 0.5f) * ImageUnits, (_crop.yMin + _crop.height * 0.74f) * ImageUnits),
@@ -419,33 +522,40 @@ namespace MoveIt.Games.Dress
 
         // ---------------------------------------------------------------- hands
 
+        /// <summary>
+        /// The hands' cursors, on the hands in the picture: from the fitted pose (<see cref="OutfitTracker"/>), so they are
+        /// as steady as the clothes and exactly where the picture shows the hands. A hand presses the bubble it rests on
+        /// (<see cref="Dwell"/>); a hand hanging at the side has no cursor.
+        /// </summary>
         void UpdateHands(Body body, float dt)
         {
-            double now = Time.unscaledTimeAsDouble;
             bool interactive = CurrentMode == Mode.Mirror || CurrentMode == Mode.ShowDressing || CurrentMode == Mode.ShowResults;
-            bool newSample = body != null && body.SampleTime != _handSampleTime;
-            if (newSample) _handSampleTime = body.SampleTime;
             foreach (var hand in new[] { _left, _right })
             {
                 bool tracked = false;
-                if (body != null && body.TorsoLength > 0.02f)
+                if (!_doll && _pose.Valid)
                 {
-                    // once per camera frame, from the raw joints (like Pikturo's camera cursors)
-                    if (newSample && hand.Presence.Sample(body.Visibility[(int)hand.Wrist], now))
-                    {
-                        Vector2 tip = body.HandTip(body.Raw, hand.Elbow, hand.Wrist, 0.3f);
-                        hand.Cursor.Sample(body.SampleTime, ToGui(tip), false, now);
-                    }
-                    tracked = hand.Presence.Tracked(now) && hand.Cursor.HasSample;
+                    float seen = _pose.Seen[(int)hand.Wrist];
+                    hand.Seen = hand.Seen ? seen > 0.3f : seen > 0.6f;
+                    tracked = hand.Seen;
                 }
-                if (!tracked)
+                if (tracked)
                 {
-                    hand.Cursor.Reset();
-                    hand.Presence.Reset();
+                    // the fingertips: the wrist carried on along the forearm (as far as the elbow is seen)
+                    Vector2 w = _pose.J[(int)hand.Wrist], e = _pose.J[(int)hand.Elbow];
+                    Vector2 tip = w + (w - e) * (0.3f * _pose.Seen[(int)hand.Elbow]);
+                    Vector2 p = ToGui(tip / ImageUnits);
+                    float speed = hand.Visible && dt > 0f ? Vector2.Distance(p, hand.Position) / dt : 0f;
+                    hand.Speed = Mathf.Lerp(hand.Speed, speed, 1f - Mathf.Exp(-dt / 0.12f));
+                    hand.Position = p;
                 }
-                hand.Position = tracked ? (Vector2)hand.Cursor.Evaluate(now, dt, out _) : default;
-                hand.Visible = tracked && interactive && !IsResting(body, hand);
-                Dwell(hand, hand.Visible ? ButtonAt(hand.Position) : null, dt);
+                else
+                {
+                    hand.Seen = false;
+                    hand.Speed = 0f;
+                }
+                hand.Visible = tracked && interactive && !IsResting(hand);
+                Dwell(hand, hand.Visible ? ButtonAt(hand.Position, hand.Hover) : null, dt);
             }
             // development without a camera: the mouse hovers and clicks
             var mouse = Mouse.current;
@@ -455,7 +565,7 @@ namespace MoveIt.Games.Dress
                 Vector2 gui = new Vector2(m.x / Screen.height * 1080f, 1080f - m.y / Screen.height * 1080f);
                 if (mouse.leftButton.wasPressedThisFrame && interactive)
                 {
-                    var b = ButtonAt(gui);
+                    var b = ButtonAt(gui, null);
                     if (b != null) Press(b);
                 }
             }
@@ -467,22 +577,26 @@ namespace MoveIt.Games.Dress
             return new Vector2((view.x - _crop.xMin) / _crop.width * _guiWidth, (1f - (view.y - _crop.yMin) / _crop.height) * 1080f);
         }
 
-        bool IsResting(Body body, Hand hand)
+        /// <summary>An arm hanging straight down (within <see cref="restAngle"/> of it, stretched) is resting: no cursor.</summary>
+        bool IsResting(Hand hand)
         {
-            if (body == null || !body.IsVisible(hand.Elbow, 0.3f)) return false;
-            Vector2 s = body.Fast[(int)hand.Shoulder], e = body.Fast[(int)hand.Elbow], w = body.Fast[(int)hand.Wrist];
+            if (_pose.Seen[(int)hand.Elbow] < 0.3f) return false;
+            Vector2 s = _pose.J[(int)hand.Shoulder], e = _pose.J[(int)hand.Elbow], w = _pose.J[(int)hand.Wrist];
             if (Vector2.Angle(e - s, Vector2.down) >= restAngle || Vector2.Angle(w - e, Vector2.down) >= restAngle) return false;
-            return Vector2.Distance(s, w) >= 0.85f * body.FastTorsoLength;
+            return Vector2.Distance(s, w) >= 0.85f * _pose.T;
         }
 
-        Button ButtonAt(Vector2 gui)
+        /// <summary>The bubble under <paramref name="gui"/>: a little bigger than it looks, and bigger still for the
+        /// bubble the hand is already on (it doesn't slip off with the hand's small wobbles).</summary>
+        Button ButtonAt(Vector2 gui, Button current)
         {
+            if (current != null && _buttons.Contains(current) && Vector2.Distance(gui, current.Center) <= current.Radius * 1.5f) return current;
             Button best = null;
             float bestD = float.MaxValue;
             foreach (var b in _buttons)
             {
                 float d = Vector2.Distance(gui, b.Center);
-                if (d <= b.Radius * 1.12f && d < bestD)
+                if (d <= b.Radius * 1.15f && d < bestD)
                 {
                     bestD = d;
                     best = b;
@@ -491,6 +605,11 @@ namespace MoveIt.Games.Dress
             return best;
         }
 
+        /// <summary>
+        /// Holding a hand on a bubble presses it. The time only runs while the hand is nearly still on it (a hand on its
+        /// way somewhere passes over bubbles: players found them pressing by themselves); it pauses while the hand moves
+        /// and starts over on another bubble.
+        /// </summary>
         void Dwell(Hand hand, Button button, float dt)
         {
             if (button != hand.Hover)
@@ -502,8 +621,9 @@ namespace MoveIt.Games.Dress
             }
             if (button == null) return;
             _lastActivity = Time.unscaledTime;
-            hand.Dwell += dt;
-            if (!hand.Pressed && hand.Dwell >= (button.Big ? bigDwellSeconds : dwellSeconds))
+            float still = Mathf.Max(1.6f * _unit, 300f);   // HUD pixels a second: ~1.6 torso lengths
+            if (hand.Speed < still) hand.Dwell += dt;
+            if (!hand.Pressed && hand.Dwell >= DwellTime(button))
             {
                 hand.Pressed = true;
                 Debug.Log($"[Dress] {(hand == _left ? "Left" : "Right")} hand presses {button.Kind} {button.Index} at {hand.Position}");
@@ -511,8 +631,11 @@ namespace MoveIt.Games.Dress
             }
         }
 
+        /// <summary>Seconds to hold: items and categories quickly, the buttons that change the whole look or the screen longer.</summary>
+        float DwellTime(Button b) => b.Kind == Kind.Surprise || b.Kind == Kind.Remove ? bigDwellSeconds * 1.3f : b.Big ? bigDwellSeconds : dwellSeconds;
+
         float Progress01(Hand hand, Button b) =>
-            hand.Hover != b || hand.Pressed ? 0f : Mathf.Clamp01(hand.Dwell / (b.Big ? bigDwellSeconds : dwellSeconds));
+            hand.Hover != b || hand.Pressed ? 0f : Mathf.Clamp01(hand.Dwell / DwellTime(b));
 
         // ---------------------------------------------------------------- layout
 
@@ -535,14 +658,14 @@ namespace MoveIt.Games.Dress
                         _buttons.Add(new Button { Kind = Kind.Slot, Index = k, Offset = new Vector2(-1.36f, 0.86f - k * 0.303f) });
                     for (int k = 0; k <= 6; k++)
                         _buttons.Add(new Button { Kind = Kind.Item, Index = k - 1, Offset = new Vector2(1.36f, 0.86f - k * 0.303f) });
-                    var top = CurrentMode == Mode.Mirror
+                    var row = CurrentMode == Mode.Mirror
                         ? new[] { Kind.Magic, Kind.Surprise, Kind.Show, Kind.Photo, Kind.Remove }
                         : new[] { Kind.Magic, Kind.Surprise, Kind.Ready, Kind.Photo, Kind.Remove };
-                    for (int k = 0; k < top.Length; k++)
+                    for (int k = 0; k < row.Length; k++)
                         _buttons.Add(new Button
                         {
-                            Kind = top[k], Offset = new Vector2((k - 2) * 0.42f, 1.14f), Size = 0.92f,
-                            Big = top[k] == Kind.Show || top[k] == Kind.Photo || top[k] == Kind.Remove || top[k] == Kind.Ready,
+                            Kind = row[k], Offset = new Vector2((k - 2) * 0.42f, 1.14f), Size = 0.92f,
+                            Big = row[k] == Kind.Show || row[k] == Kind.Photo || row[k] == Kind.Remove || row[k] == Kind.Ready,
                         });
                 }
                 else if (CurrentMode == Mode.ShowResults)
@@ -553,34 +676,36 @@ namespace MoveIt.Games.Dress
                 _focus = Mathf.Clamp(_focus, 0, Mathf.Max(0, _buttons.Count - 1));
             }
 
-            // where the shoulders are on the screen and how long a torso is there (the smooth framing values)
+            // where the framing put the shoulders on the screen and how long a torso is there: the bubbles stay put
+            // while the picture does (UpdateFraming), so a hand reaching for one finds it where it was
             Vector2 anchor = ShoulderPx;
             float unit = UnitPx;
-            if (body != null && body.ShouldersVisible && _crop.height > 0f && _cropUnit > 0f)
+            if (_framed && _crop.height > 0f)
             {
-                anchor = ToGui(body.ShoulderCenter);
-                unit = _cropUnit / _crop.height * 1080f;
+                anchor = ToGui(_refShoulder);
+                unit = _refUnit / _crop.height * 1080f;
             }
-            bool hold = _left.Hover != null || _right.Hover != null || _countdown >= 0f;
-            if (!_anchorValid)
-            {
-                _anchor = anchor;
-                _unit = unit;
-                _anchorValid = true;
-            }
-            else if (!hold)
-            {
-                float k = 1f - Mathf.Exp(-dt / 0.35f);
-                _anchor = Vector2.Lerp(_anchor, anchor, k);
-                _unit = Mathf.Lerp(_unit, unit, k);
-            }
-            float u = Mathf.Clamp(_unit, 200f, 460f);
+            _anchor = anchor;
+            _unit = unit;
+            // never bigger than fits: a player close to the camera (the framing can't zoom out further) made the columns
+            // run off the top of the screen. Everything stays on the screen, the layout's shape intact.
+            float u = Mathf.Clamp(_unit, 220f, 400f);
             float r = 0.142f * u;
-            Vector2 a = new Vector2(Mathf.Clamp(_anchor.x, 1.36f * u + r + 8f, Mathf.Max(1.36f * u + r + 8f, _guiWidth - 1.36f * u - r - 8f)), _anchor.y);
+            float top = 0f, bottom = 0f;
+            foreach (var b in _buttons)
+            {
+                bool column = b.Kind == Kind.Slot || b.Kind == Kind.Item;
+                top = Mathf.Max(top, b.Offset.y * u + r * b.Size + (b.Kind == Kind.Item ? 70f : 0f));   // the category's name above the items
+                bottom = Mathf.Max(bottom, -b.Offset.y * u + r * b.Size + (column ? 10f : 36f));        // labels under the action bubbles
+            }
+            float minY = top + 12f, maxY = 1080f - bottom - 70f;
+            float ay = minY <= maxY ? Mathf.Clamp(_anchor.y, minY, maxY) : (minY + maxY) * 0.5f;
+            float edge = 1.36f * u + r + 8f;
+            Vector2 a = new Vector2(Mathf.Clamp(_anchor.x, edge, Mathf.Max(edge, _guiWidth - edge)), ay);
             foreach (var b in _buttons)
             {
                 b.Radius = r * b.Size;
-                b.Center = new Vector2(a.x + b.Offset.x * u, Mathf.Max(b.Radius + 6f, a.y - b.Offset.y * u));
+                b.Center = new Vector2(a.x + b.Offset.x * u, a.y - b.Offset.y * u);
             }
         }
 
@@ -599,7 +724,10 @@ namespace MoveIt.Games.Dress
                 case Kind.Show: StartShow(); break;
                 case Kind.Ready: StartWalk(); break;
                 case Kind.Photo: StartPhoto(); break;
-                case Kind.Remove: RemoveAll(); break;
+                case Kind.Remove:
+                    if (CanUndo) Undo();
+                    else RemoveAll();
+                    break;
                 case Kind.Again: StartShow(); break;
                 case Kind.Leave: SetMode(Mode.Mirror); break;
             }
@@ -656,6 +784,7 @@ namespace MoveIt.Games.Dress
 
         public void SurpriseMe()
         {
+            KeepForUndo();
             var theme = Look.Surprise(_rng, CurrentMode == Mode.ShowDressing ? ShowTheme : (Theme?)null, Progress.Finishes);
             for (int s = 0; s < DressCatalog.SlotCount; s++)
             {
@@ -672,10 +801,42 @@ namespace MoveIt.Games.Dress
 
         public void RemoveAll()
         {
+            KeepForUndo();
             Look.Clear();
             GameAudio.Sfx("dress_remove");
             ShowToast(DressStrings.AllRemoved);
             _saveLook = true;
+        }
+
+        /// <summary>For a few seconds after a surprise or "remove all" the remove bubble brings the look back: an arm
+        /// raised to admire the outfit may rest on those bubbles, and the look was lost.</summary>
+        public bool CanUndo => _undoLook != null && Time.unscaledTime < _undoUntil;
+
+        string _undoLook;
+        float _undoUntil;
+
+        void KeepForUndo()
+        {
+            _undoLook = Look.Save();
+            _undoUntil = Time.unscaledTime + 6f;
+        }
+
+        public void Undo()
+        {
+            if (!CanUndo) return;
+            Look.CopyFrom(DressLook.Load(_undoLook, Progress.Finishes));
+            _undoLook = null;
+            for (int s = 0; s < DressCatalog.SlotCount; s++)
+            {
+                if (!Look.IsWorn((Slot)s)) continue;
+                _flash[s] = 1f;
+                _pop[s] = -0.04f * s;
+                _poofPending[s] = true;
+            }
+            GameAudio.Sfx("dress_surprise", 0.8f, 0.9f);
+            ShowToast(DressStrings.LookBack);
+            _saveLook = true;
+            Debug.Log($"[Dress] Undo: {Look.Save()}");
         }
 
         public void SwapHands()
@@ -702,7 +863,11 @@ namespace MoveIt.Games.Dress
             GameAudio.Sfx("count", 0.9f, 1f, 0f);
         }
 
-        /// <summary>The camera picture with the outfit and its sparkles (not the buttons), as a PNG on the box only.</summary>
+        /// <summary>
+        /// The camera picture with the outfit and its sparkles (not the buttons), as a PNG on the box only. The picture
+        /// is shown as a polaroid for a few seconds (players only saw a line of text before), and the PNG is encoded on
+        /// another thread (on the box's cores the encode stalled the game for a moment).
+        /// </summary>
         public void TakePhoto()
         {
             const int w = 1920, h = 1080;
@@ -711,31 +876,75 @@ namespace MoveIt.Games.Dress
             cam.targetTexture = rt;
             cam.Render();
             cam.targetTexture = old;
+            if (_photoPreview == null)
+            {
+                _photoPreview = new RenderTexture(640, 360, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB) { name = "Photo preview" };
+                _photoPreview.Create();
+            }
+            Graphics.Blit(rt, _photoPreview);
+            _photoShownAt = Time.unscaledTime;
             var tex = new Texture2D(w, h, TextureFormat.RGB24, false);
             var active = RenderTexture.active;
             RenderTexture.active = rt;
             tex.ReadPixels(new Rect(0, 0, w, h), 0, 0, false);
             RenderTexture.active = active;
             RenderTexture.ReleaseTemporary(rt);
-            byte[] png = tex.EncodeToPNG();
+            byte[] raw = tex.GetRawTextureData();
+            var format = tex.graphicsFormat;
             Destroy(tex);
-            try
+            string path = Path.Combine(PhotoDir, $"tundu-vishu-{DateTime.Now:yyyyMMdd-HHmmss-fff}.png");
+            string dir = PhotoDir;
+            int keep = keepPhotos;
+            LastPhoto = path;
+            System.Threading.Tasks.Task.Run(() =>
             {
-                Directory.CreateDirectory(PhotoDir);
-                LastPhoto = Path.Combine(PhotoDir, $"tundu-vishu-{DateTime.Now:yyyyMMdd-HHmmss-fff}.png");
-                File.WriteAllBytes(LastPhoto, png);
-                var all = Directory.GetFiles(PhotoDir, "*.png").OrderBy(f => File.GetLastWriteTimeUtc(f)).ToList();
-                for (int i = 0; i < all.Count - keepPhotos; i++) File.Delete(all[i]);
-                _photoCount = Mathf.Min(all.Count, keepPhotos);
-                ShowToast(DressStrings.PhotoSaved(_photoCount));
-                Debug.Log($"[Dress] Photo saved: {LastPhoto}");
-            }
-            catch (Exception e)
-            {
-                Debug.LogWarning($"[Dress] Photo not saved: {e.Message}");
-            }
+                try
+                {
+                    byte[] png = ImageConversion.EncodeArrayToPNG(raw, format, (uint)w, (uint)h);
+                    Directory.CreateDirectory(dir);
+                    File.WriteAllBytes(path, png);
+                    var all = Directory.GetFiles(dir, "*.png").OrderBy(f => File.GetLastWriteTimeUtc(f)).ToList();
+                    for (int i = 0; i < all.Count - keep; i++) File.Delete(all[i]);
+                    _photoCount = Math.Min(all.Count, keep);
+                    Debug.Log($"[Dress] Photo saved: {path}");
+                }
+                catch (Exception e)
+                {
+                    Debug.LogWarning($"[Dress] Photo not saved: {e.Message}");
+                }
+            });
+            _photoCount = Math.Min(_photoCount + 1, keepPhotos);
             GameAudio.Sfx("paint_photo", vary: 0f);
             _flashScreen = 1f;
+        }
+
+        RenderTexture _photoPreview;
+        float _photoShownAt = -99f;
+        const float PhotoShowSeconds = 3.4f;
+
+        /// <summary>The photo just taken, as a polaroid: it pops up tilted, stays a moment, then flies to the corner.</summary>
+        void DrawPhotoPreview(float w)
+        {
+            float age = Time.unscaledTime - _photoShownAt;
+            if (_photoPreview == null || age < 0f || age > PhotoShowSeconds || !WordsPass) return;   // over everything: IMGUI's
+            float pop = Back01(Mathf.Clamp01(age / 0.35f));
+            float leave = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((age - (PhotoShowSeconds - 0.6f)) / 0.6f));
+            float scale = Mathf.Lerp(0.6f, 1f, pop) * Mathf.Lerp(1f, 0.25f, leave);
+            Vector2 center = Vector2.Lerp(new Vector2(w * 0.5f, 520f), new Vector2(w - 140f, 980f), leave);
+            float pw = 640f * scale, ph = 360f * scale, border = 22f * scale;
+            var frame = new Rect(center.x - pw * 0.5f - border, center.y - ph * 0.5f - border, pw + border * 2f, ph + border * 2f + 70f * scale);
+            var oldMatrix = GUI.matrix;
+            GUIUtility.RotateAroundPivot(-4f * (1f - leave), center);
+            PanelNow(new Rect(frame.x + 8f, frame.y + 14f, frame.width, frame.height), new Color(0f, 0f, 0f, 0.35f * (1f - leave)));
+            PanelNow(frame, new Color(1f, 0.99f, 0.97f, 1f));
+            if (Event.current.type == EventType.Repaint)
+                GUI.DrawTexture(new Rect(frame.x + border, frame.y + border, pw, ph), _photoPreview, ScaleMode.StretchToFill, false);
+            if (scale > 0.5f)
+            {
+                var caption = new GUIStyle(_medium) { normal = { textColor = new Color(0.33f, 0.2f, 0.42f) }, alignment = TextAnchor.MiddleCenter };
+                GUI.Label(new Rect(frame.x, frame.y + border + ph + 8f * scale, frame.width, 60f * scale), DressStrings.PhotoSaved(_photoCount), caption);
+            }
+            GUI.matrix = oldMatrix;
         }
 
         // ---------------------------------------------------------------- the fashion show
@@ -912,6 +1121,7 @@ namespace MoveIt.Games.Dress
                 if (kb.rKey.wasPressedThisFrame) SurpriseMe();
                 if (kb.eKey.wasPressedThisFrame) NextMagic();
                 if (kb.xKey.wasPressedThisFrame) RemoveAll();
+                if (kb.zKey.wasPressedThisFrame) Undo();
                 if (kb.hKey.wasPressedThisFrame) SwapHands();
                 if (kb.sKey.wasPressedThisFrame)
                 {
@@ -1013,10 +1223,47 @@ namespace MoveIt.Games.Dress
 
         // ---------------------------------------------------------------- drawing
 
+        /// <summary>
+        /// The HUD. On the repaint its pictures (bubbles, icons, panels, the mirror's frame and bulbs) are collected in a
+        /// first pass and drawn as one mesh (<see cref="HudBatch"/>), then a second pass draws the words, the item
+        /// thumbnails and the cursors with IMGUI over them: one IMGUI draw per picture (~140 a frame) cost the box ~30 %
+        /// of the main thread and most of the render thread. PerfLab's <c>hud=imgui</c> draws everything with IMGUI as
+        /// before (to compare).
+        /// </summary>
         void OnGUI()
         {
+            if (PerfSwitches.Get("hud") == "off") return;   // PerfLab: the frame without its HUD (to measure)
             float w = GameHud.Begin();
             EnsureStyles();
+            if (_hud != null && Event.current.type == EventType.Repaint && PerfSwitches.Get("hud") != "imgui")
+            {
+                _pass = HudPass.Pictures;
+                _hud.Clear();
+                DrawHud(w);
+                _hud.Draw(GUI.matrix);
+                _pass = HudPass.Words;
+                DrawHud(w);
+            }
+            else
+            {
+                _pass = HudPass.Everything;
+                DrawHud(w);
+            }
+            _pass = HudPass.Everything;
+        }
+
+        enum HudPass { Everything, Pictures, Words }
+        HudPass _pass;
+        HudBatch _hud;
+        Texture2D _shapes;
+
+        /// <summary>This pass draws the HUD's pictures and panels (collected for the batch, or with IMGUI).</summary>
+        bool PicturesPass => _pass != HudPass.Words;
+        /// <summary>This pass draws the words and IMGUI's own pieces (thumbnails, bars, the cursors, the photo).</summary>
+        bool WordsPass => _pass != HudPass.Pictures;
+
+        void DrawHud(float w)
+        {
             var brand = Brand.Current;
             if (_feed == null || !_feed.IsLive)
             {
@@ -1060,7 +1307,8 @@ namespace MoveIt.Games.Dress
                 var r = new Rect(w * 0.5f - 160f * s, 380f - 160f * s, 320f * s, 320f * s);
                 Shadowed(r, Mathf.CeilToInt(_countdown).ToString(), _big, brand.PrimaryColor);
             }
-            if (_flashScreen > 0f) GameHud.Box(new Rect(0, 0, w, 1080f), new Color(1f, 1f, 1f, Mathf.Clamp01(_flashScreen) * 0.8f));
+            DrawPhotoPreview(w);
+            if (_flashScreen > 0f) Box(new Rect(0, 0, w, 1080f), new Color(1f, 1f, 1f, Mathf.Clamp01(_flashScreen) * 0.8f));
         }
 
         static readonly Color[] SlotColors =
@@ -1073,16 +1321,28 @@ namespace MoveIt.Games.Dress
 
         void DrawWardrobe(float w, Brand brand)
         {
-            // soft panels behind the two columns
-            var cats = _buttons.Where(b => b.Kind == Kind.Slot).ToList();
-            var items = _buttons.Where(b => b.Kind == Kind.Item).ToList();
-            if (cats.Count > 0) ColumnPanel(cats);
-            if (items.Count > 0) ColumnPanel(items);
+            // soft panels behind the two columns (the HUD is drawn twice a frame: no lists made here)
+            Button firstCat = null, lastCat = null, firstItem = null, lastItem = null;
+            foreach (var b in _buttons)
+            {
+                if (b.Kind == Kind.Slot)
+                {
+                    firstCat ??= b;
+                    lastCat = b;
+                }
+                else if (b.Kind == Kind.Item)
+                {
+                    firstItem ??= b;
+                    lastItem = b;
+                }
+            }
+            if (firstCat != null) ColumnPanel(firstCat, lastCat);
+            if (firstItem != null) ColumnPanel(firstItem, lastItem);
             for (int i = 0; i < _buttons.Count; i++) DrawButton(_buttons[i], i == _focus && _remoteFocus, brand);
             // the category's name above the items, in its colour
-            if (items.Count > 0)
+            if (firstItem != null)
             {
-                var first = items[0];
+                var first = firstItem;
                 string name = DressStrings.SlotName(Category);
                 float pw = Mathf.Max(first.Radius * 2f + 24f, TextWidth(_pill, name) + 44f);
                 var pill = new Rect(first.Center.x - pw * 0.5f, first.Center.y - first.Radius - 70f, pw, 46f);
@@ -1111,12 +1371,19 @@ namespace MoveIt.Games.Dress
         /// </summary>
         void DrawMirrorFrame(float w)
         {
-            if (Event.current.type != EventType.Repaint) return;
+            if (Event.current.type != EventType.Repaint || !PicturesPass) return;
             if (_ring == null) MakeRing();
-            var old = GUI.color;
-            GUI.color = new Color(1f, 0.95f, 0.88f, 0.45f);
-            FrameEdges(new Rect(14f, 14f, w - 28f, 1052f), _ringTex, _ring.border.left);
-            GUI.color = old;
+            var frameColor = new Color(1f, 0.95f, 0.88f, 0.45f);
+            if (_pass == HudPass.Pictures)
+                _hud.Nine(new Rect(14f, 14f, w - 28f, 1052f), RingBorder, RingUv, new Vector2(RingBorder / (float)ShapesWidth, RingBorder / (float)ShapesHeight),
+                          frameColor, middle: false);
+            else
+            {
+                var old = GUI.color;
+                GUI.color = frameColor;
+                FrameEdges(new Rect(14f, 14f, w - 28f, 1052f), _ringTex, _ring.border.left);
+                GUI.color = old;
+            }
             float t = Time.unscaledTime;
             int n = 0;
             void Bulb(float x, float y)
@@ -1163,22 +1430,62 @@ namespace MoveIt.Games.Dress
 
         void MakeRing()
         {
-            const int Size = 64, Radius = 26;
-            const float Line = 2.5f, Glow = 5f;
+            const int Size = 64;
             _ringTex = new Texture2D(Size, Size, TextureFormat.RGBA32, false) { name = "Ring", wrapMode = TextureWrapMode.Clamp };
             var px = new Color32[Size * Size];
             for (int y = 0; y < Size; y++)
                 for (int x = 0; x < Size; x++)
-                {
-                    float dx = Mathf.Max(0f, Mathf.Max(Radius - x - 0.5f, x + 0.5f - (Size - Radius)));
-                    float dy = Mathf.Max(0f, Mathf.Max(Radius - y - 0.5f, y + 0.5f - (Size - Radius)));
-                    float edge = Mathf.Abs(Radius - Glow - Mathf.Sqrt(dx * dx + dy * dy));   // distance to the line
-                    float a = Mathf.Clamp01(Line - edge + 0.5f) + 0.35f * Mathf.Clamp01(1f - edge / Glow);
-                    px[y * Size + x] = new Color32(255, 255, 255, (byte)(Mathf.Clamp01(a) * 255));
-                }
+                    px[y * Size + x] = new Color32(255, 255, 255, RingAlpha(x, y));
             _ringTex.SetPixels32(px);
             _ringTex.Apply(false, true);
-            _ring = new GUIStyle { normal = { background = _ringTex }, border = new RectOffset(Radius, Radius, Radius, Radius) };
+            _ring = new GUIStyle { normal = { background = _ringTex }, border = new RectOffset(RingBorder, RingBorder, RingBorder, RingBorder) };
+        }
+
+        /// <summary>The mirror frame's line with its glow (64 x 64, a 9-slice with 26 px corners).</summary>
+        static byte RingAlpha(int x, int y)
+        {
+            const int Size = 64, Radius = RingBorder;
+            const float Line = 2.5f, Glow = 5f;
+            float dx = Mathf.Max(0f, Mathf.Max(Radius - x - 0.5f, x + 0.5f - (Size - Radius)));
+            float dy = Mathf.Max(0f, Mathf.Max(Radius - y - 0.5f, y + 0.5f - (Size - Radius)));
+            float edge = Mathf.Abs(Radius - Glow - Mathf.Sqrt(dx * dx + dy * dy));   // distance to the line
+            float a = Mathf.Clamp01(Line - edge + 0.5f) + 0.35f * Mathf.Clamp01(1f - edge / Glow);
+            return (byte)(Mathf.Clamp01(a) * 255);
+        }
+
+        /// <summary>A panel's rounded rectangle (64 x 64, 24 px corners).</summary>
+        static byte PanelAlpha(int x, int y)
+        {
+            const int Size = 64, Radius = 24;
+            float dx = Mathf.Max(0f, Mathf.Max(Radius - x - 0.5f, x + 0.5f - (Size - Radius)));
+            float dy = Mathf.Max(0f, Mathf.Max(Radius - y - 0.5f, y + 0.5f - (Size - Radius)));
+            float a = Mathf.Clamp01(Radius - Mathf.Sqrt(dx * dx + dy * dy) + 0.5f);
+            return (byte)(a * 255);
+        }
+
+        // The batch's shapes texture: the panel at x 0..63 and the frame's ring at x 72..135, the gap between them filled
+        // with copies of their edge columns, so each filters at its edges like IMGUI's clamped textures.
+        const int ShapesWidth = 136, ShapesHeight = 64, RingX = 72, RingBorder = 26;
+        static readonly Rect PanelUv = new Rect(0f, 0f, 64f / ShapesWidth, 1f);
+        static readonly Rect RingUv = new Rect(RingX / (float)ShapesWidth, 0f, 64f / ShapesWidth, 1f);
+
+        static Texture2D MakeShapes()
+        {
+            var tex = new Texture2D(ShapesWidth, ShapesHeight, TextureFormat.RGBA32, false) { name = "HUD shapes", wrapMode = TextureWrapMode.Clamp };
+            var px = new Color32[ShapesWidth * ShapesHeight];
+            for (int y = 0; y < ShapesHeight; y++)
+            {
+                for (int x = 0; x < 64; x++)
+                {
+                    px[y * ShapesWidth + x] = new Color32(255, 255, 255, PanelAlpha(x, y));
+                    px[y * ShapesWidth + RingX + x] = new Color32(255, 255, 255, RingAlpha(x, y));
+                }
+                for (int x = 64; x < RingX; x++)
+                    px[y * ShapesWidth + x] = x < (64 + RingX) / 2 ? px[y * ShapesWidth + 63] : px[y * ShapesWidth + RingX];
+            }
+            tex.SetPixels32(px);
+            tex.Apply(false, true);
+            return tex;
         }
 
         static float Back01(float t)
@@ -1187,10 +1494,10 @@ namespace MoveIt.Games.Dress
             return t * t * (2.7f * t + 1.7f) + 1f;
         }
 
-        void ColumnPanel(List<Button> column)
+        void ColumnPanel(Button first, Button last)
         {
-            float r = column[0].Radius;
-            float x = column[0].Center.x, y0 = column[0].Center.y - r - 12f, y1 = column[column.Count - 1].Center.y + r + 12f;
+            float r = first.Radius;
+            float x = first.Center.x, y0 = first.Center.y - r - 12f, y1 = last.Center.y + r + 12f;
             var rect = new Rect(x - r - 14f, y0, 2f * r + 28f, y1 - y0);
             Panel(Grow(rect, 3f), new Color(1f, 1f, 1f, 0.2f));
             Panel(rect, new Color(0.07f, 0.07f, 0.2f, 0.55f));
@@ -1229,13 +1536,13 @@ namespace MoveIt.Games.Dress
                     UiImage(Shrink(rect, 0.52f), b.Kind switch
                     {
                         Kind.Magic => "act_magic", Kind.Surprise => "act_dice", Kind.Show => "act_show", Kind.Ready or Kind.Again => "act_ready",
-                        Kind.Photo => "act_photo", Kind.Leave => "cat_top", _ => "act_remove",
+                        Kind.Photo => "act_photo", Kind.Leave => "cat_top", Kind.Remove when CanUndo => _art.HasUi("act_undo") ? "act_undo" : "act_ready", _ => "act_remove",
                     }, Color.white);
                     string label = b.Kind switch
                     {
                         Kind.Magic => DressStrings.Magic, Kind.Surprise => DressStrings.Surprise, Kind.Show => DressStrings.Show,
                         Kind.Ready => DressStrings.Ready, Kind.Photo => DressStrings.Photo, Kind.Again => DressStrings.AnotherShow,
-                        Kind.Leave => DressStrings.BackToMirror, _ => DressStrings.RemoveAll,
+                        Kind.Leave => DressStrings.BackToMirror, Kind.Remove when CanUndo => DressStrings.Undo, _ => DressStrings.RemoveAll,
                     };
                     float lw = TextWidth(_label, label) + 30f;
                     var pill = new Rect(b.Center.x - lw * 0.5f, rect.yMax + 2f, lw, 32f);
@@ -1250,7 +1557,7 @@ namespace MoveIt.Games.Dress
         /// <summary>An item's picture, coloured like it would be worn (Tundu/Outfit on the thumbnail sheet).</summary>
         void DrawThumb(Rect r, Slot slot, int index)
         {
-            if (Event.current.type != EventType.Repaint) return;
+            if (Event.current.type != EventType.Repaint || !WordsPass) return;
             var item = DressCatalog.Items[(int)slot][index];
             int color = Look.Item[(int)slot] == index ? Look.ColorOf(slot) : item.Colors[0];
             DressCatalog.Rgb(color, out float cr, out float cg, out float cb);
@@ -1298,11 +1605,11 @@ namespace MoveIt.Games.Dress
 
         void DrawCursor(Hand hand)
         {
-            if (!hand.Visible) return;
+            if (!hand.Visible || !WordsPass) return;   // over everything: IMGUI's, after the batch
             var p = hand.Position;
             float pulse = 1f + 0.06f * Mathf.Sin(Time.unscaledTime * 8f);
-            UiImage(new Rect(p.x - 34f * pulse, p.y - 34f * pulse, 68f * pulse, 68f * pulse), "glow", new Color(hand.Tint.r, hand.Tint.g, hand.Tint.b, 0.8f));
-            UiImage(new Rect(p.x - 20f, p.y - 20f, 40f, 40f), "act_magic", Color.white);
+            UiImageNow(new Rect(p.x - 34f * pulse, p.y - 34f * pulse, 68f * pulse, 68f * pulse), "glow", new Color(hand.Tint.r, hand.Tint.g, hand.Tint.b, 0.8f));
+            UiImageNow(new Rect(p.x - 20f, p.y - 20f, 40f, 40f), "act_magic", Color.white);
         }
 
         void DrawIntro(float w, Brand brand)
@@ -1337,7 +1644,7 @@ namespace MoveIt.Games.Dress
             Shadowed(new Rect(r.x + 90f, r.y + 46f, r.width - 190f, 34f), DressStrings.ReadyHint, _label);
             var timer = new Rect(r.xMax - 96f, r.y + 8f, 84f, 70f);
             Shadowed(timer, Mathf.CeilToInt(left).ToString(), _medium, left <= 10f ? new Color(1f, 0.45f, 0.4f) : Color.white);
-            GameHud.Box(new Rect(r.x + 8f, r.yMax - 8f, (r.width - 16f) * (left / dressSeconds), 5f), brand.PrimaryColor);
+            Box(new Rect(r.x + 8f, r.yMax - 8f, (r.width - 16f) * (left / dressSeconds), 5f), brand.PrimaryColor);
         }
 
         void DrawShowIntro(float w, Brand brand)
@@ -1360,8 +1667,8 @@ namespace MoveIt.Games.Dress
             var curtain = _art.UiRect("curtain");
             float lx = Mathf.Lerp(w * 0.5f - cw, -cw * 0.45f, open);
             float rx = Mathf.Lerp(w * 0.5f, w - cw * 0.55f, open);
-            GUI.DrawTextureWithTexCoords(new Rect(lx, 0, cw, ch), _art.Ui, curtain);
-            GUI.DrawTextureWithTexCoords(new Rect(rx + cw, 0, -cw, ch), _art.Ui, curtain);
+            UiPicture(new Rect(lx, 0, cw, ch), curtain, Color.white);
+            UiPicture(new Rect(rx + cw, 0, -cw, ch), curtain, Color.white);
             if (open < 1f) return;
             float sweep = Mathf.Sin(Time.unscaledTime * 0.8f) * 120f;
             UiImage(new Rect(w * 0.5f - 520f + sweep, 120f, 1040f, 960f), "glow", new Color(1f, 0.95f, 0.8f, 0.12f));
@@ -1377,8 +1684,8 @@ namespace MoveIt.Games.Dress
             Shadowed(new Rect(card.x, card.y + 290f, card.width, 60f), poseName,
                      TextWidth(_medium, poseName) > card.width - 24f ? _pill : _medium, brand.PrimaryColor);
             var meter = new Rect(card.x + 30f, card.y + 370f, card.width - 60f, 18f);
-            GameHud.Box(meter, new Color(1f, 1f, 1f, 0.2f));
-            GameHud.Box(new Rect(meter.x, meter.y, meter.width * (_poseDone ? 1f : PoseMeter), meter.height), brand.PrimaryColor);
+            Box(meter, new Color(1f, 1f, 1f, 0.2f));
+            Box(new Rect(meter.x, meter.y, meter.width * (_poseDone ? 1f : PoseMeter), meter.height), brand.PrimaryColor);
             for (int k = 0; k < Poses.Length; k++)
                 UiImage(new Rect(card.center.x - 45f + k * 32f, card.yMax + 14f, 26f, 26f), k < PoseIndex || (k == PoseIndex && _poseDone) ? "star_full" : "star_empty", Color.white);
             if (_poseDone)
@@ -1414,8 +1721,11 @@ namespace MoveIt.Games.Dress
                 {
                     var bubble = new Rect(card.x + 20f, card.y + 250f, card.width - 40f, 180f);
                     Panel(bubble, new Color(1f, 1f, 1f, 0.95f));
-                    var style = new GUIStyle(_small) { normal = { textColor = new Color(0.2f, 0.14f, 0.3f) }, alignment = TextAnchor.MiddleCenter, wordWrap = true };
-                    GUI.Label(Shrink(bubble, 0.9f), DressStrings.RemarkText(v.Remark, ShowTheme), style);
+                    if (WordsPass)
+                    {
+                        var style = new GUIStyle(_small) { normal = { textColor = new Color(0.2f, 0.14f, 0.3f) }, alignment = TextAnchor.MiddleCenter, wordWrap = true };
+                        GUI.Label(Shrink(bubble, 0.9f), DressStrings.RemarkText(v.Remark, ShowTheme), style);
+                    }
                 }
             }
         }
@@ -1452,14 +1762,49 @@ namespace MoveIt.Games.Dress
         void UiImage(Rect r, string name, Color tint)
         {
             if (_art == null || !_art.HasUi(name)) return;
+            UiPicture(r, _art.UiRect(name), tint);
+        }
+
+        /// <summary>A piece of the interface sheet (in the batch's pass, or with IMGUI when everything is IMGUI's).</summary>
+        void UiPicture(Rect r, Rect uv, Color tint)
+        {
+            if (_art == null || !PicturesPass) return;
+            if (_pass == HudPass.Pictures)
+            {
+                _hud.Image(r, uv, tint);
+                return;
+            }
+            var old = GUI.color;
+            GUI.color = tint;
+            GUI.DrawTextureWithTexCoords(r, _art.Ui, uv, true);
+            GUI.color = old;
+        }
+
+        /// <summary>A picture drawn by IMGUI now, over the words (the hands' cursors).</summary>
+        void UiImageNow(Rect r, string name, Color tint)
+        {
+            if (_art == null || !_art.HasUi(name)) return;
             var old = GUI.color;
             GUI.color = tint;
             GUI.DrawTextureWithTexCoords(r, _art.Ui, _art.UiRect(name), true);
             GUI.color = old;
         }
 
-        /// <summary>A rounded panel (IMGUI's own 9-slice with a small rounded texture: no seams).</summary>
+        /// <summary>A rounded panel: its 9 pieces in the batch, or IMGUI's own 9-slice (a small rounded texture: no seams).</summary>
         void Panel(Rect r, Color c)
+        {
+            if (!PicturesPass) return;
+            int corner = Mathf.Clamp(Mathf.FloorToInt(Mathf.Min(r.width, r.height) * 0.5f), 0, 24);
+            if (_pass == HudPass.Pictures)
+            {
+                _hud.Nine(r, corner, PanelUv, new Vector2(corner / (float)ShapesWidth, corner / (float)ShapesHeight), c);
+                return;
+            }
+            PanelNow(r, c);
+        }
+
+        /// <summary>IMGUI's rounded panel, drawn now (the photo's polaroid lies over everything, words included).</summary>
+        void PanelNow(Rect r, Color c)
         {
             if (_round == null)
             {
@@ -1468,12 +1813,7 @@ namespace MoveIt.Games.Dress
                 var px = new Color32[Size * Size];
                 for (int y = 0; y < Size; y++)
                     for (int x = 0; x < Size; x++)
-                    {
-                        float dx = Mathf.Max(0f, Mathf.Max(Radius - x - 0.5f, x + 0.5f - (Size - Radius)));
-                        float dy = Mathf.Max(0f, Mathf.Max(Radius - y - 0.5f, y + 0.5f - (Size - Radius)));
-                        float a = Mathf.Clamp01(Radius - Mathf.Sqrt(dx * dx + dy * dy) + 0.5f);
-                        px[y * Size + x] = new Color32(255, 255, 255, (byte)(a * 255));
-                    }
+                        px[y * Size + x] = new Color32(255, 255, 255, PanelAlpha(x, y));
                 _roundTex.SetPixels32(px);
                 _roundTex.Apply(false, true);
                 _round = new GUIStyle { normal = { background = _roundTex }, border = new RectOffset(Radius, Radius, Radius, Radius) };
@@ -1489,8 +1829,16 @@ namespace MoveIt.Games.Dress
         GUIStyle _round;
         Texture2D _roundTex;
 
-        static void Shadowed(Rect r, string text, GUIStyle style, Color? color = null) =>
-            GameHud.Text(r, text, style, TextAnchor.MiddleCenter, color);
+        void Shadowed(Rect r, string text, GUIStyle style, Color? color = null)
+        {
+            if (WordsPass) GameHud.Text(r, text, style, TextAnchor.MiddleCenter, color);
+        }
+
+        /// <summary>A plain rectangle (bars, the photo's flash): IMGUI's, with the words.</summary>
+        void Box(Rect r, Color c)
+        {
+            if (WordsPass) GameHud.Box(r, c);
+        }
 
         /// <summary>A text's width with some room to spare: scaled down (a small window) IMGUI text comes out a
         /// little wider than it measures. Measured once per style, size and text (measuring every label every frame

@@ -7,6 +7,41 @@ namespace MoveIt.Games
     /// a medal, a soft dot, a heart, a star, and strips that follow a path (a river, a track).</summary>
     public static class ArtShapes
     {
+        /// <summary>A chunky five-pointed star, 1 unit across, facing -z (the camera), <paramref name="depth"/> thick (it was
+        /// Fluturo!'s; Gara!'s stars).</summary>
+        public static Mesh Star(float depth = 0.25f, float inner = 0.45f)
+        {
+            const int points = 5;
+            int rim = points * 2;
+            var v = new Vector3[2 + rim * 2];
+            v[0] = new Vector3(0f, 0f, -depth * 0.5f);
+            v[1] = new Vector3(0f, 0f, depth * 0.5f);
+            for (int i = 0; i < rim; i++)
+            {
+                float a = Mathf.PI * 0.5f + i * Mathf.PI / points;
+                float r = i % 2 == 0 ? 0.5f : 0.5f * inner;
+                var p = new Vector3(Mathf.Cos(a) * r, Mathf.Sin(a) * r, 0f);
+                v[2 + i] = p + new Vector3(0f, 0f, -depth * 0.2f);
+                v[2 + rim + i] = p + new Vector3(0f, 0f, depth * 0.2f);
+            }
+            var tris = new List<int>();
+            for (int i = 0; i < rim; i++)
+            {
+                int j = (i + 1) % rim;
+                tris.AddRange(new[] { 0, 2 + j, 2 + i });
+                tris.AddRange(new[] { 1, 2 + rim + i, 2 + rim + j });
+                tris.AddRange(new[] { 2 + i, 2 + j, 2 + rim + j });
+                tris.AddRange(new[] { 2 + i, 2 + rim + j, 2 + rim + i });
+            }
+            var mesh = new Mesh { name = "Star", vertices = v, triangles = tris.ToArray() };
+            var uv = new Vector2[v.Length];
+            for (int i = 0; i < uv.Length; i++) uv[i] = new Vector2(0.5f, 0.5f);
+            mesh.uv = uv;
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+            return mesh;
+        }
+
         /// <summary>A flat ring in the XY plane (facing -z), outer radius 0.5, inner <paramref name="inner"/>.</summary>
         public static Mesh Ring(float inner = 0.4f, int segments = 48)
         {

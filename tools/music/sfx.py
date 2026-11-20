@@ -263,7 +263,33 @@ def make():
     sfx["sport_volley"] = mix(0.35, (0, S._tone_drum(210, 120, 0.04, 0.14), 0.9), (0, env(S.noise(int(SR * 0.04), 800, 5000, seed=98), 0.001, 0.03), 0.5),
                               (0.005, note(S.marimba, C6, vel=0.6), 0.2))
     kart(sfx)
+    arcade(sfx)
+    space(sfx)
+    fairy(sfx)
+    boxing(sfx)
+    runner(sfx)
     return sfx
+
+
+def runner(sfx):
+    """Vrapo! (the console polish of 2026-11-18): a soft footstep (the game plays it quietly on every stride, pitch
+    varied), the golden egg's sparkle, a milestone's little fanfare, the new record's bigger one."""
+    pad = S._tone_drum(95, 62, 0.035, 0.12) * 0.8
+    scuff = env(S.noise(int(SR * 0.09), 300, 2200, seed=171), 0.002, 0.06) * 0.35
+    sfx["step"] = mix(0.14, (0, pad, 0.9), (0.004, scuff, 0.6))
+    sparkle = env(S.noise(int(SR * 0.7), 5000, 12000, seed=172), 0.01, 0.6)
+    sfx["egg_gold"] = mix(1.3, (0, sparkle, 0.25),
+                          *[(0.045 * i, note(S.glockenspiel, p), 0.5 - 0.03 * i) for i, p in
+                            enumerate((C6, C6 + 4, C6 + 7, C6 + 12, C6 + 16, C6 + 19))],
+                          (0.0, note(S.marimba, C5, vel=0.8), 0.35), (0.0, note(S.vibraphone, C6 + 7, dur=0.9), 0.3))
+    sfx["milestone"] = mix(1.2, (0, note(S.marimba, G5), 0.6), (0.1, note(S.marimba, C6), 0.65), (0.2, note(S.marimba, E5 + 12), 0.7),
+                           (0.2, note(S.glockenspiel, G5 + 12), 0.4), (0.2, S.drum(81, 0.9), 0.35))
+    roll = env(S.noise(int(SR * 0.4), 2500, 9000, seed=173) * (0.6 + 0.4 * np.sin(2 * np.pi * 24 * np.arange(int(SR * 0.4)) / SR)), 0.05, 0.05)
+    sfx["record"] = mix(1.9, (0, roll, 0.35),
+                        *[(0.38 + 0.08 * i, note(S.marimba, p), 0.55) for i, p in enumerate((C5, E5, G5, C6))],
+                        *[(0.38 + 0.08 * i, note(S.xylophone, p + 12), 0.3) for i, p in enumerate((C5, E5, G5))],
+                        (0.7, note(S.glockenspiel, C6 + 12, dur=0.8), 0.5), (0.7, S.drum(49, 1.0), 0.35),
+                        (0.7, env(S.noise(int(SR * 0.9), 5000, 12000, seed=174), 0.01, 0.8), 0.2))
 
 
 def kart(sfx):
@@ -336,6 +362,216 @@ def kart(sfx):
     sfx["kart_final"] = mix(1.6, *[(0.0 + 0.11 * i, note(S.marimba, p), 0.5) for i, p in enumerate((G5 - 12, B5 - 12, D5, G5))],
                             *[(0.44, note(S.vibraphone, p), 0.4) for p in (G5, B5, D5 + 12)], (0.44, note(S.glockenspiel, G5 + 12), 0.35),
                             (0.44, S.drum(49, 0.8), 0.35))
+
+
+def arcade(sfx):
+    """Lunapark!: a toy hammer's bonk, a hedgehog's "eek", pops, a juicy slice, the funhouse wall's whoosh, a wing's flap,
+    a balloon's boing, the ticket machine."""
+    # a bonk: a hollow knock and a squeak (a squeaky toy hammer)
+    knock = S._tone_drum(420, 180, 0.05, 0.16)
+    squeak = env(sweep(1700, 2600, 0.09, shape=0.6, harmonics=((1, 1), (2, 0.3))), 0.004, 0.05)
+    sfx["arcade_bonk"] = mix(0.3, (0, knock, 0.9), (0.005, squeak, 0.35), (0, env(S.noise(int(SR * 0.03), 800, 5000, seed=401), 0.001, 0.02), 0.4))
+    # a hedgehog's prickle: a sharp "eek" going down and a buzzy thud
+    eek = env(sweep(1900, 700, 0.22, shape=1.3, harmonics=((1, 1), (2, 0.5), (3, 0.3)), vibrato=0.04), 0.004, 0.08)
+    sfx["arcade_ouch"] = mix(0.45, (0, eek, 0.55), (0, S._tone_drum(160, 70, 0.08, 0.25), 0.7))
+    # a pop: a balloon's crack and a little upward chirp
+    crack = env(S.noise(int(SR * 0.05), 300, 9000, seed=402), 0.0005, 0.04)
+    chirp = env(sweep(500, 1300, 0.08, shape=0.5, harmonics=((1, 1), (2, 0.2))), 0.002, 0.05)
+    sfx["arcade_pop"] = mix(0.3, (0, crack, 0.9), (0.01, chirp, 0.35))
+    # a slice: a quick swish up and a wet splat
+    swish = env(S.noise(int(SR * 0.12), 1500, 9000, seed=403) * np.linspace(0.3, 1, int(SR * 0.12)), 0.01, 0.04)
+    splat = env(S.noise(int(SR * 0.16), 150, 1800, seed=404), 0.002, 0.12)
+    sfx["arcade_slice"] = mix(0.35, (0, swish, 0.6), (0.07, splat, 0.7), (0.07, S._tone_drum(260, 110, 0.04, 0.12), 0.35))
+    # the wall coming: a low rushing whoosh that swells
+    n = int(SR * 1.3)
+    t = np.arange(n) / SR
+    rush = S.noise(n, 90, 1400, seed=405) * np.sin(np.pi * np.clip(t / 1.3, 0, 1)) ** 1.6
+    sfx["arcade_wall"] = mix(1.35, (0, rush, 0.8), (0, env(sweep(70, 140, 1.2, shape=1.2, harmonics=((1, 1), (2, 0.4))), 0.2, 0.3), 0.3))
+    # a flap: a soft feathery whoosh
+    n = int(SR * 0.16)
+    t = np.arange(n) / SR
+    sfx["arcade_flap"] = S.noise(n, 400, 3200, seed=406) * np.sin(np.pi * t / 0.16) ** 2 * 0.8
+    # a balloon's boing: a rubbery wobble
+    n = int(SR * 0.32)
+    t = np.arange(n) / SR
+    wob = np.sin(2 * np.pi * np.cumsum(260 + 120 * np.exp(-t / 0.08) * np.sin(2 * np.pi * 14 * t)) / SR) * np.exp(-t / 0.12)
+    sfx["arcade_boing"] = mix(0.34, (0, wob, 0.7), (0, env(S.noise(int(SR * 0.03), 300, 2000, seed=407), 0.001, 0.02), 0.25))
+    # the ticket machine: a ratchet of clicks, then a ding
+    clicks = [(0.045 * i, env(S.noise(int(SR * 0.012), 2000, 8000, seed=410 + i), 0.0005, 0.01), 0.5) for i in range(6)]
+    sfx["arcade_ticket"] = mix(0.9, *clicks, (0.3, note(S.glockenspiel, C6 + 7), 0.6), (0.3, note(S.vibraphone, G5 + 12, vel=0.6), 0.3))
+
+
+def space(sfx):
+    """Yjet!: the jetpack's soft roar as a seamless loop (the game pitches it with the speed), a star's twinkle, a ring's
+    whoosh and chime, a big star, a bump into a rock, a perfect gate, a rescued alien's "wheee", the launch, the landing,
+    the low-power beeps, the tow ship's horn."""
+    # the jetpack: airy noise over a low hum, whole cycles in the loop's second
+    n = SR
+    t = np.arange(n) / SR
+    air = seamless(S.noise(n + int(SR * 0.2), 120, 2600, seed=501), 0.2)[:n]
+    hum = 0.35 * np.sin(2 * np.pi * 70 * t) + 0.15 * np.sin(2 * np.pi * 140 * t)
+    flutter = 0.8 + 0.2 * np.sin(2 * np.pi * 12 * t)
+    sfx["space_jet"] = air * flutter * 0.7 + hum * 0.4
+    # a star: a tiny bright twinkle (the game raises its pitch as they come one after another)
+    sfx["space_star"] = mix(0.35, (0, note(S.glockenspiel, C6 + 7, vel=0.6), 0.55), (0.03, note(S.celesta, C6 + 12, vel=0.5), 0.3))
+    # a ring: a whoosh through and a rising chime
+    n = int(SR * 0.5)
+    swoosh = env(S.noise(n, 600, 7000, seed=502) * np.sin(np.pi * np.arange(n) / n) ** 1.5, 0.01, 0.1)
+    sfx["space_ring"] = mix(0.9, (0, swoosh, 0.55), *[(0.05 + 0.06 * i, note(S.vibraphone, p, vel=0.7), 0.4) for i, p in enumerate((D5, F5 + 1, A5, D5 + 12))])
+    # a big star: a sparkling run and a chord
+    sfx["space_bigstar"] = mix(1.2, *[(0.04 * i, note(S.glockenspiel, p, vel=0.6), 0.3) for i, p in enumerate((D5 + 12, F5 + 13, A5 + 12, D5 + 24))],
+                               *[(0.2, note(S.celesta, p, vel=0.7), 0.35) for p in (D5, F5 + 1, A5, C6 + 1)])
+    # a bump: a soft rocky thud and a squeaky "oof" going down
+    oof = env(sweep(900, 380, 0.22, shape=1.2, harmonics=((1, 1), (2, 0.35)), vibrato=0.03), 0.005, 0.1)
+    sfx["space_bump"] = mix(0.5, (0, S._tone_drum(110, 55, 0.09, 0.3), 0.9), (0, env(S.noise(int(SR * 0.15), 100, 1600, seed=503), 0.002, 0.12), 0.5), (0.04, oof, 0.35))
+    # a perfect gate: a magic "ta-da"
+    sfx["space_gate"] = mix(1.3, (0, note(S.vibraphone, A5, vel=0.7), 0.45), (0.1, note(S.vibraphone, D5 + 12, vel=0.8), 0.5),
+                            *[(0.1, note(S.celesta, p, vel=0.6), 0.3) for p in (F5 + 13, A5 + 12)],
+                            *[(0.18 + 0.035 * i, note(S.glockenspiel, p, vel=0.5), 0.22) for i, p in enumerate((D5 + 24, F5 + 25, A5 + 24, D5 + 36))])
+    # an alien rescued: a cute rising "wheee" and a giggle
+    whee = env(sweep(500, 1400, 0.35, shape=0.6, harmonics=((1, 1), (2, 0.25), (3, 0.1)), vibrato=0.035), 0.01, 0.1)
+    giggle = [(0.4 + 0.08 * i, env(sweep(1300 - 80 * i, 1100 - 80 * i, 0.06, harmonics=((1, 1), (2, 0.2))), 0.004, 0.03), 0.3) for i in range(3)]
+    sfx["space_alien"] = mix(0.7, (0, whee, 0.5), *giggle)
+    # the launch: a rocket's roar rising
+    n = int(SR * 1.3)
+    t = np.arange(n) / SR
+    roar = S.noise(n, 60, 3000, seed=504) * np.clip(t / 0.08, 0, 1) * np.exp(-t / 0.7)
+    sfx["space_launch"] = mix(1.4, (0, roar, 0.8), (0, env(sweep(90, 420, 1.0, shape=0.7, harmonics=((1, 1), (2, 0.5), (3, 0.2))), 0.05, 0.3), 0.35),
+                              (0.15, note(S.glockenspiel, D5 + 12, vel=0.5), 0.2))
+    # the landing: a soft bump on the pad and a happy two notes
+    sfx["space_land"] = mix(1.0, (0, S._tone_drum(150, 70, 0.08, 0.25), 0.7), (0.08, note(S.marimba, A5, vel=0.8), 0.5), (0.22, note(S.marimba, D5 + 12, vel=0.9), 0.55))
+    # low power: two gentle beeps going down
+    beep = lambda f: env(sweep(f, f, 0.12, harmonics=((1, 1), (3, 0.2))), 0.005, 0.04)
+    sfx["space_low"] = mix(0.45, (0, beep(880), 0.4), (0.2, beep(660), 0.4))
+    # the tow ship: a friendly "toot-toot"
+    toot = lambda f: env(sweep(f, f * 0.98, 0.18, harmonics=((1, 1), (2, 0.6), (3, 0.4), (4, 0.2))), 0.01, 0.06)
+    sfx["space_tow"] = mix(0.6, (0, toot(330), 0.45), (0.25, toot(392), 0.45))
+
+
+def fairy(sfx):
+    """Zana!: a cast for each of the six shapes (a swoosh and the shape's own little tune), a bubble's pop, a creature
+    turning happy (and a guardian), the fairy bumped, a gloom orb's "pew", a charge's whoosh, sparkles, a flower ring, a
+    heart flower, the magic full and the big magic, a wave cleared, a pixie freed, a guardian arriving, a fizzle."""
+    def swoosh(seconds, lo, hi, seed, shape=1.5):
+        n = int(SR * seconds)
+        return env(S.noise(n, lo, hi, seed=seed) * np.sin(np.pi * np.arange(n) / n) ** shape, 0.01, 0.08)
+
+    def run(fn, pitches, step, vel=0.7, gain=0.45, start=0.0):
+        return [(start + step * i, note(fn, p, vel=vel), gain) for i, p in enumerate(pitches)]
+    # the casts: every one a soft swoosh, then the shape's own figure
+    sfx["fairy_cast_swipe"] = mix(0.8, (0, swoosh(0.28, 900, 9000, 601), 0.5), *run(S.glockenspiel, (G5, C6 + 7), 0.07, start=0.08))
+    sfx["fairy_cast_vee"] = mix(0.9, (0, swoosh(0.3, 500, 6000, 602), 0.4),
+                                *run(S.marimba, (G5 + 12, C6, G5 + 12), 0.08, vel=0.8, gain=0.55, start=0.05))
+    n = int(SR * 0.3)
+    crackle = env(S.noise(n, 1500, 9000, seed=603) * (np.random.RandomState(603).rand(n) > 0.92), 0.002, 0.15)
+    sfx["fairy_cast_peak"] = mix(0.9, (0, swoosh(0.3, 400, 5000, 604), 0.4),
+                                 *run(S.xylophone, (C6, G5 + 12, C6 + 12, G5 + 12), 0.06, vel=0.8, gain=0.5, start=0.04),
+                                 (0.04, crackle, 0.35))
+    bloop = env(sweep(380, 980, 0.16, shape=0.6, harmonics=((1, 1), (2, 0.2))), 0.004, 0.06)
+    sfx["fairy_cast_circle"] = mix(1.0, (0, swoosh(0.32, 600, 7000, 605), 0.4), (0.03, bloop, 0.4),
+                                   *run(S.vibraphone, (C6, E5 + 12, G5 + 12, C6 + 12), 0.06, vel=0.7, gain=0.45, start=0.06))
+    zap = env(S.noise(int(SR * 0.12), 2500, 11000, seed=606), 0.001, 0.08)
+    sfx["fairy_cast_bolt"] = mix(0.9, (0, zap, 0.5),
+                                 *run(S.glockenspiel, (C6 + 12, G5 + 12, C6 + 19, G5 + 19, C6 + 24), 0.04, vel=0.6, gain=0.35, start=0.02),
+                                 (0.18, zap, 0.25))
+    sfx["fairy_cast_heart"] = mix(1.2, (0, swoosh(0.35, 400, 5000, 607, 2.0), 0.35),
+                                  *run(S.harp, (F5, A5, C6, F5 + 12), 0.07, vel=0.75, gain=0.45, start=0.04),
+                                  *[(0.3, note(S.celesta, p, vel=0.6), 0.3) for p in (A5 + 12, C6 + 12)])
+    # a bubble pops
+    pop = env(sweep(1300, 320, 0.07, shape=0.5, harmonics=((1, 1), (2, 0.3))), 0.001, 0.03)
+    sfx["fairy_pop"] = mix(0.3, (0, pop, 0.7), (0, env(S.noise(int(SR * 0.03), 2000, 9000, seed=608), 0.0005, 0.02), 0.35),
+                           (0.02, note(S.glockenspiel, C6 + 12, vel=0.4), 0.15))
+    # a creature turns happy: a bright "pwing" and a cascade of bells
+    pwing = env(sweep(600, 1500, 0.2, shape=0.5, harmonics=((1, 1), (2, 0.3), (3, 0.1))), 0.004, 0.1)
+    sfx["fairy_purify"] = mix(1.1, (0, pwing, 0.35),
+                              *run(S.glockenspiel, (C6 + 12, G5 + 12, E5 + 12, C6, E5 + 12, G5 + 12, C6 + 12), 0.045, vel=0.55, gain=0.3, start=0.05),
+                              (0.05, note(S.celesta, C6 + 4, vel=0.6), 0.3))
+    sfx["fairy_chief_saved"] = mix(2.2, (0, pwing, 0.3), *[(0.0, note(S.vibraphone, p, vel=0.8), 0.35) for p in (C5, E5, G5, B5)],
+                                   *run(S.glockenspiel, (C6, E5 + 12, G5 + 12, B5 + 12, C6 + 12, E5 + 24, G5 + 24, C6 + 24), 0.06, vel=0.6,
+                                        gain=0.3, start=0.12),
+                                   *[(0.62, note(S.celesta, p, vel=0.8), 0.35) for p in (C6, E5 + 12, G5 + 12, C6 + 12)])
+    # the fairy bumped: a soft thud and an "ow" going down
+    ow = env(sweep(1000, 420, 0.24, shape=1.1, harmonics=((1, 1), (2, 0.3)), vibrato=0.03), 0.005, 0.1)
+    sfx["fairy_hit"] = mix(0.6, (0, S._tone_drum(140, 60, 0.08, 0.3), 0.8),
+                           (0, env(S.noise(int(SR * 0.12), 200, 2500, seed=609), 0.002, 0.1), 0.4), (0.05, ow, 0.4))
+    # a gloom orb thrown: a dark, soft "pew"
+    sfx["fairy_shot"] = mix(0.45, (0, env(sweep(700, 180, 0.3, shape=0.8, harmonics=((1, 1), (2, 0.4), (3, 0.15))), 0.003, 0.12), 0.5),
+                            (0, swoosh(0.25, 150, 1800, 610), 0.4))
+    # a charge: a whoosh rising toward the fairy
+    n = int(SR * 0.6)
+    t = np.arange(n) / SR
+    rise = S.noise(n, 200, 4000, seed=611) * (t / 0.6) ** 2 * np.clip((0.6 - t) / 0.05, 0, 1)
+    sfx["fairy_charge"] = mix(0.65, (0, rise, 0.7), (0, env(sweep(160, 420, 0.55, shape=1.5, harmonics=((1, 1), (2, 0.5))), 0.05, 0.05), 0.3))
+    # a sparkle (the game raises its pitch as they come one after another)
+    sfx["fairy_sparkle"] = mix(0.35, (0, note(S.glockenspiel, C6 + 14, vel=0.55), 0.5), (0.03, note(S.celesta, C6 + 21, vel=0.45), 0.25))
+    # a flower ring: a whoosh through and a rising chime
+    sfx["fairy_ring"] = mix(0.9, (0, swoosh(0.45, 600, 7000, 612), 0.5),
+                            *run(S.vibraphone, (E5, G5 + 1, B5, E5 + 12), 0.06, vel=0.7, gain=0.4, start=0.05))
+    # a heart flower: two notes up and a harp's sparkle
+    sfx["fairy_heart"] = mix(0.9, (0, note(S.marimba, A5, vel=0.8), 0.5), (0.1, note(S.marimba, E5 + 12, vel=0.9), 0.55),
+                             *run(S.harp, (A5 + 12, C6 + 13, E5 + 24), 0.04, vel=0.6, gain=0.25, start=0.18))
+    # the magic full: a shimmering rising run
+    sfx["fairy_ready"] = mix(1.2, *run(S.celesta, (C5, E5, G5, C6, E5 + 12, G5 + 12, C6 + 12), 0.05, vel=0.6, gain=0.35),
+                             (0.36, note(S.glockenspiel, C6 + 24, vel=0.6), 0.3))
+    # the big magic: a swelling sparkle, a chord and bells all over
+    n = int(SR * 1.8)
+    t = np.arange(n) / SR
+    swell = S.noise(n, 1500, 12000, seed=613) * np.clip(t / 0.5, 0, 1) * np.exp(-np.clip(t - 0.5, 0, None) / 0.5)
+    sfx["fairy_magic"] = mix(2.4, (0, swell, 0.35), *[(0.35, note(S.vibraphone, p, vel=0.8), 0.32) for p in (F5, A5, C6, E5 + 12)],
+                             *run(S.glockenspiel, (F5 + 12, A5 + 12, C6 + 12, E5 + 24, F5 + 24, A5 + 24, C6 + 24), 0.04, vel=0.55, gain=0.25,
+                                  start=0.3),
+                             *run(S.harp, (F5, A5, C6, F5 + 12, A5 + 12, C6 + 12), 0.035, vel=0.7, gain=0.3, start=0.32))
+    # a wave cleared: a happy "ta-da"
+    sfx["fairy_wave"] = mix(1.0, (0, note(S.marimba, G5, vel=0.8), 0.45), (0.1, note(S.marimba, C6, vel=0.9), 0.5),
+                            *[(0.2, note(S.vibraphone, p, vel=0.7), 0.3) for p in (E5 + 12, G5 + 12)])
+    # a pixie freed: a cute "wheee", a giggle and chimes
+    whee = env(sweep(700, 1800, 0.35, shape=0.6, harmonics=((1, 1), (2, 0.25), (3, 0.1)), vibrato=0.04), 0.01, 0.1)
+    giggle = [(0.42 + 0.075 * i, env(sweep(1600 - 90 * i, 1350 - 90 * i, 0.055, harmonics=((1, 1), (2, 0.2))), 0.004, 0.03), 0.28)
+              for i in range(4)]
+    sfx["fairy_rescue"] = mix(1.1, (0, whee, 0.45), *giggle,
+                              *run(S.glockenspiel, (C6 + 12, E5 + 24, G5 + 24), 0.05, vel=0.5, gain=0.25, start=0.1))
+    # a guardian arrives: a deep, round "bwong" and a mysterious chord (still a toy)
+    sfx["fairy_chief"] = mix(1.8, (0, S._tone_drum(90, 45, 0.25, 0.9), 0.7),
+                             *[(0.05, note(S.vibraphone, p - 12, vel=0.75), 0.35) for p in (A5, C6, E5 + 12)],
+                             (0.4, note(S.vibraphone, G5 + 1 - 12, vel=0.7), 0.3), (0.0, swoosh(1.0, 80, 900, 614, 1.0), 0.3))
+    # a fizzle: the spell did not take
+    n = int(SR * 0.3)
+    sfx["fairy_fizzle"] = mix(0.5, (0, env(S.noise(n, 300, 3000, seed=615) * np.linspace(1, 0, n) ** 2, 0.005, 0.1), 0.45),
+                              (0, env(sweep(520, 240, 0.25, shape=0.8, harmonics=((1, 1), (2, 0.25))), 0.005, 0.1), 0.3))
+
+
+def boxing(sfx):
+    """Superboks!: the ring's bell (one ding to start a round, three to end the fight), glove punches (a padded thump and
+    a slap; a heavier one for counters and power punches), a punch into a guard (a muffled thud), the swish of a missed or
+    dodged punch, the referee's count (a woody knock), a knockdown's crash, the super punch (a rising roar and a boom),
+    the power full (a rising chime), a fireball's roar, a lightning crack."""
+    sfx["box_bell"] = mix(1.6, (0, ring(1180, 0.9, 1.6), 0.8), (0, ring(1770, 0.5, 1.6), 0.25))
+    sfx["box_bells"] = mix(2.0, (0, ring(1180, 0.5, 1.2), 0.7), (0.32, ring(1180, 0.5, 1.2), 0.7), (0.64, ring(1180, 0.9, 1.3), 0.8))
+    thump = S._tone_drum(170, 90, 0.04, 0.16)
+    slap = env(S.noise(int(SR * 0.06), 800, 6000, seed=701), 0.001, 0.035)
+    sfx["box_punch"] = mix(0.35, (0, thump, 0.95), (0, slap, 0.7))
+    sfx["box_punch_big"] = mix(0.6, (0, S._tone_drum(120, 55, 0.06, 0.28), 1.0), (0, slap, 0.85),
+                               (0, env(S.noise(int(SR * 0.12), 200, 2500, seed=702), 0.001, 0.08), 0.5))
+    sfx["box_block"] = mix(0.3, (0, S._tone_drum(230, 160, 0.03, 0.09), 0.8), (0, env(S.noise(int(SR * 0.04), 300, 1800, seed=703), 0.001, 0.03), 0.4))
+    n = int(SR * 0.35)
+    t = np.arange(n) / SR
+    sfx["box_swish"] = mix(0.4, (0, S.noise(n, 700, 5000, seed=704) * np.sin(np.pi * np.clip(t / 0.3, 0, 1)) ** 2, 0.6))
+    sfx["box_count"] = mix(0.3, (0, S._tone_drum(520, 380, 0.01, 0.07), 0.8), (0, env(S.noise(int(SR * 0.02), 1500, 6000, seed=705), 0.001, 0.015), 0.4))
+    sfx["box_down"] = mix(1.2, (0, S._tone_drum(80, 40, 0.12, 0.5), 1.0), (0.02, env(S.noise(int(SR * 0.4), 100, 1800, seed=706), 0.005, 0.25), 0.6),
+                          (0.15, S._tone_drum(110, 60, 0.05, 0.25), 0.5))
+    n = int(SR * 1.0)
+    t = np.arange(n) / SR
+    roar = S.noise(n, 200, 3000, seed=707) * np.clip(t / 0.85, 0, 1) ** 2
+    sfx["box_super"] = mix(1.6, (0, roar, 0.7), (0, sweep(220, 880, 0.9, shape=1.4, harmonics=((1, 1), (2, 0.4), (3, 0.2))) * np.clip(np.arange(int(SR * 0.9)) / (SR * 0.9), 0, 1), 0.35),
+                           (0.9, S._tone_drum(70, 35, 0.15, 0.6), 1.0), (0.9, env(S.noise(int(SR * 0.5), 100, 3000, seed=708), 0.002, 0.3), 0.7))
+    sfx["box_power"] = mix(1.0, *[(0.08 * i, note(S.vibraphone, p, vel=0.75), 0.4) for i, p in enumerate((C5, E5, G5, C6))])
+    n = int(SR * 0.9)
+    t = np.arange(n) / SR
+    sfx["box_fire"] = mix(1.0, (0, S.noise(n, 150, 2200, seed=709) * (0.6 + 0.4 * np.sin(2 * np.pi * 23 * t)) * np.sin(np.pi * t / 0.9), 0.8))
+    n = int(SR * 0.5)
+    t = np.arange(n) / SR
+    crack = S.noise(n, 1500, 9000, seed=710) * np.exp(-t / 0.06) + S.noise(n, 60, 600, seed=711) * np.exp(-t / 0.25) * 0.6
+    sfx["box_zap"] = mix(0.6, (0, crack, 0.9))
 
 
 def ring(f, decay, seconds):

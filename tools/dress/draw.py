@@ -154,22 +154,47 @@ class Piece:
         return ((xs + 0.5) / SS - self.origin[0]) / self.ppt, ((ys + 0.5) / SS - self.origin[1]) / self.ppt
 
     # ---- masks
+    def _box(self, p, pad):
+        """The supersampled pixel box round points p (with pad), clipped to the cell, or None if outside."""
+        x0 = max(0, int(min(q[0] for q in p) - pad))
+        x1 = min(self.W, int(max(q[0] for q in p) + pad) + 2)
+        y0 = max(0, int(min(q[1] for q in p) - pad))
+        y1 = min(self.H, int(max(q[1] for q in p) + pad) + 2)
+        if x1 <= x0 or y1 <= y0:
+            return None
+        return x0, y0, x1, y1
+
     def mask(self, pts):
-        img = Image.new("L", (self.W, self.H), 0)
-        ImageDraw.Draw(img).polygon([self.px(x, y) for x, y in pts], fill=255)
-        return np.asarray(img, np.float32) / 255
+        """A filled polygon (template units) as a full-cell mask; drawn only in its own box (most shapes are small)."""
+        out = np.zeros((self.H, self.W), np.float32)
+        p = [self.px(x, y) for x, y in pts]
+        b = self._box(p, 2)
+        if b is None:
+            return out
+        x0, y0, x1, y1 = b
+        img = Image.new("L", (x1 - x0, y1 - y0), 0)
+        ImageDraw.Draw(img).polygon([(qx - x0, qy - y0) for qx, qy in p], fill=255)
+        out[y0:y1, x0:x1] = np.asarray(img, np.float32) / 255
+        return out
 
     def line_mask(self, pts, width, round_caps=True):
-        img = Image.new("L", (self.W, self.H), 0)
-        d = ImageDraw.Draw(img)
+        out = np.zeros((self.H, self.W), np.float32)
         w = max(1, int(round(self.units(width))))
         p = [self.px(x, y) for x, y in pts]
-        d.line(p, fill=255, width=w, joint="curve")
+        b = self._box(p, w + 2)
+        if b is None:
+            return out
+        x0, y0, x1, y1 = b
+        img = Image.new("L", (x1 - x0, y1 - y0), 0)
+        d = ImageDraw.Draw(img)
+        q = [(qx - x0, qy - y0) for qx, qy in p]
+        d.line(q, fill=255, width=w, joint="curve")
         if round_caps:
             r = w / 2
-            for q in (p[0], p[-1]):
-                d.ellipse([q[0] - r, q[1] - r, q[0] + r, q[1] + r], fill=255)
-        return np.asarray(img, np.float32) / 255
+            for c in (q[0], q[-1]):
+                d.ellipse([c[0] - r, c[1] - r, c[0] + r, c[1] + r], fill=255)
+        out[y0:y1, x0:x1] = np.asarray(img, np.float32) / 255
+        return out
 
     def circle_mask(self, cx, cy, r):
         return self.mask(ellipse_pts(cx, cy, r, r, n=max(24, int(self.units(r) / 2))))
@@ -178,27 +203,49 @@ class Piece:
         return self.A.copy()
 
     # ---- painting
-    def paint(self, mask, color=None, grey=None, alpha=1.0, under=False):
+    def paint(self, mask, color=None, grey=None, alpha=1.0, under=False, box=None):
         """Composites `mask` (0..1) with a fixed colour (rgb, or an H x W x 3 array) or a tinted grey (number or H x W
-        array). under=True paints behind what is there (outlines)."""
-        k = np.clip(mask * alpha, 0, 1).astype(np.float32)
+        array). under=True paints behind what is there (outlines). Only the part of the cell the mask covers is touched
+        (most details are small); with `box` (a pair of slices) the mask and arrays are that part already."""
+        if box is None:
+            mm = np.asarray(mask)
+            if mm.ndim == 2 and mm.shape == (self.H, self.W):
+                on = mm > 1e-5
+                rows = np.flatnonzero(on.any(1))
+                if len(rows) == 0:
+                    return
+                cols = np.flatnonzero(on.any(0))
+                box = (slice(rows[0], rows[-1] + 1), slice(cols[0], cols[-1] + 1))
+                mask = mm[box]
+                if grey is not None and np.ndim(grey) == 2:
+                    grey = np.asarray(grey)[box]
+                if color is not None and np.ndim(color) == 3:
+                    color = np.asarray(color)[box]
+            else:
+                box = (slice(0, self.H), slice(0, self.W))
+        k = np.clip(np.asarray(mask, np.float32) * alpha, 0, 1).astype(np.float32)
+        h, w = k.shape
         if grey is not None:
             g = np.asarray(grey, np.float32)
-            col = np.repeat((g if g.ndim == 2 else np.full((self.H, self.W), float(g), np.float32))[..., None], 3, 2)
+            col = np.repeat((g if g.ndim == 2 else np.full((h, w), float(g), np.float32))[..., None], 3, 2)
             t = 1.0
         else:
             c = np.asarray(color, np.float32)
-            col = c if c.ndim == 3 else np.broadcast_to(c, (self.H, self.W, 3))
+            col = c if c.ndim == 3 else np.broadcast_to(c, (h, w, 3))
             t = 0.0
+        P, A, M = self.P[box], self.A[box], self.M[box]
         if under:
-            free = 1 - self.A
-            self.P += col * (k * free)[..., None]
-            self.M += t * k * free
-            self.A += k * free
+            free = 1 - A
+            P += col * (k * free)[..., None]
+            M += t * k * free
+            A += k * free
         else:
-            self.P = col * k[..., None] + self.P * (1 - k)[..., None]
-            self.M = t * k + self.M * (1 - k)
-            self.A = k + self.A * (1 - k)
+            P *= (1 - k)[..., None]
+            P += col * k[..., None]
+            M *= (1 - k)
+            M += t * k
+            A *= (1 - k)
+            A += k
 
     def shape(self, pts, grey=None, color=None, outline=0.012, shade=0.0, shade_radius=0.06, ink=None, alpha=1.0,
               clip=None):

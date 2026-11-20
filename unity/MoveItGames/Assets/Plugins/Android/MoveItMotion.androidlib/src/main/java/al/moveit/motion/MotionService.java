@@ -44,8 +44,11 @@ public final class MotionService implements LifecycleOwner {
     private volatile float fps, inferenceMs, cameraFps;
     private volatile long lastResultAt;    // the analysis thread's or the NPU thread's result, never both at once
     private long lastFrameAt, lastStatsLogAt;
-    /** Nobody seen for this long: the pose AI only looks every IDLE_INTERVAL_MS (~7 times a second). */
-    private static final long IDLE_AFTER_MS = 2000, IDLE_INTERVAL_MS = 150;
+    /** Nobody seen for this long: the pose AI only looks every IDLE_INTERVAL_MS (4 times a second). On the NPU the
+     *  frames of the last IDLE_WATCH_MS before a look (three at 30 fps) go into the person detector's running average
+     *  (it looks at one frame and at the average of four by turns: in a dark room it finds people in the average). Until
+     *  2026-11-10: a look every 150 ms at a single frame. */
+    private static final long IDLE_AFTER_MS = 2000, IDLE_INTERVAL_MS = 250, IDLE_WATCH_MS = 105;
     private volatile long lastPersonAt;    // also set by pipelined results (the NPU thread)
     private long lastAiAt;                 // analysis thread only
     private final float[] inference = new float[1];
@@ -171,6 +174,28 @@ public final class MotionService implements LifecycleOwner {
 
     private static volatile float[] people = {1, 0, 0, 0, 0};
 
+    /**
+     * While two people share the NPU's landmark runs: the one followed as track (a packet's "tid") gets share of them
+     * (0.67 = two frames in three, ~20 poses a second; the other ~10), 0 = they take turns evenly. A two-player game
+     * gives it to the player who has to move now (Tenis!: the one the ball is coming to). Applied on the analysis thread.
+     */
+    public static void setFocus(int track, float share) {
+        focus = new float[]{track, share};
+        MotionService s = instance;
+        if (s != null) s.analysisThread.execute(s::applyFocus);
+    }
+
+    private static volatile float[] focus = {0, 0};
+
+    private void applyFocus() {
+        float[] f = focus;
+        try {
+            engine.setFocus((int) f[0], f[1]);
+        } catch (Throwable e) {
+            Log.w(TAG, "focus: " + e);   // the runs stay shared evenly
+        }
+    }
+
     private void applyPeople() {
         float[] p = people;
         try {
@@ -204,6 +229,7 @@ public final class MotionService implements LifecycleOwner {
         analysisThread.execute(() -> {
             try {
                 applyPeople();
+                applyFocus();
                 engine.open();
             } catch (Throwable e) {
                 fail("model: " + e.getMessage());
@@ -261,7 +287,8 @@ public final class MotionService implements LifecycleOwner {
                             + round(inferenceMs) + " ms, " + engine.delegate() + " " + engine.model()
                             + (detail.isEmpty() ? "" : " (" + detail + ")") + ", " + state + (idle ? " (idle)" : "")
                             + ", frame " + image.getWidth() + "x" + image.getHeight() + (light.isEmpty() ? "" : ", " + light)
-                            + ", gaps: " + skippedFrames + " camera frames skipped, " + peopleLost + " lost, worst "
+                            + ", gaps: " + skippedFrames + " camera frames skipped, " + peopleLost + " lost, "
+                            + engine.takeDips() + " dips, " + engine.takeGhosts() + " ghosts, worst "
                             + round(worstMs) + " ms, frame age " + round(frameAgeMs) + " ms (" + frameClock + " clock)");
                     lastSkipped = skippedFrames;
                     lastLost = peopleLost;
@@ -302,7 +329,15 @@ public final class MotionService implements LifecycleOwner {
                         video.width(), captureWall, ++videoFrame);
                 else video.offer(frame, captureWall, videoFrame++);  // copies the frame; encoded on its own thread
             }
-            if (!runAi) return;
+            if (!runAi) {
+                // idle: the frames just before the next look, for the detector's running average
+                if (direct && engine.usesNpu() && now - lastAiAt >= IDLE_INTERVAL_MS - IDLE_WATCH_MS) {
+                    rgba.rewind();
+                    engine.watch(rgba, image.getWidth(), image.getHeight(), plane.getRowStride(),
+                            image.getImageInfo().getTimestamp());
+                }
+                return;
+            }
             lastAiAt = now;
             long captureNs = image.getImageInfo().getTimestamp();   // the sensor's monotonic clock
             // blocking: the camera keeps only the newest frame meanwhile
@@ -323,7 +358,7 @@ public final class MotionService implements LifecycleOwner {
                 ok = engine.detect(frame, inference, captureNs, pose);
             }
             if (ok) {
-                countGaps(captureNs, idle, pose.found, inference[0]);
+                countGaps(captureNs, idle, pose.found, pose.coasting, inference[0]);
                 if (pose.found) lastPersonAt = now;
                 onPoseResult(pose, captureWall, width, height, inference[0]);
             }
@@ -332,9 +367,10 @@ public final class MotionService implements LifecycleOwner {
         } finally {
             image.close();
         }
-        // idle with no picture wanted: wait for the next look (CameraX keeps only the newest frame meanwhile)
+        // idle with no picture wanted: wait for the next look (CameraX keeps only the newest frame meanwhile); on the
+        // NPU, up to the frames the detector's running average wants before it
         if (idle && !videoOn) {
-            long wait = lastAiAt + IDLE_INTERVAL_MS - SystemClock.elapsedRealtime();
+            long wait = lastAiAt + IDLE_INTERVAL_MS - (engine.usesNpu() ? IDLE_WATCH_MS : 0) - SystemClock.elapsedRealtime();
             if (wait > 0) SystemClock.sleep(Math.min(wait, IDLE_INTERVAL_MS));
         }
     }
@@ -359,14 +395,15 @@ public final class MotionService implements LifecycleOwner {
     /** A pipelined frame's pose (PoseEngine.submit), on the NPU's thread: handled like a synchronous one. */
     private void onPipelinedResult(Pose result, float ms, long captureNs, boolean idle, long frameAt, long captureWall,
                                    int width, int height) {
-        countGaps(captureNs, idle, result.found, ms);
+        countGaps(captureNs, idle, result.found, result.coasting, ms);
         if (result.found) lastPersonAt = frameAt;
         onPoseResult(result, captureWall, width, height, ms);
     }
 
     /** The stutter diagnostics for one analysed frame (see the fields). Gaps count only between frames analysed while
-     *  someone was being followed (not idle: then the AI looks every {@link #IDLE_INTERVAL_MS} on purpose). */
-    private synchronized void countGaps(long captureNs, boolean idle, boolean found, float ms) {
+     *  someone was being followed (not idle: then the AI looks every {@link #IDLE_INTERVAL_MS} on purpose). coasting: the
+     *  NPU engine kept following someone through a low pose score: no pose from this frame, but nobody lost. */
+    private synchronized void countGaps(long captureNs, boolean idle, boolean found, boolean coasting, float ms) {
         if (!idle && !lastAnalysedIdle && lastAnalysedNs > 0) {
             float gapMs = (captureNs - lastAnalysedNs) / 1e6f;
             if (gapMs > 0 && gapMs < 250) {
@@ -374,12 +411,12 @@ public final class MotionService implements LifecycleOwner {
                 float interval = frameIntervalMs > 0 ? frameIntervalMs : shortestGapMs;
                 skippedFrames += Math.max(0, Math.round(gapMs / interval) - 1);
             }
-            if (lastFound && !found) peopleLost++;
+            if (lastFound && !found && !coasting) peopleLost++;
             worstMs = Math.max(worstMs, ms);
         }
         lastAnalysedNs = captureNs;
         lastAnalysedIdle = idle;
-        lastFound = found;
+        if (!coasting) lastFound = found;   // a dip isn't a loss: a later frame without a pose and without a dip is
     }
 
     /**

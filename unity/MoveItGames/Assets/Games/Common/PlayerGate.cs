@@ -68,33 +68,70 @@ namespace MoveIt.Games
         public static string PlayAgainText(BodyInput input) =>
             State(input) == GateState.NoService ? CommonStrings.PressEnter : PlacementHint(input) ?? CommonStrings.PlayAgain;
 
-        /// <summary>Draws the waiting-screen prompt for the current gate state. Returns the state.</summary>
-        public static GateState DrawWaiting(float width, BodyInput input, string title, string keyboardHelp)
+        /// <summary>
+        /// What the waiting screen's prompt says for the gate's state: a big line (null = nothing to say), a small one
+        /// under it (or null), the big line's colour, and chevrons toward the side the player should move to (-1 left,
+        /// 1 right, 0 none). <see cref="DrawWaiting"/> draws it with IMGUI; a game that draws its words itself (Zana!'s
+        /// batched HUD) can lay it out the same way: the big line at y 300 (<see cref="GameHud.Medium"/> past 26
+        /// characters, else <see cref="GameHud.Big"/>), the small one at 450, the chevrons at y 370, 170 in from a side.
+        /// </summary>
+        public struct WaitingPrompt
         {
-            var state = State(input);
-            if (input != null && input.Gestures != null) input.Gestures.PlacementShownFrame = Time.frameCount;
-            GameHud.Text(new Rect(0, 140, width, 120), title, GameHud.Big, TextAnchor.MiddleCenter, new Color(1f, 0.85f, 0.2f));
-            switch (state)
+            public GateState State;
+            public string Title, Subtitle;
+            public Color Colour;
+            public int Chevrons;
+        }
+
+        public static WaitingPrompt Waiting(BodyInput input, string keyboardHelp)
+        {
+            var p = new WaitingPrompt { State = State(input), Colour = Color.white };
+            switch (p.State)
             {
                 case GateState.NoService:
-                    GameHud.Message(width, CommonStrings.PressEnter, $"{CommonStrings.NoMotionService}   ({keyboardHelp})");
+                    p.Title = CommonStrings.PressEnter;
+                    p.Subtitle = $"{CommonStrings.NoMotionService}   ({keyboardHelp})";
                     break;
                 case GateState.NoPlayer:
-                    GameHud.Message(width, CommonStrings.StepIn);
+                    p.Title = CommonStrings.StepIn;
                     break;
                 case GateState.Placing:
-                    DrawPlacement(width, input.Gestures);
+                    Placement(ref p, input.Gestures);
                     break;
                 case GateState.Calibrating:
-                    GameHud.Message(width, CommonStrings.HoldStill, Advice(input) ?? $"{input.Gestures.CalibrationProgress * 100f:0}%");
+                    p.Title = CommonStrings.HoldStill;
+                    p.Subtitle = Advice(input) ?? $"{input.Gestures.CalibrationProgress * 100f:0}%";
                     break;
                 default:
                     // Calibrated, then walked somewhere the game can't be played from: hands up doesn't start here.
-                    if (input.Gestures.Placement.Blocks) DrawPlacement(width, input.Gestures);
-                    else GameHud.Message(width, CommonStrings.RaiseHands, Advice(input) ?? CommonStrings.OrPressEnter);
+                    if (input.Gestures.Placement.Blocks) Placement(ref p, input.Gestures);
+                    else
+                    {
+                        p.Title = CommonStrings.RaiseHands;
+                        p.Subtitle = Advice(input) ?? CommonStrings.OrPressEnter;
+                    }
                     break;
             }
-            return state;
+            return p;
+        }
+
+        /// <summary>Draws the waiting-screen prompt for the current gate state. Returns the state.</summary>
+        public static GateState DrawWaiting(float width, BodyInput input, string title, string keyboardHelp)
+        {
+            var prompt = Waiting(input, keyboardHelp);
+            if (input != null && input.Gestures != null) input.Gestures.PlacementShownFrame = Time.frameCount;
+            GameHud.Text(new Rect(0, 140, width, 120), title, GameHud.Big, TextAnchor.MiddleCenter, new Color(1f, 0.85f, 0.2f));
+            DrawPrompt(width, prompt);
+            return prompt.State;
+        }
+
+        /// <summary>A waiting prompt with IMGUI: the big line, the small one, the chevrons.</summary>
+        public static void DrawPrompt(float width, WaitingPrompt prompt)
+        {
+            if (prompt.Title == null) return;
+            GameHud.Message(width, prompt.Title, prompt.Subtitle, prompt.Colour);
+            if (prompt.Chevrons != 0)
+                GameHud.Chevrons(new Vector2(prompt.Chevrons < 0 ? 170f : width - 170f, 370f), prompt.Chevrons, 120f, prompt.Colour);
         }
 
         /// <summary>Message to show while <see cref="ShouldPause"/> is true.</summary>
@@ -135,12 +172,19 @@ namespace MoveIt.Games
         /// <summary>The big "go there" message with arrows to the side the player should move to.</summary>
         static void DrawPlacement(float width, BodyGestures g)
         {
+            var prompt = new WaitingPrompt { Colour = Color.white };
+            Placement(ref prompt, g);
+            DrawPrompt(width, prompt);
+        }
+
+        static void Placement(ref WaitingPrompt prompt, BodyGestures g)
+        {
             var (title, why) = PlacementText(g);
             if (title == null) return;
-            var color = Brand.Current.SecondaryColor;
-            GameHud.Message(width, title, why, color);
-            if (g.Placement.Issue == PlacementIssue.MoveLeft) GameHud.Chevrons(new Vector2(170f, 370f), -1, 120f, color);
-            if (g.Placement.Issue == PlacementIssue.MoveRight) GameHud.Chevrons(new Vector2(width - 170f, 370f), 1, 120f, color);
+            prompt.Title = title;
+            prompt.Subtitle = why;
+            prompt.Colour = Brand.Current.SecondaryColor;
+            prompt.Chevrons = g.Placement.Issue == PlacementIssue.MoveLeft ? -1 : g.Placement.Issue == PlacementIssue.MoveRight ? 1 : 0;
         }
 
         static (string title, string why) PlacementText(BodyGestures g)

@@ -83,6 +83,7 @@ class Song:
         self.length = max(s + l for s, l, _ in self.chords)
         self.tracks = []
         self.rng = random.Random(seed)
+        self.markers = []           # [(tick, text)]: written into the MIDI file (Yjet!'s sections)
 
     def track(self, name, channel, program, volume=100, pan=64, reverb=40):
         t = midi.Track(name, channel, program, volume, pan, reverb)
@@ -111,8 +112,11 @@ class Song:
             tick += length
         return tick
 
-    def bass(self, track, style, low=pitch("E1"), velocity=92):
+    def bass(self, track, style, low=pitch("E1"), velocity=92, span=None):
+        """span: (start tick, end tick): only the chords starting in it (a song's section)."""
         for i, (start, length, name) in enumerate(self.chords):
+            if span and not span[0] <= start < span[1]:
+                continue
             root_pc, iv = chord(name)
             root = low + (root_pc - low) % 12
             fifth = root + 7 if root + 7 <= low + 19 else root - 5
@@ -157,10 +161,12 @@ class Song:
                     best, best_cost = cand, cost
         return best or [low + 12 + (t - low) % 12 for t in tones]
 
-    def comp(self, track, rhythm, low=pitch("E3"), high=pitch("D5"), velocity=70, length=0.9, size=4):
+    def comp(self, track, rhythm, low=pitch("E3"), high=pitch("D5"), velocity=70, length=0.9, size=4, span=None):
         """Chord stabs. rhythm: list of (beat offset in the bar, duration in beats)."""
         prev = None
         for start, clen, name in self.chords:
+            if span and not span[0] <= start < span[1]:
+                continue
             v = self.voicing(name, low, high, prev, size=size)
             prev = v
             for beat, dur in rhythm:
@@ -170,20 +176,27 @@ class Song:
                 for k, n in enumerate(v):
                     track.note(self.at(tick, 3) + k * 6, dur * PPQ * length, n, self.vel(velocity, 8))
 
-    def arpeggio(self, track, low, high, step=0.5, velocity=70, pattern=(0, 1, 2, 3, 2, 1)):
+    def arpeggio(self, track, low, high, step=0.5, velocity=70, pattern=(0, 1, 2, 3, 2, 1), span=None):
         for start, clen, name in self.chords:
+            if span and not span[0] <= start < span[1]:
+                continue
             v = self.voicing(name, low, high, None, drop_root=False)
             for k in range(int(clen / (step * PPQ))):
                 n = v[pattern[k % len(pattern)] % len(v)]
                 track.note(self.at(start + int(k * step * PPQ), 2), step * PPQ * 0.9, n, self.vel(velocity, 8))
 
-    def drums(self, track, bars):
-        """bars: {note: 'x.o.X...' 16 steps per bar (X loud, x normal, o soft)}, repeated over the whole song."""
+    def drums(self, track, bars, span=None):
+        """bars: {note: 'x.o.X...' 16 steps per bar (X loud, x normal, o soft)}, repeated over the whole song (or over
+        span = (start tick, end tick), the pattern starting with the span)."""
         n_bars = self.length // BAR
+        first = span[0] // BAR if span else 0
         for b in range(n_bars):
+            if span and not span[0] <= b * BAR < span[1]:
+                continue
             for note, steps in bars.items():
                 steps = steps.replace(" ", "")
-                bar_steps = steps[(b * 16) % len(steps):(b * 16) % len(steps) + 16]
+                k = ((b - first) * 16) % len(steps)
+                bar_steps = steps[k:k + 16]
                 for s, ch in enumerate(bar_steps):
                     if ch in "xXo":
                         v = {"X": 112, "x": 92, "o": 62}[ch]
@@ -195,7 +208,8 @@ class Song:
     def write(self, folder=MIDI_DIR, loop=True):
         os.makedirs(folder, exist_ok=True)
         path = os.path.join(folder, f"{self.name}.mid")
-        midi.write(path, self.tracks, self.bpm, loop_end_tick=self.length if loop else None, title=self.title)
+        midi.write(path, self.tracks, self.bpm, loop_end_tick=self.length if loop else None, title=self.title,
+                   markers=self.markers)
         return path
 
 
@@ -211,7 +225,8 @@ def M(text):
 # ---------------------------------------------------------------------------------------------------- songs
 
 def runner():
-    """Vrapo! 'Dino Dash': bouncy tropical run, marimba + steel drum, congas and claps."""
+    """Vrapo! 'Dino Dash' as it was until 2026-11-18 (a 16-bar loop): tools/music/runner_songs.py's sectioned "Dino Dash"
+    replaced it (main() takes that one). Bouncy tropical run, marimba + steel drum, congas and claps."""
     s = Song("runner", "Dino Dash", 132,
              "Fmaj7 | Gm7 C7 | Am7 Dm7 | Gm7 C7 | Fmaj7 | Bbmaj7 | Gm7 | C7sus4 C7 |"
              "Bbmaj7 | C7 | Am7 | Dm7 | Gm7 | C7 | Fmaj7 Dm7 | Gm7 C7", seed=3)
@@ -708,22 +723,157 @@ def kart():
     return s
 
 
+def boxing():
+    """Superboks! 'Champion's Corner': the fight, a punchy, heroic minor-key march: whistle and xylophone over electric
+    piano stabs and pizzicato, a bouncing bass, a driving beat with claps on two and four (a boxing gym's skipping rope in
+    the hats)."""
+    s = Song("boxing", "Champion's Corner", 148,
+             "Am | F | G | E7 | Am | F | Dm7 | E7 | F | G | Em7 | Am | Dm7 | G | C E7 | Am", seed=97)
+    lead = s.track("Whistle", 0, WHISTLE, 104, 58, 45)
+    xylo = s.track("Xylophone", 1, XYLOPHONE, 80, 80, 40)
+    ep = s.track("Electric piano", 2, EPIANO, 66, 44, 35)
+    pizz = s.track("Pizzicato", 3, PIZZ, 72, 70, 25)
+    bass = s.track("Bass", 4, FINGER_BASS, 104, 64, 15)
+    kit = s.track("Drums", 9, 0, 98, 64, 20)
+    a = M("A4:1 C5:1 E5:2 A5:2 G5:1 E5:1 | F5:2 A5:1 C6:1 A5:2 F5:2 | G5:2 B5:1 D6:1 B5:2 G5:2 | G#5:3 E5:1 B4:2 E5:2 | "
+          "A5:1 C6:1 E6:2 C6:2 A5:2 | F5:2 C6:2 A5:2 F5:2 | D5:1 F5:1 A5:2 C6:2 A5:2 | B5:4 r:2 E5:1 G#5:1")
+    b = M("A5:2 C6:1 A5:1 F5:2 C6:2 | B5:2 D6:1 B5:1 G5:2 D6:2 | B5:2 G5:1 E5:1 G5:2 B5:2 | C6:3 B5:1 A5:2 E5:2 | "
+          "F5:1 A5:1 D6:2 C6:2 A5:2 | B5:2 D6:2 G6:2 F6:2 | E6:2 C6:2 G#5:2 B5:2 | A5:4 r:2 E5:1 A5:1")
+    end = s.melody(lead, a, velocity=104, legato=0.72)
+    s.melody(lead, b, velocity=108, legato=0.72, start=end)
+    s.melody(xylo, a, octave_shift=-1, velocity=58, legato=0.5)
+    s.melody(xylo, b, velocity=66, legato=0.5, start=end)
+    s.comp(ep, [(0.5, 0.25), (1.5, 0.25), (2.5, 0.25), (3.5, 0.25)], low=pitch("E3"), high=pitch("C5"), velocity=58, size=3)
+    s.comp(pizz, [(0, 0.25), (2, 0.25)], low=pitch("A3"), high=pitch("E5"), velocity=62, size=3)
+    s.bass(bass, "bounce", low=pitch("E1"), velocity=100)
+    s.drums(kit, {
+        KICK:     "x.....x...x.....",
+        SNARE:    "....x.......x..." + "....x.......x.xx",
+        CLAP:     "....x.......x...",
+        HAT:      "x.xxx.xxx.xxx.xx",
+        CRASH:    "x..............." + "................" * 7,
+    })
+    return s
+
+
+def arcade():
+    """Lunapark! 'Lunapark Lights': the fun fair at night, a merry-go-round tune: whistle and glockenspiel (a calliope's
+    bright pipes) over an oom-pah of pizzicato and bass, a jaunty kick and tambourine."""
+    s = Song("arcade", "Lunapark Lights", 126,
+             "F | C7 | F | Bb | F | C7 | F C7 | F | Bb | F | C7 | F | Gm7 | C7 | F Dm7 | Gm7 C7", seed=91)
+    lead = s.track("Whistle", 0, WHISTLE, 100, 58, 50)
+    glock = s.track("Glockenspiel", 1, GLOCK, 66, 80, 60)
+    pizz = s.track("Pizzicato", 2, PIZZ, 78, 44, 35)
+    bass = s.track("Bass", 3, FINGER_BASS, 98, 64, 15)
+    kit = s.track("Drums", 9, 0, 88, 64, 25)
+    a = M("C5:2 F5:1 A5:1 C6:2 A5:2 | Bb5:2 G5:1 E5:1 C5:2 E5:2 | F5:1 G5:1 A5:2 C6:1 A5:1 F5:2 | D6:3 C6:1 Bb5:2 A5:2 | "
+          "C5:2 F5:1 A5:1 C6:2 D6:2 | C6:2 Bb5:1 G5:1 E5:2 G5:2 | A5:2 F5:2 G5:2 E5:2 | F5:4 r:2 C5:1 E5:1")
+    b = M("D6:2 Bb5:1 F5:1 D5:2 F5:2 | C6:2 A5:1 F5:1 C5:2 F5:2 | E5:1 G5:1 Bb5:1 C6:1 E6:2 D6:1 C6:1 | A5:3 G5:1 F5:2 A5:2 | "
+          "Bb5:2 A5:1 G5:1 F5:2 D5:2 | E5:2 G5:1 Bb5:1 E6:2 C6:2 | A5:2 C6:2 F6:2 D6:2 | C6:3 Bb5:1 G5:2 E5:2")
+    end = s.melody(lead, a, velocity=98, legato=0.8)
+    s.melody(lead, b, velocity=102, legato=0.8, start=end)
+    s.melody(glock, a, octave_shift=1, velocity=58, legato=0.5)                # the calliope's sparkle on top
+    s.melody(glock, b, octave_shift=1, velocity=62, legato=0.5, start=end)
+    s.comp(pizz, [(1, 0.4), (3, 0.4)], low=pitch("A3"), high=pitch("F5"), velocity=66, size=3)   # the "pah"
+    s.bass(bass, "pump", low=pitch("E1"), velocity=90)                         # the "oom"
+    s.drums(kit, {
+        KICK:     "x.......x.......",
+        TAMB:     "....x.......x...",
+        SHAKER:   "o.o.o.o.o.o.o.o.",
+        TRIANGLE: "x..............." + "................" * 3,
+    })
+    return s
+
+
+def arcade_play():
+    """Lunapark!'s booths 'Ticket Rush': a quick, bouncy arcade tune: xylophone and steel drum over electric piano offbeats, a
+    bouncing bass, claps and hats."""
+    s = Song("arcade_play", "Ticket Rush", 148,
+             "C | Am7 | F | G7 | C | Am7 | Dm7 G7 | C | F | G | Em7 Am7 | Dm7 G7 | C | E7 | Am7 D7 | G7sus4 G7", seed=93)
+    lead = s.track("Xylophone", 0, XYLOPHONE, 104, 56, 40)
+    steel = s.track("Steel drum", 1, STEEL_DRUM, 78, 82, 50)
+    ep = s.track("Electric piano", 2, EPIANO, 62, 44, 35)
+    bass = s.track("Bass", 3, FINGER_BASS, 100, 64, 15)
+    kit = s.track("Drums", 9, 0, 94, 64, 20)
+    a = M("E5:1 G5:1 C6:2 B5:1 G5:1 E5:2 | A5:1 C6:1 E6:2 D6:1 C6:1 A5:2 | F5:1 A5:1 C6:2 A5:1 F5:1 C5:2 | D5:1 G5:1 B5:2 D6:2 B5:2 | "
+          "C6:1 B5:1 C6:1 E6:1 G6:2 E6:2 | C6:1 A5:1 E5:1 A5:1 C6:2 A5:2 | F5:2 A5:2 G5:2 B5:2 | C6:4 r:2 G5:1 B5:1")
+    b = M("A5:2 C6:1 F6:1 E6:2 C6:2 | D6:2 B5:1 G5:1 B5:2 D6:2 | G5:2 B5:2 C6:2 E6:2 | F6:2 D6:2 B5:2 G5:2 | "
+          "E6:1 D6:1 C6:2 G5:2 E5:2 | G#5:2 B5:1 D6:1 E6:2 D6:2 | C6:2 A5:2 F#5:2 A5:2 | G5:2 C6:1 B5:1 D6:2 r:2")
+    end = s.melody(lead, a, velocity=100, legato=0.7)
+    s.melody(lead, b, velocity=104, legato=0.7, start=end)
+    s.melody(steel, b, octave_shift=-1, velocity=70, legato=0.6, start=end)   # the steel drum joins in the second half
+    s.comp(ep, [(0.5, 0.25), (1.5, 0.25), (2.5, 0.25), (3.5, 0.25)], low=pitch("E3"), high=pitch("C5"), velocity=56, size=3)
+    s.bass(bass, "bounce", low=pitch("E1"), velocity=96)
+    s.drums(kit, {
+        KICK:     "x.....x.x.......",
+        CLAP:     "....x.......x...",
+        HAT:      "x.x.x.x.x.x.x.x.",
+        TAMB:     "................" * 3 + "..o...o...o.o.o.",
+        CRASH:    "x..............." + "................" * 7,
+    })
+    return s
+
+
+def space():
+    """Yjet! 'Star Hopper': flying from planet to planet, a bright, wondering bounce: celesta and vibes over a warm pad,
+    pizzicato arpeggios twinkling like stars, a bouncing bass, light drums with a shaker and a triangle."""
+    s = Song("space", "Star Hopper", 124,
+             "Dmaj7 | Bm7 | Gmaj7 | A7sus4 A7 | Dmaj7 | F#m7 | Gmaj7 | Em7 A7 | Bm7 | Gmaj7 | Em7 | A | Dmaj7 Bm7 | Em7 A7 |"
+             "Gmaj7 | A7sus4 A7", seed=101)
+    cel = s.track("Celesta", 0, CELESTA, 106, 64, 60)
+    vib = s.track("Vibraphone", 1, VIBES, 78, 84, 60)
+    glock = s.track("Glockenspiel", 2, GLOCK, 52, 70, 70)
+    pad = s.track("Pad", 3, PAD, 58, 64, 70)
+    pizz = s.track("Pizzicato", 4, PIZZ, 66, 44, 45)
+    bass = s.track("Bass", 5, FINGER_BASS, 96, 64, 20)
+    kit = s.track("Drums", 9, 0, 80, 64, 30)
+    a = M("A4:1 D5:1 F#5:2 E5:1 D5:1 A5:2 | B5:2 A5:1 F#5:1 D5:2 F#5:2 | G5:1 B5:1 D6:2 C#6:1 B5:1 F#5:2 | E5:3 D5:1 C#5:2 A4:2 | "
+          "A4:1 D5:1 F#5:2 A5:1 C#6:1 E6:2 | C#6:2 A5:1 F#5:1 E5:2 C#5:2 | D5:1 G5:1 B5:2 A5:1 G5:1 F#5:2 | E5:4 r:2 A4:1 C#5:1")
+    b = M("D5:2 F#5:1 B5:1 A5:2 F#5:2 | G5:2 B5:1 D6:1 F#6:2 D6:2 | E6:2 D6:1 B5:1 G5:2 E5:2 | A5:3 G5:1 E5:2 C#5:2 | "
+          "D5:1 F#5:1 A5:2 B5:2 D6:2 | G5:2 E5:2 A5:2 C#6:2 | B5:2 D6:1 F#6:1 E6:2 D6:2 | D6:3 C#6:1 A5:2 r:2")
+    end = s.melody(cel, a, velocity=96, legato=0.85)
+    s.melody(cel, b, velocity=100, legato=0.85, start=end)
+    s.melody(glock, a, octave_shift=1, velocity=50, legato=0.4)                # the stars twinkling over the tune
+    s.melody(vib, b, octave_shift=-1, velocity=60, legato=0.9, start=end)      # the vibraphone joins in the second half
+    s.comp(pad, [(0, 3.9)], low=pitch("D3"), high=pitch("A4"), velocity=50, length=1.0, size=4)
+    s.arpeggio(pizz, pitch("D4"), pitch("A5"), step=0.5, velocity=54, pattern=(0, 1, 2, 3, 2, 1, 2, 3))
+    s.bass(bass, "bounce", low=pitch("E1"), velocity=88)
+    s.drums(kit, {
+        KICK:     "x.......x..x....",
+        CLAP:     "....x.......x...",
+        HAT:      "..x...x...x...x.",
+        SHAKER:   "o.o.o.o.o.o.o.o.",
+        TRIANGLE: "x..............." + "................" * 3,
+    })
+    return s
+
+
 SONGS = {f.__name__: f for f in (menu, runner, dress, runway, bowling, paint, sword, fly, tennis, sports, track, football, volley, kart,
+                                  arcade, arcade_play, space, boxing,
                                   jingle_win, jingle_gameover)}
 
 
+def one_shot(name):
+    """Jingles and Yjet!'s songs play once (no loop); everything else loops."""
+    return name.startswith("jingle_") or name.startswith("space_")
+
+
 def main():
+    import fairy_songs                     # Zana!'s songs (tools/music/fairy_songs.py)
+    import runner_songs                    # Vrapo!'s songs (tools/music/runner_songs.py, 2026-11-18: they replace runner() here)
+    import space_songs                     # Yjet!'s songs (tools/music/space_songs.py), one per planet
+    songs = {**SONGS, **space_songs.SONGS, **fairy_songs.SONGS, **runner_songs.SONGS}
     ap = argparse.ArgumentParser(description="Write Tundu's soundtrack as MIDI files")
-    ap.add_argument("songs", nargs="*", help=f"which ones (default: all): {', '.join(SONGS)}")
+    ap.add_argument("songs", nargs="*", help=f"which ones (default: all): {', '.join(songs)}")
     ap.add_argument("--force", action="store_true", help="overwrite existing .mid files (your edits are lost)")
     args = ap.parse_args()
-    for name in args.songs or SONGS:
+    for name in args.songs or songs:
         path = os.path.join(MIDI_DIR, f"{name}.mid")
         if os.path.exists(path) and not args.force:
             print(f"  keep   {path} (exists; --force to rewrite)")
             continue
-        song = SONGS[name]()
-        song.write(loop=not name.startswith("jingle_"))
+        song = songs[name]()
+        song.write(loop=not one_shot(name))
         print(f"  wrote  {path}  ({song.title}, {song.bpm} BPM, {song.length // BAR} bars)")
 
 

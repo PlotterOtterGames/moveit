@@ -119,6 +119,7 @@ namespace MoveIt.Motion
         public static void SetPeople(int max, float runsPerSecond = 0f, bool twin = false, int keep = 0)
         {
             _wanted = (max, runsPerSecond, twin);
+            if (max < 2) SetFocus(0);   // one person: nobody to share with
             bool bench = false;
             if (PeopleOverride.HasValue) (max, runsPerSecond, twin, bench) = PeopleOverride.Value;
             max = Mathf.Clamp(max, 1, 2);
@@ -138,6 +139,37 @@ namespace MoveIt.Motion
             catch (Exception e)
             {
                 Debug.LogWarning($"[AndroidMotion] setPeople failed: {e.Message}");
+            }
+#endif
+        }
+
+        /// <summary>The track (<see cref="Body.ServiceTrack"/>) that has the focus now (0 = nobody), and its share.</summary>
+        public static int FocusTrack { get; private set; }
+        static float _focusShare;
+
+        /// <summary>
+        /// While two people share the box's landmark runs (<see cref="SetPeople"/> with a budget): the body followed as
+        /// <paramref name="track"/> (its <see cref="Body.ServiceTrack"/>) gets <paramref name="share"/> of them (0.67 = two
+        /// frames in three, ~20 poses a second; the other ~10), 0 = they take turns evenly (~15 each). For the player who has
+        /// to move now (2026-11-12, Tenis!: the one the ball is coming to; at 15 poses a second a third of the strong swings
+        /// went unseen and the rest came ~30 ms later). Cheap to call every frame: only a change reaches the service. The PC
+        /// service runs everyone every frame and ignores it.
+        /// </summary>
+        public static void SetFocus(int track, float share = 0.67f)
+        {
+            if (track <= 0) share = 0f;
+            if (track == FocusTrack && Mathf.Approximately(share, _focusShare)) return;
+            FocusTrack = track;
+            _focusShare = share;
+#if UNITY_ANDROID && !UNITY_EDITOR
+            try
+            {
+                using var service = new AndroidJavaClass("al.moveit.motion.MotionService");
+                service.CallStatic("setFocus", track, share);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[AndroidMotion] setFocus failed: {e.Message}");
             }
 #endif
         }

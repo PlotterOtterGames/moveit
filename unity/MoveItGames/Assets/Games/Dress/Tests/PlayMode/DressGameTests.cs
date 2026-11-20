@@ -201,7 +201,7 @@ namespace MoveIt.Games.Dress.Tests
             Assert.IsTrue(_game.Outfit.SlotDrawn[(int)Slot.Top] && _game.Outfit.SlotDrawn[(int)Slot.Bottom]);
             yield return Screenshot("dress_doll.png");
             _game.TakePhoto();
-            Assert.IsTrue(File.Exists(_game.LastPhoto));
+            yield return WaitFor(() => File.Exists(_game.LastPhoto), 8f, "the photo saved (encoded on another thread)");
             CopyAndDelete(_game.LastPhoto, "dress_photo.png");
             _game.NextMagic();
             Assert.AreNotEqual(Effect.None, _game.Look.Effect);

@@ -41,7 +41,9 @@ def _meta(kind, data):
     return bytes([0xFF, kind]) + _vlq(len(data)) + data
 
 
-def write(path, tracks, bpm, loop_end_tick=None, numerator=4, title=""):
+def write(path, tracks, bpm, loop_end_tick=None, numerator=4, title="", markers=None):
+    """markers: [(tick, text)] written as marker meta events (Yjet!'s songs mark their sections: "section verse",
+    "piece asteroids"); music programs keep them."""
     chunks = []
     # conductor track: tempo, time signature, loop marker
     conductor = [(0, 0, _meta(0x03, title.encode("utf-8"))),
@@ -49,6 +51,8 @@ def write(path, tracks, bpm, loop_end_tick=None, numerator=4, title=""):
                  (0, 0, _meta(0x58, bytes([numerator, 2, 24, 8])))]
     if loop_end_tick is not None:
         conductor.append((int(loop_end_tick), 0, _meta(0x06, b"loop_end")))
+    for tick, text in markers or ():
+        conductor.append((int(tick), 0, _meta(0x06, text.encode("utf-8"))))
     chunks.append(conductor)
     for t in tracks:
         ev = [(0, -3, _meta(0x03, t.name.encode("utf-8"))),
@@ -92,6 +96,7 @@ class Song:
     bpm: float
     loop_end: float   # seconds
     bar_seconds: float
+    markers: list = field(default_factory=list)    # [(seconds, text)]: every marker but the loop's
 
 
 def read(path):
@@ -150,13 +155,15 @@ def read(path):
         return s + (tick - last_tick) * us / 1e6 / division
 
     programs, volume, pan, reverb, names = {}, {}, {}, {}, {}
-    open_notes, notes = {}, []
+    open_notes, notes, markers = {}, [], []
     loop_end_tick, last_tick, numerator = None, 0, 4
     for tick, kind, payload, ti in raw:
         last_tick = max(last_tick, tick)
         if kind == "meta":
             if payload[0] == 0x06 and payload[1].strip().lower() in (b"loop_end", b"loopend", b"loop"):
                 loop_end_tick = tick
+            elif payload[0] == 0x06:
+                markers.append((tick, payload[1].decode("utf-8", "replace")))
             if payload[0] == 0x58:
                 numerator = payload[1][0]
             continue
@@ -179,7 +186,7 @@ def read(path):
     if loop_end_tick is None:   # round the end of the music up to a whole bar
         loop_end_tick = -(-max([0] + [_tick_of(n.end, seconds, last_tick) for n in notes]) // bar_ticks) * bar_ticks
     return Song(sorted(notes, key=lambda n: n.start), programs, volume, pan, reverb, names, bpm,
-                seconds(loop_end_tick), seconds(bar_ticks))
+                seconds(loop_end_tick), seconds(bar_ticks), [(seconds(t), text) for t, text in sorted(markers)])
 
 
 def _tick_of(sec, seconds, last_tick):

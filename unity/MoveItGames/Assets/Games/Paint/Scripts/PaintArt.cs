@@ -3,8 +3,9 @@ using UnityEngine;
 
 namespace MoveIt.Games.Paint
 {
-    /// <summary>Stamp shapes in the brush atlas (one 128-px cell each, white with alpha coverage).</summary>
-    public enum BrushShape { Soft, Round, Star, Heart, Flower, Footprint, Sparkle, Bubble }
+    /// <summary>Stamp shapes in the brush atlas (one 128-px cell each, white with alpha coverage). Block = the whole
+    /// cell (a stamp that covers the canvas: filling an area of a colouring page).</summary>
+    public enum BrushShape { Soft, Round, Star, Heart, Flower, Footprint, Sparkle, Bubble, Block }
 
     /// <summary>
     /// Pikturo!'s small textures, drawn in code at start-up (like the rest of Tundu's art, no image files to keep in
@@ -98,6 +99,8 @@ namespace MoveIt.Games.Paint
                     float d = Mathf.Sqrt(u * u + v * v);
                     return (d <= 0.92f && d >= 0.74f) || InEllipse(u, v, -0.3f, 0.32f, 0.12f, 0.2f, 40f);
                 }
+                case BrushShape.Block:
+                    return true;
                 default:
                     return false;
             }
@@ -149,7 +152,7 @@ namespace MoveIt.Games.Paint
 
         // ---------------------------------------------------------------- icons
 
-        public enum Icon { Rainbow, Spray, Neon, Glitter, Eraser, Fill, Undo, Size, Symmetry, Page, Clear, Camera, Paper, Photo, Hand }
+        public enum Icon { Rainbow, Spray, Neon, Glitter, Eraser, Fill, Undo, Size, Symmetry, Page, Clear, Camera, Paper, Photo, Hand, Shine, Brush, Check }
 
         static Texture2D[] _icons;
 
@@ -250,6 +253,20 @@ namespace MoveIt.Games.Paint
                     s.RoundRect(0.53f, 0.45f, 0.63f, 0.88f, 0.05f, w);
                     s.RoundRect(0.65f, 0.42f, 0.74f, 0.76f, 0.045f, w);
                     s.Ellipse(0.22f, 0.36f, 0.07f, 0.17f, 35f, w);
+                    break;
+                case Icon.Shine:   // the light on a paint pot: a soft white bean, top left
+                    s.Ellipse(0.36f, 0.7f, 0.2f, 0.09f, 35f, new Color(1f, 1f, 1f, 0.55f));
+                    s.Circle(0.2f, 0.5f, 0.045f, new Color(1f, 1f, 1f, 0.45f));
+                    break;
+                case Icon.Brush:   // a paint brush pointing down-left: the handle, the ferrule, white bristles (tint = the paint)
+                    s.Quad(new Vector2(0.52f, 0.5f), new Vector2(0.62f, 0.4f), new Vector2(0.95f, 0.78f), new Vector2(0.86f, 0.88f), new Color(1f, 0.79f, 0.24f));
+                    s.Quad(new Vector2(0.4f, 0.38f), new Vector2(0.5f, 0.28f), new Vector2(0.64f, 0.42f), new Vector2(0.54f, 0.52f), new Color(0.75f, 0.8f, 0.9f));
+                    s.Ellipse(0.3f, 0.26f, 0.2f, 0.13f, 45f, w);
+                    s.Triangle(new Vector2(0.05f, 0.05f), new Vector2(0.3f, 0.12f), new Vector2(0.12f, 0.3f), w);
+                    break;
+                case Icon.Check:   // a tick: this part of the picture is done
+                    s.Quad(new Vector2(0.1f, 0.5f), new Vector2(0.24f, 0.62f), new Vector2(0.46f, 0.36f), new Vector2(0.4f, 0.18f), w);
+                    s.Quad(new Vector2(0.4f, 0.18f), new Vector2(0.52f, 0.24f), new Vector2(0.92f, 0.76f), new Vector2(0.78f, 0.86f), w);
                     break;
                 case Icon.Photo:   // a framed picture: sky, sun, hills
                     s.RoundRect(0.06f, 0.14f, 0.94f, 0.86f, 0.08f, w);

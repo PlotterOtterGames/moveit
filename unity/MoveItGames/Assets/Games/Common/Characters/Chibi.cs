@@ -20,6 +20,8 @@ namespace MoveIt.Games
 
         static GameObject _model, _lowModel;
         static bool _lowLoaded;
+        // other figures with the chibis' bones and regions (Resources/Chibi/<name>: Zana!'s tall fairies, "Heroine")
+        static readonly Dictionary<string, GameObject> Models = new Dictionary<string, GameObject>();
         static Material _material;
         static readonly Dictionary<string, Mesh> Merged = new Dictionary<string, Mesh>();
 
@@ -39,13 +41,30 @@ namespace MoveIt.Games
         readonly Vector3[] _armRest = new Vector3[2];
         readonly Quaternion[] _upperRest = new Quaternion[2], _thighRest = new Quaternion[2], _shinRest = new Quaternion[2], _footRest = new Quaternion[2];
         float _thighLength, _shinLength;
-        Quaternion _headRest;
+        Quaternion _headRest, _spineRest = Quaternion.identity, _hipsRest = Quaternion.identity;
         float _armLength;
+        Material[] _override;
 
         Face _face = Face.Smile;
         float _nextBlink, _blinkUntil;
         Color _flash;
         float _flashAmount;
+        // the property block goes to the renderers only when it changed (it went every frame: ~2 KB of uniforms per
+        // character and frame through the driver)
+        bool _blockDirty = true;
+        float _appliedFlash = -1f;
+
+        // The materials (2026-11-13, measured on the hot box in Volejboll!'s split screen: the chibis' cost was their
+        // pixels, not their skinning). The full model: [0] the open pieces (clothes: two-sided, their insides show), [1]
+        // the closed ones (head, hair, shoes, most hats: back faces culled, every hidden back face was shaded before), lit
+        // per pixel. The low-detail one (small on the screen): one submesh, two-sided, lit per vertex (a second submesh
+        // would cost a draw call for ~2 %, and Gara!'s split screen is short of CPU). PerfLab on the box:
+        // chibilit=pixel|vertex lights all of them one way, chibicull=off|all culls nothing or everything. Switches read
+        // once a frame for all of them.
+        static Material[] _pixelPair, _vertexPair, _pixelOne, _vertexOne;
+        static int _switchFrame = -1;
+        static string _litSwitch = "", _cullSwitch = "";
+        Material[] _appliedFull, _appliedLow;
 
         public ChibiLook Look => _look;
         /// <summary>The renderer drawing it now (the low-detail one while <see cref="Low"/>).</summary>
@@ -70,6 +89,7 @@ namespace MoveIt.Games
                 if (_lowRenderer != null) _lowRenderer.enabled = _low;
             }
         }
+
         /// <summary>Shoulder to the middle of the mitten, metres at this object's scale.</summary>
         public float ArmLength => _armLength * transform.lossyScale.x;
 
@@ -83,17 +103,32 @@ namespace MoveIt.Games
             }
         }
 
+        /// <summary>The figure <paramref name="model"/> draws with: the chibi, or another made with its bones and regions
+        /// (Resources/Chibi/&lt;model&gt;; art/fairy/heroine.py's "Heroine").</summary>
+        static GameObject ModelOf(string model)
+        {
+            if (string.IsNullOrEmpty(model) || model == ChibiLook.ChibiModel) return _model;
+            if (!Models.TryGetValue(model, out var m))
+            {
+                m = Resources.Load<GameObject>($"Chibi/{model}");
+                if (m == null) Debug.LogError($"[Chibi] Resources/Chibi/{model} is missing");
+                Models[model] = m;
+            }
+            return m;
+        }
+
         /// <summary>A new chibi in <paramref name="look"/> under <paramref name="parent"/>, standing in its rest pose.</summary>
         public static Chibi Create(string name, ChibiLook look, Transform parent)
         {
-            if (!Ready)
+            var model = Ready ? ModelOf(look.Model) : null;
+            if (model == null)
             {
                 Debug.LogError("[Chibi] Resources/Chibi/Chibi (the model) or ChibiMaterial is missing: run art/chibi/build.py --export");
                 var empty = new GameObject(name).AddComponent<Chibi>();
                 empty.transform.SetParent(parent, false);
                 return empty;
             }
-            var go = Instantiate(_model, parent, false);
+            var go = Instantiate(model, parent, false);
             go.name = name;
             var c = go.AddComponent<Chibi>();
             c.Build(look);
@@ -121,14 +156,20 @@ namespace MoveIt.Games
                 if (smr != null) parts.Add(smr);
                 else Debug.LogWarning($"[Chibi] No piece {piece}");
             }
-            string key = string.Join("+", pieces);
+            string key = (look.IsChibi ? "" : look.Model + ":") + string.Join("+", pieces);
             if (!Merged.TryGetValue(key, out var mesh) || mesh == null)
             {
-                mesh = Merge(parts, Same, key);
+                mesh = Merge(parts, Same, key, split: true);
                 Merged[key] = mesh;
             }
             _renderer = NewRenderer("Mesh", mesh, BonesOf(parts, Same));
-            foreach (var smr in all) Destroy(smr.gameObject);
+            // off at once: Destroy waits for the frame's end, and a camera drawing this frame (Superboks!'s portraits) drew
+            // every piece of the wardrobe, uncoloured, over the merged figure
+            foreach (var smr in all)
+            {
+                smr.gameObject.SetActive(false);
+                Destroy(smr.gameObject);
+            }
             var animator = GetComponent<Animator>();
             if (animator != null) Destroy(animator);
             _block = new MaterialPropertyBlock();
@@ -154,6 +195,8 @@ namespace MoveIt.Games
                 _armLength = Vector3.Distance(_upper[s].position, HandCenter(s)) / Mathf.Max(1e-4f, transform.lossyScale.x);
             }
             if (_head != null) _headRest = inv * _head.rotation;
+            if (_spine != null) _spineRest = inv * _spine.rotation;
+            if (_hips != null) _hipsRest = inv * _hips.rotation;
             SetFace(Face.Smile);
             _nextBlink = Time.time + Random.Range(1f, 4f);
         }
@@ -166,8 +209,11 @@ namespace MoveIt.Games
             r.sharedMesh = mesh;
             r.bones = bones;
             r.rootBone = _hips;
-            r.sharedMaterial = _material;
-            r.localBounds = new Bounds(new Vector3(0f, 0.3f, 0f), new Vector3(2.2f, 2.4f, 2.2f));
+            // the full model per pixel with its closed pieces culled, the low one per vertex (ApplySwitches keeps them so)
+            r.sharedMaterials = mesh.subMeshCount > 1 ? Materials(false, true) : Materials(true, false);
+            r.localBounds = _look != null && !_look.IsChibi
+                ? new Bounds(new Vector3(0f, 0.4f, 0f), new Vector3(2.4f, 3.4f, 2.4f))   // a tall figure round her hips
+                : new Bounds(new Vector3(0f, 0.3f, 0f), new Vector3(2.2f, 2.4f, 2.2f));
             r.shadowCastingMode = ShadowCastingMode.On;
             r.receiveShadows = true;
             r.updateWhenOffscreen = false;
@@ -178,6 +224,7 @@ namespace MoveIt.Games
         /// among this character's.</summary>
         bool BuildLow()
         {
+            if (_look != null && !_look.IsChibi) return false;   // only the chibi has a low-detail copy
             if (!_lowLoaded)
             {
                 _lowLoaded = true;
@@ -203,7 +250,7 @@ namespace MoveIt.Games
             string key = "low:" + string.Join("+", _pieces);
             if (!Merged.TryGetValue(key, out var mesh) || mesh == null)
             {
-                mesh = Merge(parts, Resolve, key);
+                mesh = Merge(parts, Resolve, key, split: false);
                 Merged[key] = mesh;
             }
             _lowRenderer = NewRenderer("Mesh (low)", mesh, BonesOf(parts, Resolve));
@@ -254,8 +301,9 @@ namespace MoveIt.Games
         }
 
         /// <summary>The pieces as one mesh: vertices, normals, both UV channels (the second = region, occlusion),
-        /// triangles and skin weights, the bones in <see cref="BonesOf"/> order.</summary>
-        static Mesh Merge(List<SkinnedMeshRenderer> parts, System.Func<Transform, Transform> resolve, string key)
+        /// triangles (with <paramref name="split"/> submesh 0 the open pieces, 1 the closed ones: <see cref="IsClosed"/>;
+        /// else one) and skin weights, the bones in <see cref="BonesOf"/> order.</summary>
+        static Mesh Merge(List<SkinnedMeshRenderer> parts, System.Func<Transform, Transform> resolve, string key, bool split)
         {
             var bones = BonesOf(parts, resolve);
             var index = new Dictionary<Transform, int>();
@@ -265,6 +313,7 @@ namespace MoveIt.Games
             var normals = new List<Vector3>();
             var uv1 = new List<Vector2>();
             var tris = new List<int>();
+            var closedTris = new List<int>();
             var perVertex = new List<byte>();
             var weights = new List<BoneWeight1>();
             var tv = new List<Vector3>();
@@ -288,10 +337,11 @@ namespace MoveIt.Games
                 m.GetUVs(1, tu);
                 if (tu.Count != tv.Count) tu = new List<Vector2>(new Vector2[tv.Count]);
                 uv1.AddRange(tu);
+                var into = split && IsClosed(m) ? closedTris : tris;
                 for (int sub = 0; sub < m.subMeshCount; sub++)
                 {
                     m.GetTriangles(tt, sub);
-                    foreach (int i in tt) tris.Add(start + i);
+                    foreach (int i in tt) into.Add(start + i);
                 }
                 var counts = m.GetBonesPerVertex();
                 var all = m.GetAllBoneWeights();
@@ -303,7 +353,9 @@ namespace MoveIt.Games
             mesh.SetVertices(verts);
             mesh.SetNormals(normals);
             mesh.SetUVs(1, uv1);
+            mesh.subMeshCount = split ? 2 : 1;
             mesh.SetTriangles(tris, 0);
+            if (split) mesh.SetTriangles(closedTris, 1);
             using (var c = new NativeArray<byte>(perVertex.ToArray(), Allocator.Temp))
             using (var w = new NativeArray<BoneWeight1>(weights.ToArray(), Allocator.Temp))
                 mesh.SetBoneWeights(c, w);
@@ -311,6 +363,15 @@ namespace MoveIt.Games
             mesh.RecalculateBounds();
             mesh.UploadMeshData(true);
             return mesh;
+        }
+
+        /// <summary>Its materials and colours applied now rather than in its LateUpdate: for a camera that draws it in the
+        /// frame it was made (Superboks!'s portraits drew new opponents black: their colours weren't set yet).</summary>
+        public void ApplyNow()
+        {
+            ReadSwitches();
+            ApplySwitches();
+            ApplyBlock();
         }
 
         /// <summary>New colours (the same pieces).</summary>
@@ -326,8 +387,127 @@ namespace MoveIt.Games
             if (_renderer == null) return;
             _block.SetVectorArray("_Regions", _regions);
             _block.SetColor("_FlashColor", new Color(_flash.r, _flash.g, _flash.b, _flashAmount));
+            if (_rim.HasValue) _block.SetColor("_RimColor", _rim.Value);
             _renderer.SetPropertyBlock(_block);
             if (_lowRenderer != null) _lowRenderer.SetPropertyBlock(_block);
+            _blockDirty = false;
+            _appliedFlash = _flashAmount;
+        }
+
+        // ---------------------------------------------------------------- the materials
+
+        /// <summary>A renderer's materials, lit per pixel or per vertex: for a mesh with the closed pieces in a second
+        /// submesh (<paramref name="split"/>) the open pieces' and the closed ones' (back faces culled), else one.</summary>
+        static Material[] Materials(bool vertex, bool split)
+        {
+            if (_pixelPair == null)
+            {
+                var closed = new Material(_material) { name = "ChibiMaterial (closed)" };
+                closed.SetFloat("_Cull", (float)CullMode.Back);
+                var open = new Material(_material) { name = "ChibiMaterial (lit per vertex)" };
+                open.EnableKeyword("_VERTEX_LIT");
+                var closedVertex = new Material(closed) { name = "ChibiMaterial (closed, lit per vertex)" };
+                closedVertex.EnableKeyword("_VERTEX_LIT");
+                _pixelPair = new[] { _material, closed };
+                _vertexPair = new[] { open, closedVertex };
+                _pixelOne = new[] { _material };
+                _vertexOne = new[] { open };
+            }
+            return split ? (vertex ? _vertexPair : _pixelPair) : (vertex ? _vertexOne : _pixelOne);
+        }
+
+        static void ReadSwitches()
+        {
+            if (_switchFrame == Time.frameCount) return;
+            _switchFrame = Time.frameCount;
+            _litSwitch = PerfSwitches.Get("chibilit");
+            string cull = PerfSwitches.Get("chibicull");
+            if (cull == _cullSwitch || _pixelPair == null) return;
+            _cullSwitch = cull;
+            float open = cull == "all" ? (float)CullMode.Back : (float)CullMode.Off;
+            float closed = cull == "off" ? (float)CullMode.Off : (float)CullMode.Back;
+            foreach (var pair in new[] { _pixelPair, _vertexPair })
+            {
+                pair[0].SetFloat("_Cull", open);
+                pair[1].SetFloat("_Cull", closed);
+            }
+        }
+
+        /// <summary>The full model lit per vertex too (Superboks!'s boxers, big on the screen: their pixels lit per pixel
+        /// were 12-15 % of the box's frame, 2026-11-19); PerfLab chibilit=pixel lights it per pixel again.</summary>
+        public bool VertexLit
+        {
+            get => _vertexLit;
+            set
+            {
+                _vertexLit = value;
+                ApplySwitches();
+            }
+        }
+
+        bool _vertexLit;
+
+        void ApplySwitches()
+        {
+            var full = Materials(_litSwitch == "vertex" || _vertexLit && _litSwitch != "pixel", true);
+            if (full != _appliedFull && _renderer != null)
+            {
+                _appliedFull = full;
+                _renderer.sharedMaterials = full;
+            }
+            var low = _override ?? Materials(_litSwitch != "pixel", false);
+            if (low != _appliedLow && _lowRenderer != null)
+            {
+                _appliedLow = low;
+                _lowRenderer.sharedMaterials = low;
+            }
+        }
+
+        static readonly Dictionary<Mesh, bool> ClosedMeshes = new Dictionary<Mesh, bool>();
+
+        /// <summary>
+        /// Whether a piece is a closed surface (every edge between two triangles, once the vertices split for the regions
+        /// and normals are joined by position): its back faces never show, so they can be culled. Clothes have open hems
+        /// and necks (two-sided, the inside shows); the head, hair, shoes and most hats are closed (2026-11-13: in the low
+        /// and the full model alike).
+        /// </summary>
+        static bool IsClosed(Mesh mesh)
+        {
+            if (ClosedMeshes.TryGetValue(mesh, out bool known)) return known;
+            var verts = new List<Vector3>();
+            mesh.GetVertices(verts);
+            var weld = new int[verts.Count];
+            var byPosition = new Dictionary<Vector3Int, int>();
+            for (int i = 0; i < verts.Count; i++)
+            {
+                var key = Vector3Int.RoundToInt(verts[i] * 1e5f);   // 0.01 mm
+                if (!byPosition.TryGetValue(key, out int first)) byPosition[key] = first = i;
+                weld[i] = first;
+            }
+            var edges = new Dictionary<long, int>();
+            var tris = new List<int>();
+            for (int sub = 0; sub < mesh.subMeshCount; sub++)
+            {
+                mesh.GetTriangles(tris, sub);
+                for (int t = 0; t + 2 < tris.Count; t += 3)
+                    for (int e = 0; e < 3; e++)
+                    {
+                        int a = weld[tris[t + e]], b = weld[tris[t + (e + 1) % 3]];
+                        if (a == b) continue;
+                        long edge = a < b ? ((long)a << 32) | (uint)b : ((long)b << 32) | (uint)a;
+                        edges.TryGetValue(edge, out int n);
+                        edges[edge] = n + 1;
+                    }
+            }
+            bool closed = edges.Count > 0;
+            foreach (var n in edges.Values)
+                if (n == 1)
+                {
+                    closed = false;
+                    break;
+                }
+            ClosedMeshes[mesh] = closed;
+            return closed;
         }
 
         // ---------------------------------------------------------------- posing (games call these every frame)
@@ -382,11 +562,104 @@ namespace MoveIt.Games
             if (_foot[side] != null) _foot[side].rotation = transform.rotation * _footRest[side];
         }
 
+        /// <summary>
+        /// A leg in the air (a fairy's flight, a leap): like <see cref="BendLeg"/>, the whole leg also turned out (+) or in
+        /// (-) round the hip by <paramref name="outward"/> degrees, and the foot pointed down by <paramref name="point"/>
+        /// degrees from square to the shin (0 = square, ~50 = a pointed toe). Side 0 is the left.
+        /// </summary>
+        public void FlyLeg(int side, float thigh, float knee, float outward, float point)
+        {
+            if (_thigh[side] == null) return;
+            var turn = transform.rotation * Quaternion.Euler(0f, 0f, side == 0 ? -outward : outward);
+            _thigh[side].rotation = turn * Quaternion.Euler(-thigh, 0f, 0f) * _thighRest[side];
+            if (_shin[side] != null) _shin[side].rotation = turn * Quaternion.Euler(knee - thigh, 0f, 0f) * _shinRest[side];
+            if (_foot[side] != null) _foot[side].rotation = turn * Quaternion.Euler(knee - thigh + point, 0f, 0f) * _footRest[side];
+        }
+
         /// <summary>How much lower the hips are (metres at this object's scale) with a leg bent like
         /// <see cref="BendLeg"/>.</summary>
         public float LegDrop(float thigh, float knee) =>
             (_thighLength * (1f - Mathf.Cos(thigh * Mathf.Deg2Rad)) + _shinLength * (1f - Mathf.Cos((thigh - knee) * Mathf.Deg2Rad))) *
             transform.lossyScale.x;
+
+        /// <summary>
+        /// Bends an arm (0 = the character's left, 1 = its right) so the middle of its mitten reaches <paramref name="target"/>
+        /// (world; as near as the arm reaches), the elbow bending toward <paramref name="pole"/> (a world direction from the
+        /// shoulder): two-bone IK on the upper arm and the forearm from the rest pose (Superboks!'s guard and punches).
+        /// </summary>
+        public void ReachArm(int side, Vector3 target, Vector3 pole)
+        {
+            if (_upper[side] == null || _fore[side] == null || _hand[side] == null) return;
+            _upper[side].localRotation = _rest[_upper[side]];
+            _fore[side].localRotation = _rest[_fore[side]];
+            _hand[side].localRotation = _rest[_hand[side]];
+            Vector3 s = _upper[side].position, e = _fore[side].position, h = HandCenter(side);
+            float a = Vector3.Distance(s, e), b = Vector3.Distance(e, h);
+            var to = target - s;
+            var dir = to.sqrMagnitude > 1e-8f ? to.normalized : transform.forward;
+            float d = Mathf.Clamp(to.magnitude, Mathf.Abs(a - b) + 1e-3f, (a + b) * 0.999f);
+            float x = (a * a - b * b + d * d) / (2f * d);
+            float y = Mathf.Sqrt(Mathf.Max(0f, a * a - x * x));
+            var bend = pole - dir * Vector3.Dot(pole, dir);
+            if (bend.sqrMagnitude < 1e-6f) bend = -transform.up;
+            var elbow = s + dir * x + bend.normalized * y;
+            _upper[side].rotation = Quaternion.FromToRotation(e - s, elbow - s) * _upper[side].rotation;
+            Vector3 e2 = _fore[side].position, h2 = HandCenter(side);
+            _fore[side].rotation = Quaternion.FromToRotation(h2 - e2, s + dir * d - e2) * _fore[side].rotation;
+        }
+
+        /// <summary>The hand bone of an arm (0 = the left): things held follow it.</summary>
+        public Transform Hand(int side) => _hand[side];
+
+        /// <summary>The way the forearm points (world, from the elbow to the hand).</summary>
+        public Vector3 ForearmDirection(int side) =>
+            _hand[side] != null && _fore[side] != null ? (_hand[side].position - _fore[side].position).normalized : transform.forward;
+
+        /// <summary>Turns the upper body round the spine from the rest pose (degrees: yaw + = toward its right, pitch + =
+        /// bowing forward, roll + = leaning to its right).</summary>
+        public void TurnSpine(float yaw, float pitch = 0f, float roll = 0f)
+        {
+            if (_spine == null) return;
+            _spine.rotation = transform.rotation * Quaternion.Euler(pitch, yaw, -roll) * _spineRest;
+        }
+
+        /// <summary>Turns the whole body round the hips from the rest pose (the legs too): degrees as
+        /// <see cref="TurnSpine"/>.</summary>
+        public void TurnHips(float yaw, float pitch = 0f, float roll = 0f)
+        {
+            if (_hips == null) return;
+            _hips.rotation = transform.rotation * Quaternion.Euler(pitch, yaw, -roll) * _hipsRest;
+        }
+
+        /// <summary>
+        /// Materials drawn instead of the chibi's own, on its low-detail copy (one submesh: every material draws all of it):
+        /// Superboks!'s see-through hero is a depth material and a colour one (Tundu/AthleteGhost), its colours from the
+        /// same property block. Setting it turns <see cref="Low"/> on; null = its own again.
+        /// </summary>
+        public Material[] OverrideMaterials
+        {
+            get => _override;
+            set
+            {
+                _override = value;
+                if (value != null) Low = true;
+                _appliedLow = null;
+                ApplySwitches();
+            }
+        }
+
+        /// <summary>The head's middle (world): 0.295 m (at scale 1) up the neck from the head bone's root, wherever the
+        /// spine has bent it (Superboks!'s effects and camera aim at it).</summary>
+        public Vector3 HeadPosition
+        {
+            get
+            {
+                float scale = transform.lossyScale.y;
+                if (_head == null) return transform.position + transform.up * 1.175f * scale;
+                var along = _spine != null ? (_head.position - _spine.position).normalized : transform.up;
+                return _head.position + along * 0.295f * scale;
+            }
+        }
 
         /// <summary>Turns the head (degrees: yaw + = toward its right, pitch + = down).</summary>
         public void TurnHead(float yaw, float pitch = 0f)
@@ -412,10 +685,25 @@ namespace MoveIt.Games
             if (bone != null) bone.localScale = on ? Vector3.one : Vector3.one * 0.001f;
         }
 
+        /// <summary>The rim light (alpha = strength) instead of the material's (Yjet!: a cool light from the nebulae all
+        /// round the astronaut); null = the material's own.</summary>
+        public Color? Rim
+        {
+            get => _rim;
+            set
+            {
+                _rim = value;
+                _blockDirty = true;
+            }
+        }
+
+        Color? _rim;
+
         public void Flash(Color color, float amount = 1f)
         {
             _flash = color;
             _flashAmount = amount;
+            _blockDirty = true;
         }
 
         void LateUpdate()
@@ -431,7 +719,9 @@ namespace MoveIt.Games
                 _eyes.localScale = Time.time < _blinkUntil ? new Vector3(1f, 0.12f, 1f) : Vector3.one;
             }
             if (_flashAmount > 0f) _flashAmount = Mathf.Max(0f, _flashAmount - Time.deltaTime * 3f);
-            ApplyBlock();
+            ReadSwitches();
+            ApplySwitches();
+            if (_blockDirty || _flashAmount != _appliedFlash) ApplyBlock();
         }
     }
 }

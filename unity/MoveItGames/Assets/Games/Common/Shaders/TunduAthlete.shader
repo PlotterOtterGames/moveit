@@ -68,6 +68,10 @@ Shader "Tundu/Athlete"
             #pragma multi_compile_fragment _ _SHADOWS_SOFT _SHADOWS_SOFT_LOW _SHADOWS_SOFT_MEDIUM _SHADOWS_SOFT_HIGH
             #pragma multi_compile_fog
             #pragma multi_compile_local _ _FADE
+            // _VERTEX_LIT (2026-11-13): the light worked out per vertex, the pixels only interpolate it: characters small on
+            // the screen (the two-player split screens on the TV box, where everything is drawn twice). Front faces' light
+            // on both sides (the inside of a hem darker as before); no cast shadows (the games that use it draw their own).
+            #pragma multi_compile_local _ _VERTEX_LIT
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
@@ -81,19 +85,52 @@ Shader "Tundu/Athlete"
             struct Varyings
             {
                 float4 positionCS : SV_POSITION;
+            #if defined(_VERTEX_LIT)
+                half3 color : TEXCOORD0;
+            #else
                 float3 normalWS : TEXCOORD0;
                 float3 positionWS : TEXCOORD1;
                 float2 region : TEXCOORD2;
+            #endif
                 float fogFactor : TEXCOORD3;
             };
+
+            // the soft toon light on a region's colour (n facing the viewer's side of the surface)
+            half3 Shade(float3 n, float3 positionWS, float2 region, Light light)
+            {
+                int r = (int)round(region.x);
+                float4 entry = _Regions[clamp(r, 0, 23)];
+                half3 albedo = entry.rgb;
+                half gloss = entry.a;
+                albedo = lerp(albedo, _FlashColor.rgb, _FlashColor.a);
+                half ao = lerp(1.0h, (half)region.y, _AOStrength);
+                half ndl = dot(n, light.direction);
+                half wrapped = (ndl + _Wrap) / (1.0h + _Wrap);
+                half lit = smoothstep(0.5h - _ShadeSoftness * 0.5h, 0.5h + _ShadeSoftness * 0.5h, wrapped);
+                lit *= lerp(1.0h, light.shadowAttenuation, _ShadowStrength);
+                half3 color = lerp(albedo * _ShadeColor.rgb, albedo * light.color, lit) * ao;
+                color += albedo * SampleSH(n) * _Ambient * ao;
+                float3 view = normalize(GetWorldSpaceViewDir(positionWS));
+                half rim = pow(1.0h - saturate(dot(n, view)), _RimPower) * _RimColor.a * (0.4h + 0.6h * lit);
+                color += _RimColor.rgb * rim * ao;
+                half3 h = normalize(light.direction + view);
+                color += light.color * pow(saturate(dot(n, h)), _GlossPower) * gloss * lit;
+                return color;
+            }
 
             Varyings vert(Attributes v)
             {
                 Varyings o;
-                o.positionWS = TransformObjectToWorld(v.positionOS.xyz);
-                o.positionCS = TransformWorldToHClip(o.positionWS);
-                o.normalWS = TransformObjectToWorldNormal(v.normalOS);
+                float3 positionWS = TransformObjectToWorld(v.positionOS.xyz);
+                o.positionCS = TransformWorldToHClip(positionWS);
+                float3 normalWS = TransformObjectToWorldNormal(v.normalOS);
+            #if defined(_VERTEX_LIT)
+                o.color = Shade(normalize(normalWS), positionWS, v.region, GetMainLight());
+            #else
+                o.positionWS = positionWS;
+                o.normalWS = normalWS;
                 o.region = v.region;
+            #endif
                 o.fogFactor = ComputeFogFactor(o.positionCS.z);
                 return o;
             }
@@ -105,25 +142,12 @@ Shader "Tundu/Athlete"
                 #if defined(_FADE)
                     clip(_Fade - Dither(i.positionCS.xy));
                 #endif
-                int r = (int)round(i.region.x);
-                float4 entry = _Regions[clamp(r, 0, 23)];
-                half3 albedo = entry.rgb;
-                half gloss = entry.a;
-                albedo = lerp(albedo, _FlashColor.rgb, _FlashColor.a);
-                half ao = lerp(1.0h, (half)i.region.y, _AOStrength);
+            #if defined(_VERTEX_LIT)
+                half3 color = i.color;
+            #else
                 float3 n = normalize(i.normalWS) * (front ? 1.0 : -1.0);
-                Light light = GetMainLight(TransformWorldToShadowCoord(i.positionWS));
-                half ndl = dot(n, light.direction);
-                half wrapped = (ndl + _Wrap) / (1.0h + _Wrap);
-                half lit = smoothstep(0.5h - _ShadeSoftness * 0.5h, 0.5h + _ShadeSoftness * 0.5h, wrapped);
-                lit *= lerp(1.0h, light.shadowAttenuation, _ShadowStrength);
-                half3 color = lerp(albedo * _ShadeColor.rgb, albedo * light.color, lit) * ao;
-                color += albedo * SampleSH(n) * _Ambient * ao;
-                float3 view = normalize(GetWorldSpaceViewDir(i.positionWS));
-                half rim = pow(1.0h - saturate(dot(n, view)), _RimPower) * _RimColor.a * (0.4h + 0.6h * lit);
-                color += _RimColor.rgb * rim * ao;
-                half3 h = normalize(light.direction + view);
-                color += light.color * pow(saturate(dot(n, h)), _GlossPower) * gloss * lit;
+                half3 color = Shade(n, i.positionWS, i.region, GetMainLight(TransformWorldToShadowCoord(i.positionWS)));
+            #endif
                 if (!front) color *= 0.55h;   // the inside of a sleeve or a hem
                 return half4(MixFog(color, i.fogFactor), 1.0h);
             }

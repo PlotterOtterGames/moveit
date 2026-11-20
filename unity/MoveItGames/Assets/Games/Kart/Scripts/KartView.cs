@@ -11,11 +11,49 @@ namespace MoveIt.Games.Kart
         [Tooltip("Tundu/Athlete (the chibis' material: colour regions per kart).")] public Material paint;
         [Tooltip("Tundu/Fx additive: the exhausts' flames, the shield's bubble.")] public Material glow;
 
-        Mesh _body, _wheel, _steering;
+        Mesh _body, _wheel, _steering, _bodyLow, _wheelLow, _steeringLow;
 
         public Mesh Body => Find(ref _body, "KartBody");
         public Mesh Wheel => Find(ref _wheel, "KartWheel");
         public Mesh Steering => Find(ref _steering, "KartSteering");
+        // the low-detail parts (art/kart/kart.py, 2026-11-13: ~3,000 triangles for the whole kart instead of ~19,700)
+        public Mesh BodyLow => Find(ref _bodyLow, "KartBodyLow");
+        public Mesh WheelLow => Find(ref _wheelLow, "KartWheelLow");
+        public Mesh SteeringLow => Find(ref _steeringLow, "KartSteeringLow");
+
+        Mesh _lowWhole;
+
+        /// <summary>The low-detail kart as one mesh in the body's frame: the body, the four wheels where
+        /// <see cref="KartView"/> puts them and the steering wheel, at rest (on a kart that small nobody sees them roll or
+        /// turn): one draw call instead of six (Gara!'s split screen was short of CPU for its draw calls). Null without
+        /// the low-detail parts.</summary>
+        public Mesh LowWhole(Vector3[] wheelAt, Vector3 steeringAt, float steeringTilt)
+        {
+            if (_lowWhole != null) return _lowWhole;
+            if (BodyLow == null || WheelLow == null || SteeringLow == null) return null;
+            var parts = new CombineInstance[6];
+            parts[0] = new CombineInstance { mesh = BodyLow, transform = Matrix4x4.identity };
+            for (int i = 0; i < 4; i++)
+            {
+                var m = Matrix4x4.TRS(wheelAt[i], Quaternion.identity, Vector3.one * (i < 2 ? 0.86f : 1f));
+                if (wheelAt[i].x > 0f) m *= Matrix4x4.Rotate(Quaternion.Euler(0f, 180f, 0f));   // the hub cap outward
+                parts[1 + i] = new CombineInstance { mesh = WheelLow, transform = m };
+            }
+            parts[5] = new CombineInstance
+            {
+                mesh = SteeringLow, transform = Matrix4x4.TRS(steeringAt, Quaternion.Euler(steeringTilt, 0f, 0f), Vector3.one),
+            };
+            _lowWhole = new Mesh { name = "Kart (low, whole)" };
+            _lowWhole.CombineMeshes(parts, true, true);
+            return _lowWhole;
+        }
+
+        /// <summary>Frees the meshes made at runtime (the scene's going).</summary>
+        public void Release()
+        {
+            if (_lowWhole != null) Object.Destroy(_lowWhole);
+            _lowWhole = null;
+        }
 
         Mesh Find(ref Mesh cache, string name)
         {
@@ -60,7 +98,14 @@ namespace MoveIt.Games.Kart
         readonly Vector4[] _table = new Vector4[24];
         Renderer _bodyRenderer, _steeringRenderer, _shieldRenderer;
         readonly Renderer[] _wheelRenderers = new Renderer[4];
-        float _roll, _spin, _squash, _wheelTurn, _slide, _flame, _flash;
+        // the low-detail kart beside the full one: each camera draws the one its size on the screen asks for (a LODGroup:
+        // in the two-player split screen a player's own kart stays full in their half, small ones are low)
+        Renderer[] _lowRenderers;
+        LODGroup _lod;
+        string _forcedDetail = "";
+        /// <summary>The kart's height on the screen (a share of it) from which the full model is drawn.</summary>
+        const float FullDetailFrom = 0.22f;
+        float _roll, _spin, _squash, _wheelTurn, _slide, _flame, _flash, _appliedFlash = -1f;
         Color _flashColour;
         int _trickShown = -1;
         float _hopLift;
@@ -98,6 +143,20 @@ namespace MoveIt.Games.Kart
             _steering.SetParent(_body, false);
             _steering.localPosition = SteeringAt;
             _steeringRenderer = Part(_steering, m.Steering, m.paint);
+            var whole = m.LowWhole(WheelAt, SteeringAt, SteeringTilt);
+            if (whole != null)
+            {
+                // the low-detail kart in one piece on the body (it leans, squashes and spins with it)
+                _lowRenderers = new[] { Part(Child(_body), whole, m.paint) };
+                _lod = _pivot.gameObject.AddComponent<LODGroup>();
+                _lod.fadeMode = LODFadeMode.None;
+                var full = new Renderer[6];
+                full[0] = _bodyRenderer;
+                for (int i = 0; i < 4; i++) full[1 + i] = _wheelRenderers[i];
+                full[5] = _steeringRenderer;
+                _lod.SetLODs(new[] { new LOD(FullDetailFrom, full), new LOD(0f, _lowRenderers) });
+                _lod.RecalculateBounds();
+            }
             // the flames (a stretched glow) and the shield's bubble
             _flamesRoot = new GameObject("Flames").transform;
             _flamesRoot.SetParent(_body, false);
@@ -185,6 +244,13 @@ namespace MoveIt.Games.Kart
             return r;
         }
 
+        static Transform Child(Transform parent)
+        {
+            var t = new GameObject("Low").transform;
+            t.SetParent(parent, false);
+            return t;
+        }
+
         void Recolour()
         {
             _block.SetVectorArray("_Regions", _table);
@@ -192,6 +258,18 @@ namespace MoveIt.Games.Kart
             _bodyRenderer.SetPropertyBlock(_block);
             _steeringRenderer.SetPropertyBlock(_block);
             foreach (var w in _wheelRenderers) w.SetPropertyBlock(_block);
+            if (_lowRenderers != null)
+                foreach (var r in _lowRenderers) r.SetPropertyBlock(_block);
+            _appliedFlash = _flash;
+        }
+
+        /// <summary>PerfLab on the box (measurements): "full" or "low" draws that model for every camera; anything else
+        /// lets each camera choose by the kart's size on its screen.</summary>
+        public void ForceDetail(string force)
+        {
+            if (_lod == null || force == _forcedDetail) return;
+            _forcedDetail = force;
+            _lod.ForceLOD(force == "full" ? 0 : force == "low" ? 1 : -1);
         }
 
         /// <summary>Small on the screen: the chibis' low-detail copies.</summary>
@@ -208,6 +286,7 @@ namespace MoveIt.Games.Kart
         {
             _flashColour = colour;
             _flash = Mathf.Max(_flash, amount);
+            _appliedFlash = -1f;   // a new colour goes out even if the amount is the same
             Driver?.Flash(colour, amount);
         }
 
@@ -300,7 +379,8 @@ namespace MoveIt.Games.Kart
                 _shield.localScale = new Vector3(2.0f, 1.7f, 2.6f) * pulse * (ending ? 0.96f : 1f);
             }
             _flash = Mathf.MoveTowards(_flash, 0f, dt * 2.5f);
-            Recolour();
+            // to the renderers only when the flash changed (every frame it was ~12 property blocks a kart)
+            if (_flash != _appliedFlash) Recolour();
             PoseDriver(k, shown, dt);
         }
 

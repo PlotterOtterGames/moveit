@@ -28,6 +28,9 @@ Shader "Tundu/Water"
             #pragma fragment frag
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
             #pragma multi_compile_fog
+            // TUNDU_LITE (global, set by BoxGraphics for the TV box's two-player split screens): no drifting foam streaks
+            // (the vertex colours' foam stays) and one wave field: 2 cosines a pixel instead of 9 sines and cosines
+            #pragma multi_compile _ TUNDU_LITE
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
@@ -75,6 +78,11 @@ Shader "Tundu/Water"
             half4 frag(Varyings i) : SV_Target
             {
                 float t = _Time.y;
+            #if defined(TUNDU_LITE)
+                // the full version's foam averaged over its streaks: none at alpha 0, all at 1, a little near the shore
+                float foam = i.color.a * smoothstep(0.35, 0.9, i.color.a + 0.3);
+                float3 n = normalize(float3(cos(i.positionWS.x * 1.3 + t * 2.1) * 0.13, 1.0, cos(i.positionWS.z * 0.9 - t * 1.7) * 0.13));
+            #else
                 float along = i.uv.y - _FlowOffset;
                 float across = i.uv.x;
                 // foam streaks: wavy lines down the river, broken up so they look like drifting patches
@@ -88,6 +96,7 @@ Shader "Tundu/Water"
                 float3 n = normalize(float3(cos(i.positionWS.x * 1.3 + t * 2.1) * 0.12 + sin(along * 1.7 + t) * 0.06,
                                             1.0,
                                             cos(i.positionWS.z * 0.9 - t * 1.7) * 0.12 + cos(across * 17.0 - t * 1.3) * 0.05));
+            #endif
                 Light light = GetMainLight(TransformWorldToShadowCoord(i.positionWS));
                 float3 view = normalize(GetWorldSpaceViewDir(i.positionWS));
                 half3 water = i.color.rgb;

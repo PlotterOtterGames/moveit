@@ -23,7 +23,8 @@ A="$ADB -s $DEVICE"
 
 P=$($A shell pidof al.tundu.games | tr -d '\r')
 [ -n "$P" ] || { echo "Tundu isn't running on $DEVICE"; exit 1; }
-T=$($A shell "for t in /proc/$P/task/*; do if [ \"\$(cat \$t/comm)\" = \"$THREAD\" ]; then basename \$t; break; fi; done" | tr -d '\r')
+# the busiest thread of that name: two can share one (an idle Java "Thread-5" beside the render thread, 2026-11-13)
+T=$($A shell "for t in /proc/$P/task/*; do if [ \"\$(cat \$t/comm 2>/dev/null)\" = \"$THREAD\" ]; then echo \$(basename \$t) \$(awk '{print \$14+\$15}' \$t/stat); fi; done" | tr -d '\r' | sort -k2 -n -r | head -1 | cut -d' ' -f1)
 [ -n "$T" ] || { echo "no thread '$THREAD' in Tundu"; exit 1; }
 echo "Recording $THREAD (tid $T) for $SECS s"
 $A shell "su 0 simpleperf record -t $T --call-graph dwarf,16384 -f 400 --duration $SECS -o /data/local/tmp/$NAME.data" 2>&1 | tail -1

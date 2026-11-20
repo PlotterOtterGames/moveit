@@ -1,0 +1,21 @@
+{
+    "name": "MoveIt.Games.Space",
+    "rootNamespace": "MoveIt.Games.Space",
+    "references": [
+        "MoveIt.Motion",
+        "MoveIt.Games.Common",
+        "MoveIt.Games.Tennis",
+        "Unity.InputSystem",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

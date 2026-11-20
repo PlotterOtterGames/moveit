@@ -1,0 +1,19 @@
+{
+    "name": "MoveIt.Games.Boxing",
+    "rootNamespace": "MoveIt.Games.Boxing",
+    "references": [
+        "MoveIt.Motion",
+        "MoveIt.Games.Common",
+        "MoveIt.Games.Sports",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

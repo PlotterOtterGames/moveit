@@ -24,6 +24,8 @@ namespace MoveIt.Games.Kart
         [Tooltip("Vrapo!'s dino valley: ferns, cycads, rocks, the volcano.")] public GameObject[] dinoProps;
         [Tooltip("Vrapo!'s dino and pterodactyl (animated).")] public GameObject dino, ptero;
         public RuntimeAnimatorController dinoController, pteroController;
+        [Tooltip("Vrapo!'s hero material (Tundu/Hero: the dino's own vertex colours) for its dino; null = recoloured as the props")]
+        public Material dinoMaterial;
     }
 
     /// <summary>
@@ -45,8 +47,12 @@ namespace MoveIt.Games.Kart
 
         KartWorldArt _art;
         Dictionary<string, Mesh> _props;
-        readonly List<(Transform t, int feature, int index, float phase)> _boxes = new List<(Transform, int, int, float)>();
-        readonly List<(Transform t, int feature, int index)> _stars = new List<(Transform, int, int)>();
+        // the gift boxes and the stars, drawn instanced (2026-11-13): one draw call each per camera; as ~60 renderers they
+        // were ~60 draw calls, twice over in the split screen, where the box's CPU was short
+        readonly List<(int feature, int index, float phase)> _boxes = new List<(int, int, float)>();
+        readonly List<(Vector3 at, int feature, int index)> _stars = new List<(Vector3, int, int)>();
+        Matrix4x4[] _boxMatrices, _starMatrices;
+        Mesh _boxMesh;
         readonly List<(Transform t, Vector3 centre, float radius, float speed, float height, float phase)> _flyers =
             new List<(Transform, Vector3, float, float, float, float)>();
         Vector2[] _coarse;
@@ -198,8 +204,9 @@ namespace MoveIt.Games.Kart
             z0 -= margin;
             z1 += margin;
             int nx = Mathf.CeilToInt((x1 - x0) / cell) + 1, nz = Mathf.CeilToInt((z1 - z0) / cell) + 1;
-            // in chunks (frustum culling) of 40 x 40 cells
-            const int chunk = 40;
+            // in chunks (frustum culling) of 64 x 64 cells (384 m; 40 x 40 before 2026-11-13: a camera saw ~6 of them, a
+            // draw call each, twice in the split screen; the ground fills the lower half of every view anyway)
+            int chunk = Merged ? 64 : 40;
             for (int cz = 0; cz < nz - 1; cz += chunk)
                 for (int cx = 0; cx < nx - 1; cx += chunk)
                 {
@@ -266,8 +273,9 @@ namespace MoveIt.Games.Kart
             var shoulder = Track.Theme == KartTheme.Coast ? new Color(0.9f, 0.78f, 0.52f) : new Color(0.4f, 0.64f, 0.25f);
             var shoulder2 = Track.Theme == KartTheme.Coast ? new Color(0.84f, 0.71f, 0.46f) : new Color(0.35f, 0.58f, 0.22f);
             var coral = new Color(0.92f, 0.22f, 0.2f);
-            // across the road: (offset d, height above the road, colour picker) from the left barrier's back to the right's
-            const int chunkLen = 60;
+            // across the road: (offset d, height above the road, colour picker) from the left barrier's back to the right's;
+            // in chunks of 150 samples (60 before 2026-11-13: more draw calls than the vertices they saved were worth)
+            int chunkLen = Merged ? 150 : 60;
             for (int c0 = 0; c0 < n; c0 += chunkLen)
             {
                 int c1 = Mathf.Min(n, c0 + chunkLen);
@@ -469,36 +477,19 @@ namespace MoveIt.Games.Kart
         void BuildBoxesAndStars()
         {
             var t = Track;
-            _starMesh = MoveIt.Games.Fly.FlyArt.Star(0.22f, 0.48f);
+            _starMesh = ArtShapes.Star(0.22f, 0.48f);
             _meshes.Add(_starMesh);
+            _props.TryGetValue("GiftBox", out _boxMesh);
             for (int i = 0; i < t.Features.Count; i++)
             {
                 var f = t.Features[i];
-                if (f.Kind == FeatureKind.Items)
-                {
-                    for (int b = 0; b < f.Count; b++)
-                    {
-                        var box = Prop("GiftBox", t.World(f.S, KartRace.BoxD(f, b), 1.2f), Quaternion.identity, 1f, batch: false);
-                        if (box != null) _boxes.Add((box, i, b, b * 0.7f + i));
-                    }
-                }
+                if (f.Kind == FeatureKind.Items && _boxMesh != null && _art.props != null)
+                    for (int b = 0; b < f.Count; b++) _boxes.Add((i, b, b * 0.7f + i));
                 else if (f.Kind == FeatureKind.Stars && _art.stars != null)
-                {
-                    for (int k = 0; k < f.Count; k++)
-                    {
-                        var go = new GameObject($"Star {i}.{k}");
-                        go.transform.SetParent(transform, false);
-                        go.transform.position = t.World(KartRace.StarS(f, k), f.D, 1.0f);
-                        go.transform.localScale = Vector3.one * 0.85f;
-                        go.AddComponent<MeshFilter>().sharedMesh = _starMesh;
-                        var r = go.AddComponent<MeshRenderer>();
-                        r.sharedMaterial = _art.stars;
-                        r.shadowCastingMode = ShadowCastingMode.Off;
-                        r.receiveShadows = false;
-                        _stars.Add((go.transform, i, k));
-                    }
-                }
+                    for (int k = 0; k < f.Count; k++) _stars.Add((t.World(KartRace.StarS(f, k), f.D, 1.0f), i, k));
             }
+            _boxMatrices = new Matrix4x4[_boxes.Count];
+            _starMatrices = new Matrix4x4[_stars.Count];
         }
 
         // ------------------------------------------------------------------------------------------------ the scenery
@@ -581,7 +572,13 @@ namespace MoveIt.Games.Kart
                         dino.transform.position = t.World(8f, t.Wall + 4f) + Vector3.up * 0.0f;
                         dino.transform.rotation = Quaternion.LookRotation(-new Vector3(t.Left(8f).x, 0f, t.Left(8f).y));
                         dino.transform.localScale = Vector3.one * 1.6f;
-                        Recolour(dino);
+                        if (_art.dinoMaterial != null)
+                            foreach (var r in dino.GetComponentsInChildren<Renderer>(true))
+                            {
+                                r.sharedMaterial = _art.dinoMaterial;
+                                r.shadowCastingMode = ShadowCastingMode.Off;
+                            }
+                        else Recolour(dino);
                         var anim = dino.GetComponentInChildren<Animator>();
                         if (anim != null && _art.dinoController != null)
                         {
@@ -602,12 +599,73 @@ namespace MoveIt.Games.Kart
                         }
                     break;
             }
-            // one draw call per material for the lot (they never move; static batching needs readable meshes)
+            // the props that never move (static batching and merging need readable meshes)
             var still = new List<GameObject>();
             foreach (var mf in root.GetComponentsInChildren<MeshFilter>())
                 if (mf.sharedMesh != null && mf.sharedMesh.isReadable && mf.GetComponent<Animator>() == null && mf.GetComponentInParent<Animator>() == null)
                     still.Add(mf.gameObject);
-            if (still.Count > 0) StaticBatchingUtility.Combine(still.ToArray(), root.gameObject);
+            if (Merged) MergeScenery(root, still);
+            else if (still.Count > 0) StaticBatchingUtility.Combine(still.ToArray(), root.gameObject);
+        }
+
+        /// <summary>
+        /// The world built for fewer draw calls (2026-11-13; PerfLab <c>merge=0</c> builds it as before): the scenery merged
+        /// into one mesh per area, the ground and the road in bigger chunks. Gara!'s split screen was short of CPU for its
+        /// draw calls and its culling: the ~300-400 props were each a renderer to cull, twice a frame, and, static-batched,
+        /// were drawn in as many ranges as the distance sort split them into.
+        /// </summary>
+        static bool Merged => PerfSwitches.Get("merge") != "0";
+
+        /// <summary>Area (m) of the scenery's merged meshes: about as much track as a camera sees ahead at a time.</summary>
+        const float SceneryArea = 120f;
+
+        /// <summary>
+        /// The props that never move as one mesh per <see cref="SceneryArea"/> square (and per material), in place of the
+        /// props themselves; props bigger than an area's third (the volcano, the lighthouse, the stands) stay on their own,
+        /// so an area isn't drawn whenever the big one is in view.
+        /// </summary>
+        void MergeScenery(Transform root, List<GameObject> still)
+        {
+            var groups = new Dictionary<(int, int, Material), List<CombineInstance>>();
+            var counts = new Dictionary<(int, int, Material), int>();
+            foreach (var go in still)
+            {
+                var r = go.GetComponent<MeshRenderer>();
+                var mesh = go.GetComponent<MeshFilter>().sharedMesh;
+                if (r == null || r.sharedMaterial == null) continue;
+                var b = r.bounds;
+                if (Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z)) > SceneryArea / 3f) continue;
+                var key = (Mathf.FloorToInt(b.center.x / SceneryArea), Mathf.FloorToInt(b.center.z / SceneryArea), r.sharedMaterial);
+                if (!groups.TryGetValue(key, out var list)) groups[key] = list = new List<CombineInstance>();
+                for (int sub = 0; sub < mesh.subMeshCount; sub++)
+                {
+                    list.Add(new CombineInstance { mesh = mesh, subMeshIndex = sub, transform = go.transform.localToWorldMatrix });
+                    counts[key] = (counts.TryGetValue(key, out int c) ? c : 0) + mesh.vertexCount;
+                }
+                // the prop itself goes (the castle's parent stays, an empty transform)
+                Destroy(go);
+            }
+            var toWorld = transform.worldToLocalMatrix;
+            foreach (var pair in groups)
+            {
+                var (cx, cz, material) = pair.Key;
+                var parts = pair.Value.ToArray();
+                for (int i = 0; i < parts.Length; i++) parts[i].transform = toWorld * parts[i].transform;
+                var mesh = new Mesh { name = $"Scenery {cx},{cz}" };
+                if (counts[pair.Key] > 65000) mesh.indexFormat = IndexFormat.UInt32;
+                mesh.CombineMeshes(parts, true, true);
+                mesh.UploadMeshData(true);
+                _meshes.Add(mesh);
+                var go = new GameObject(mesh.name);
+                go.transform.SetParent(root, false);
+                go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                var r = go.AddComponent<MeshRenderer>();
+                r.sharedMaterial = material;
+                r.shadowCastingMode = ShadowCastingMode.Off;
+                r.receiveShadows = false;
+                r.lightProbeUsage = LightProbeUsage.Off;
+                r.reflectionProbeUsage = ReflectionProbeUsage.Off;
+            }
         }
 
         void Recolour(GameObject go)
@@ -793,25 +851,42 @@ namespace MoveIt.Games.Kart
 
         // ------------------------------------------------------------------------------------------------ every frame
 
+        bool _flyersShown = true;
+
+        /// <summary>The pterodactyls on or off (Gara!'s split screen leaves them out).</summary>
+        public void ShowFlyers(bool on)
+        {
+            if (on == _flyersShown) return;
+            _flyersShown = on;
+            foreach (var f in _flyers)
+                if (f.t != null) f.t.gameObject.SetActive(on);
+        }
+
         /// <summary>The boxes and stars as the race has them (gone ones hidden), spinning; the pads' arrows run; the
         /// pterodactyls circle.</summary>
         public void Animate(KartRace race, float time)
         {
-            foreach (var (t, feature, index, phase) in _boxes)
+            int boxes = 0;
+            foreach (var (feature, index, phase) in _boxes)
             {
-                bool present = race == null || race.Present(feature, index);
-                if (t.gameObject.activeSelf != present) t.gameObject.SetActive(present);
-                if (!present) continue;
+                if (race != null && !race.Present(feature, index)) continue;
                 var f = Track.Features[feature];
-                t.position = Track.World(f.S, KartRace.BoxD(f, index), 1.2f + 0.15f * Mathf.Sin(time * 2.2f + phase));
-                t.rotation = Quaternion.Euler(18f * Mathf.Sin(time * 1.3f + phase), time * 90f + phase * 40f, 12f);
+                var at = Track.World(f.S, KartRace.BoxD(f, index), 1.2f + 0.15f * Mathf.Sin(time * 2.2f + phase));
+                var turn = Quaternion.Euler(18f * Mathf.Sin(time * 1.3f + phase), time * 90f + phase * 40f, 12f);
+                _boxMatrices[boxes++] = Matrix4x4.TRS(at, turn, Vector3.one);
             }
-            foreach (var (t, feature, index) in _stars)
+            if (boxes > 0)
+                Graphics.RenderMeshInstanced(new RenderParams(_art.props) { shadowCastingMode = ShadowCastingMode.Off },
+                                             _boxMesh, 0, _boxMatrices, boxes);
+            int stars = 0;
+            foreach (var (at, feature, index) in _stars)
             {
-                bool present = race == null || race.Present(feature, index);
-                if (t.gameObject.activeSelf != present) t.gameObject.SetActive(present);
-                if (present) t.rotation = Quaternion.Euler(0f, time * 160f + index * 30f, 0f);
+                if (race != null && !race.Present(feature, index)) continue;
+                _starMatrices[stars++] = Matrix4x4.TRS(at, Quaternion.Euler(0f, time * 160f + index * 30f, 0f), Vector3.one * 0.85f);
             }
+            if (stars > 0)
+                Graphics.RenderMeshInstanced(new RenderParams(_art.stars) { shadowCastingMode = ShadowCastingMode.Off },
+                                             _starMesh, 0, _starMatrices, stars);
             if (_art.pads != null) _art.pads.mainTextureOffset = new Vector2(0f, -time * 1.6f);
             foreach (var (t, centre, radius, speed, height, phase) in _flyers)
             {

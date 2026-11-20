@@ -40,16 +40,21 @@ namespace MoveIt.Games
             /// <summary>Two players: the NPU's landmark runs per second shared by them (30 = they take turns, each ~15
             /// poses a second: the NPU as busy as with one player; 0 = both every frame).</summary>
             public readonly float TwoPlayerRuns;
-            /// <summary>The render scale while the screen is split for two players (<see cref="SetSplit"/>): the scene is
-            /// drawn twice, so a little less resolution.</summary>
+            /// <summary>The scale while the screen is split for two players (<see cref="SetSplit"/>): the scene is drawn
+            /// twice, so less resolution. With <see cref="ScreenScale"/> it's the screen's own resolution too (the surface
+            /// is resized as a two-player match starts and ends), else URP's render scale.</summary>
             public readonly float SplitScale;
             /// <summary><see cref="Scale"/> is the screen's own resolution (<see cref="Screen.SetResolution"/>: the game
             /// draws that many pixels straight into the screen's buffer and the TV's display hardware scales them up)
             /// instead of URP's render scale (drawn into a texture, then copied to the screen on the GPU).</summary>
             public readonly bool ScreenScale;
+            /// <summary>Tundu/Sky's lighter clouds (two octaves of noise, the global keyword TUNDU_LITE) all the time, not
+            /// only in a split screen; the text keeps its outlines (<see cref="ApplyLite"/>).</summary>
+            public readonly bool LiteSky;
 
             public Settings(float scale, bool post, int fps, bool shadows = true, bool bodyKeepsFps = true,
-                            string model = "auto", float twoPlayerRuns = 30f, float splitScale = 0f, bool screenScale = false)
+                            string model = "auto", float twoPlayerRuns = 30f, float splitScale = 0f, bool screenScale = false,
+                            bool liteSky = false)
             {
                 Scale = scale;
                 Post = post;
@@ -60,6 +65,7 @@ namespace MoveIt.Games
                 TwoPlayerRuns = twoPlayerRuns;
                 SplitScale = splitScale > 0f ? splitScale : scale;
                 ScreenScale = screenScale;
+                LiteSky = liteSky;
             }
         }
 
@@ -71,21 +77,46 @@ namespace MoveIt.Games
         // text a touch softer (docs/hardware.md "Tenis!'s frame on the box")
         public static Settings For(string scene) => scene switch
         {
-            "Runner" or "Sword" or "Fly" => new Settings(0.8f, false, 30, model: "lite", screenScale: true),
+            "Runner" or "Sword" => new Settings(0.8f, false, 30, model: "lite", screenScale: true),
+            // Superboks! (2026-11-18, it replaced Fluturo!): a ring and two chibis, the stage one mesh and its glows; the full
+            // pose model (auto: lite only if the NPU can't keep up), because the guard holds the hands in front of the face
+            // and chest, where lite's wrists jump most (Zana!'s measurements, docs/hardware.md "Zana!'s wand jumps"). Not
+            // measured on the box yet
+            "Boxing" => new Settings(0.75f, false, 30, model: "auto", screenScale: true),
             // Tenis!: Wii's camera looks down on the court, so nearly every pixel is shadow-receiving grass: without
             // real-time shadows (blob shadows under the players instead) 28.8-29 fps against 27.5 at 80 degrees C with
             // four chibis and the camera AI tracking (2026-11-05). Two players: the NPU's runs shared (30 a second: as
             // busy as with one player, the game as fast). Since 2026-11-06 drawn at 0.75 of the screen's resolution
             // straight into the screen's buffer, the TV's display hardware scaling it up (ScreenScale): at the hot box's
             // 200-250 MHz, uncapped, 28.4 fps against 23.4 with URP's 0.8 render scale and its copy (21.0 before the
-            // blit type was Auto); the HUD text a touch softer. The split screen the same (it had 0.7 and two copies)
-            "Tennis" => new Settings(0.75f, false, 30, shadows: false, model: "lite", twoPlayerRuns: 30f, splitScale: 0.75f, screenScale: true),
+            // blit type was Auto); the HUD text a touch softer. The split screen at 0.6 since 2026-11-12 (the scene drawn
+            // twice; a live two-player match at the hot box's 200 MHz, uncapped: 19.6 fps at 0.75, 26.5 at 0.6, 29.9 at
+            // 0.6 without the crowd; docs/hardware.md "Two players on a hot box")
+            "Tennis" => new Settings(0.75f, false, 30, shadows: false, model: "lite", twoPlayerRuns: 30f, splitScale: 0.6f, screenScale: true),
             // Volejboll! (2026-11-07): Tenis!'s settings (four chibis, the sun's shadows drawn as soft shapes, two players'
-            // NPU runs shared, the split screen), on Sporte!'s beach (its crowd, the sea)
-            "Volley" => new Settings(0.75f, false, 30, shadows: false, model: "lite", twoPlayerRuns: 30f, splitScale: 0.75f, screenScale: true),
+            // NPU runs shared, the split screen at 0.6), on Sporte!'s beach (its crowd, the sea)
+            "Volley" => new Settings(0.75f, false, 30, shadows: false, model: "lite", twoPlayerRuns: 30f, splitScale: 0.6f, screenScale: true),
             // Gara! (2026-11-08): Volejboll!'s settings (six chibis in karts, the computer's in low detail, the sun's shadows
-            // drawn as soft shapes, two players' NPU runs shared, the split screen); not measured on the box yet
-            "Kart" => new Settings(0.75f, false, 30, shadows: false, model: "lite", twoPlayerRuns: 30f, splitScale: 0.7f, screenScale: true),
+            // drawn as soft shapes, two players' NPU runs shared, the split screen at 0.6 as the screen's resolution: it was
+            // 0.7 as URP's render scale, a texture copied to the screen on top)
+            "Kart" => new Settings(0.75f, false, 30, shadows: false, model: "lite", twoPlayerRuns: 30f, splitScale: 0.6f, screenScale: true),
+            // Lunapark! (2026-11-09): sprites over the camera picture like Vishu! (one sheet, three batches, no 3D), so the
+            // full pose model (steadier hands: the booths are all about where the hands are); not measured on the box yet
+            "Arcade" => new Settings(0.8f, false, 30, screenScale: true),
+            // Yjet! (2026-11-14): a 3D chase like Vrapo! and Gara! (lite pose model, no post, 30 fps), but mostly sky: the
+            // planets one texture read a pixel, the stars one mesh, the things instanced; two players share one view (no
+            // split screen), their NPU runs shared. Not measured on the box yet
+            "Space" => new Settings(0.8f, false, 30, shadows: false, model: "lite", twoPlayerRuns: 30f, screenScale: true),
+            // Zana! (2026-11-15): a 3D chase like Yjet! (lite pose model, no post, 30 fps; the creatures one mesh each,
+            // the props instanced, the ground in chunks); two fairies share one view (no split screen), their NPU runs
+            // shared. The shapes drawn in the air need the hands: full would be steadier, lite keeps the frame. On the box
+            // (2026-11-16, the hot box's 200 MHz, uncapped, the game playing itself): 10.4 fps with the lands lit per pixel
+            // at 0.8; lit per vertex ~17.5; the sky's two-octave clouds +20 %, 0.7 of the screen +28 % on top of that.
+            // Tenis!'s 0.75 and the lighter clouds (the text keeps its outlines). The full pose model since 2026-11-17 (the
+            // user: "hand tracking is not working correctly, especially when the hand goes over the body"): the wand is the
+            // whole game, and on the box's own recording of the routine full put the wand > 150 px off the heavy model's
+            // answer in 0.6 % of the frames over the body against lite's 3.3 % (tools/motion/wand_replay.py)
+            "Fairy" => new Settings(0.75f, false, 30, shadows: false, model: "auto", twoPlayerRuns: 30f, screenScale: true, liteSky: true),
             // Sporte!: every surface sampling the shadow map cost ~14 ms a frame (the athletes get blob shadows instead),
             // and up to nine athletes in a full stadium need a little less resolution
             "Sports" => new Settings(0.72f, false, 30, shadows: false, model: "lite", screenScale: true),
@@ -131,20 +162,16 @@ namespace MoveIt.Games
         /// </summary>
         public static float ScreenOverride;
 
+        /// <summary>The scale the scene wants now: its own, or the split screen's.</summary>
+        static float Wanted => _split ? Current.SplitScale : Current.Scale;
+
         /// <summary>The factor of the screen's own resolution the game draws into (1 = all of it).</summary>
         static float ScreenFactor => ScreenOverride > 0f ? ScreenOverride
-            : ScreenOverride < 0f || Current.ScreenScale ? Current.Scale : 1f;
+            : ScreenOverride < 0f || Current.ScreenScale ? Wanted : 1f;
 
         /// <summary>The render scale URP should draw at: the scene's (or the split screen's), less whatever the screen's
         /// resolution already takes off.</summary>
-        public static float RenderScale
-        {
-            get
-            {
-                float wanted = _split ? Current.SplitScale : Current.Scale;
-                return ScreenFactor < 1f ? Mathf.Min(1f, wanted / Current.Scale) : wanted;
-            }
-        }
+        public static float RenderScale => ScreenFactor < 1f ? Mathf.Min(1f, Wanted / ScreenFactor) : Wanted;
 
         /// <summary>The screen resolution asked for (PerfLab's log).</summary>
         public static string ScreenSize => $"{Mathf.RoundToInt(Native.x * ScreenFactor)}x{Mathf.RoundToInt(Native.y * ScreenFactor)}";
@@ -189,6 +216,7 @@ namespace MoveIt.Games
             AndroidMotionService.SetPeople(1);   // a two-player game asks for two itself
             _split = false;
             ApplyScreen();
+            ApplyLite();
             if (GraphicsSettings.currentRenderPipeline is UniversalRenderPipelineAsset urp) urp.renderScale = RenderScale;
             Application.targetFrameRate = _appliedFps = Current.Fps;
             Idle = false;
@@ -199,17 +227,59 @@ namespace MoveIt.Games
                 data.renderPostProcessing &= Current.Post;
                 data.renderShadows &= Current.Shadows;
             }
+            StillVolumes();
+        }
+
+        static bool _volumesLater;
+
+        /// <summary>
+        /// Without post-processing nothing reads the volumes, so URP needn't blend them for the scene's cameras every
+        /// frame (~2 % of Gara!'s main thread in its split screen, two cameras; 2026-11-13). The first scene loads before
+        /// URP has made its volume manager: then on the first frame (<see cref="IdleWatch"/>).
+        /// </summary>
+        static void StillVolumes()
+        {
+            _volumesLater = !VolumeManager.instance.isInitialized;
+            if (_volumesLater) return;
+            foreach (var cam in Camera.allCameras)
+                if (!cam.GetUniversalAdditionalCameraData().renderPostProcessing)
+                    cam.SetVolumeFrameworkUpdateMode(VolumeFrameworkUpdateMode.ViaScripting);
         }
 
         /// <summary>
-        /// The two-player split screen on or off (Tenis! versus): the scene is drawn twice, so the render scale drops to
-        /// <see cref="Settings.SplitScale"/> while it's on. Android players only, like the rest of these settings.
+        /// The two-player split screen on or off (Tenis!, Volejboll! and Gara! versus): the scene is drawn twice, so it
+        /// draws at <see cref="Settings.SplitScale"/> while it's on: as the screen's own resolution where the scene uses
+        /// <see cref="Settings.ScreenScale"/> (the surface is resized once as the match starts and once as it ends), else as
+        /// URP's render scale. Android players only, like the rest of these settings.
         /// </summary>
         public static void SetSplit(bool split)
         {
-            if (Application.platform != RuntimePlatform.Android) return;
+            if (Application.platform != RuntimePlatform.Android || split == _split) return;
             _split = split;
+            ApplyScreen();
+            ApplyLite();
             if (GraphicsSettings.currentRenderPipeline is UniversalRenderPipelineAsset urp) urp.renderScale = RenderScale;
+        }
+
+        /// <summary>PerfLab's say over the split screens' lighter shader paths (<see cref="ApplyLite"/>): -1 = on with the
+        /// split screen, 0 = never, 1 = always.</summary>
+        public static int LiteOverride = -1;
+
+        /// <summary>
+        /// The lighter paths while the screen is split (2026-11-13: everything is drawn twice there): the global shader
+        /// keyword TUNDU_LITE (Tundu/Sky's clouds from two octaves of noise instead of four, Tundu/Water without its
+        /// drifting foam streaks) and <see cref="SportHud.LiteOutlines"/> (outlined text with one drop shadow); a scene with
+        /// <see cref="Settings.LiteSky"/> keeps the keyword all the time (its text keeps the outlines). Android players only
+        /// (the editor keeps the full look).
+        /// </summary>
+        public static void ApplyLite()
+        {
+            if (Application.platform != RuntimePlatform.Android) return;
+            bool lite = LiteOverride >= 0 ? LiteOverride == 1 : _split;
+            // a scene with LiteSky keeps the lighter clouds all the time (PerfLab lite=0 turns them off to compare)
+            if (lite || LiteOverride < 0 && Current.LiteSky) Shader.EnableKeyword("TUNDU_LITE");
+            else Shader.DisableKeyword("TUNDU_LITE");
+            SportHud.LiteOutlines = lite;
         }
 
         /// <summary>Back to the scene's own frame rate (idle or not), after something else set one (PerfLab).</summary>
@@ -219,6 +289,7 @@ namespace MoveIt.Games
         {
             void Update()
             {
+                if (_volumesLater) StillVolumes();
                 // a frame rate set by someone else (PerfLab) is left alone
                 if (Current.Fps <= IdleFps || Application.targetFrameRate != _appliedFps) return;
                 if (Current.BodyKeepsFps && MotionSystem.Instance != null && MotionSystem.Instance.ActiveBody != null)

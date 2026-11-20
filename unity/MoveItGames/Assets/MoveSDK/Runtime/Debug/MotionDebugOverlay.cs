@@ -35,6 +35,14 @@ namespace MoveIt.Motion
             set => fullScreen = value;
         }
 
+        /// <summary>The corner view's height as a share of the screen (a screen busy at the bottom right makes it smaller,
+        /// and puts it back when it goes).</summary>
+        public float CornerSize
+        {
+            get => cornerSize;
+            set => cornerSize = Mathf.Clamp(value, 0.1f, 0.5f);
+        }
+
         /// <summary>Show or hide the overlay (F1 toggles it too).</summary>
         public bool Visible
         {
@@ -45,6 +53,7 @@ namespace MoveIt.Motion
         void Awake()
         {
             if (gestures == null) gestures = FindAnyObjectByType<BodyGestures>();
+            useGUILayout = false;   // OnGUI uses no GUILayout: no layout pass every frame
         }
 
         void OnEnable()

@@ -275,7 +275,7 @@
    ]
   },
   {
-   "name": "act_ready",
+   "name": "act_undo",
    "rect": [
     408,
     1480,
@@ -284,7 +284,7 @@
    ]
   },
   {
-   "name": "none",
+   "name": "act_ready",
    "rect": [
     544,
     1480,
@@ -293,7 +293,7 @@
    ]
   },
   {
-   "name": "hand",
+   "name": "none",
    "rect": [
     680,
     1480,
@@ -302,7 +302,7 @@
    ]
   },
   {
-   "name": "star_full",
+   "name": "hand",
    "rect": [
     816,
     1480,
@@ -311,7 +311,7 @@
    ]
   },
   {
-   "name": "star_empty",
+   "name": "star_full",
    "rect": [
     0,
     1616,
@@ -320,7 +320,7 @@
    ]
   },
   {
-   "name": "glow",
+   "name": "star_empty",
    "rect": [
     136,
     1616,
@@ -329,9 +329,18 @@
    ]
   },
   {
-   "name": "panel",
+   "name": "glow",
    "rect": [
     272,
+    1616,
+    128,
+    128
+   ]
+  },
+  {
+   "name": "panel",
+   "rect": [
+    408,
     1616,
     96,
     96
@@ -340,7 +349,7 @@
   {
    "name": "bulb",
    "rect": [
-    376,
+    512,
     1616,
     64,
     64

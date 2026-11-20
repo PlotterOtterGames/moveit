@@ -194,7 +194,11 @@ namespace MoveIt.Motion
                 body.FastVelocity[i] = body.FastFilters[i].Velocity;
                 body.Raw[i] = c.Joints[i];
                 body.Visibility[i] = c.Visibility[i];
-                if (c.HasWorld) body.World[i] = body.WorldFilters[i].Filter(c.World[i], dt, body.WorldFilterScale);
+                if (c.HasWorld)
+                {
+                    body.World[i] = body.WorldFilters[i].Filter(c.World[i], dt, body.WorldFilterScale);
+                    body.RawWorld[i] = c.World[i];
+                }
             }
             body.ShownTimeline.Add(sampleTime, body.Joints, localNow);
             body.HasWorld = c.HasWorld;

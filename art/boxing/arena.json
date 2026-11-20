@@ -1,0 +1,74 @@
+{
+ "Ring_Gym": {
+  "tris": 5844,
+  "verts": 3329
+ },
+ "Gym_Set": {
+  "tris": 18876,
+  "verts": 11311
+ },
+ "Gym_Beams": {
+  "tris": 1344,
+  "verts": 784
+ },
+ "Ring_Roof": {
+  "tris": 5844,
+  "verts": 3329
+ },
+ "Roof_Set": {
+  "tris": 15282,
+  "verts": 8492
+ },
+ "Roof_Beacon": {
+  "tris": 224,
+  "verts": 114
+ },
+ "Roof_Beams": {
+  "tris": 960,
+  "verts": 870
+ },
+ "Roof_Far": {
+  "tris": 17948,
+  "verts": 12472
+ },
+ "Roof_Sky": {
+  "tris": 1520,
+  "verts": 762
+ },
+ "Ring_Mountain": {
+  "tris": 5844,
+  "verts": 3329
+ },
+ "Mountain_Set": {
+  "tris": 6144,
+  "verts": 3452
+ },
+ "Mountain_Far": {
+  "tris": 6400,
+  "verts": 3360
+ },
+ "Mountain_Sky": {
+  "tris": 1520,
+  "verts": 762
+ },
+ "Ring_Stars": {
+  "tris": 5844,
+  "verts": 3329
+ },
+ "Stars_Set": {
+  "tris": 6152,
+  "verts": 3409
+ },
+ "Stars_Beams": {
+  "tris": 576,
+  "verts": 336
+ },
+ "Stars_Far": {
+  "tris": 2880,
+  "verts": 1542
+ },
+ "Stars_Sky": {
+  "tris": 2208,
+  "verts": 1106
+ }
+}

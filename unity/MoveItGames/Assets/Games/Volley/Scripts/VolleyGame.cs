@@ -176,11 +176,21 @@ namespace MoveIt.Games.Volley
 
         void Start()
         {
+            // OnGUI uses no GUILayout: no layout pass (it ran all the HUD's code once more every frame)
+            useGUILayout = false;
             _input = BodyInput.Instance != null ? BodyInput.Instance : FindAnyObjectByType<BodyInput>();
             PlayerGate.Use(_input, Area);
             _mirror = MotionSystem.Instance != null ? MotionSystem.Instance.GetComponent<MotionDebugOverlay>() : null;
             if (_mirror != null) _mirrorWasVisible = _mirror.Visible;
             _menu.Load();
+            // PerfLab on the box (measurements): a mode for this visit only; the remembered choice is saved only when the
+            // menu is changed with the remote
+            switch (PerfSwitches.Get("mode"))
+            {
+                case "versus": _menu.Mode = VolleyMode.Versus; break;
+                case "together": _menu.Mode = VolleyMode.Together; break;
+                case "solo": _menu.Mode = VolleyMode.Solo; break;
+            }
             SportsArt.Register(art);
 
             // the beach and its daylight (no real-time shadows: VolleyFx draws the sun's as soft shapes on the sand)
@@ -918,6 +928,7 @@ namespace MoveIt.Games.Volley
                 to.renderPostProcessing = from.renderPostProcessing;
                 to.renderShadows = from.renderShadows;
                 to.antialiasing = from.antialiasing;
+                _cam2.SetVolumeFrameworkUpdateMode(cam.GetVolumeFrameworkUpdateMode());
                 var listener = _cam2.GetComponent<AudioListener>();
                 if (listener != null) Destroy(listener);
             }
@@ -1380,10 +1391,32 @@ namespace MoveIt.Games.Volley
                     GUI.DrawTexture(new Rect(x + 48f, ry + 20f, 20f, 20f), _dot);
                     GUI.color = Color.white;
                 }
-                GameHud.Text(new Rect(x + 78f, ry, 400f, rowH), TeamName(team), GameHud.Small, TextAnchor.MiddleLeft);
+                // the texts made again only when they change, no drop shadows on the dark panel (each shadow was the
+                // text drawn a second time; Tenis!'s scoreboard was 9 % of the main thread in the split screen)
+                if (_boardMatch != _match || _boardMode != Mode || _boardAlbanian != CommonStrings.Albanian || _boardName[team] == null)
+                {
+                    _boardMatch = _match;
+                    _boardMode = Mode;
+                    _boardAlbanian = CommonStrings.Albanian;
+                    _boardName[0] = TeamName(0);
+                    _boardName[1] = TeamName(1);
+                }
+                int points = score.Points(team);
+                if (_boardPoints[team] != points || _boardPointsText[team] == null)
+                {
+                    _boardPoints[team] = points;
+                    _boardPointsText[team] = points.ToString();
+                }
+                GameHud.Text(new Rect(x + 78f, ry, 400f, rowH), _boardName[team], GameHud.Small, TextAnchor.MiddleLeft, null, false);
                 SportHud.Rounded(new Rect(x + 500f, ry + 8f, 86f, rowH - 16f), new Color(1f, 1f, 1f, 0.14f), 10f);
-                GameHud.Text(new Rect(x + 500f, ry, 86f, rowH), score.Points(team).ToString(), GameHud.Small, TextAnchor.MiddleCenter, Sun);
+                GameHud.Text(new Rect(x + 500f, ry, 86f, rowH), _boardPointsText[team], GameHud.Small, TextAnchor.MiddleCenter, Sun, false);
             }
         }
+
+        readonly string[] _boardName = new string[2], _boardPointsText = new string[2];
+        readonly int[] _boardPoints = { -1, -1 };
+        VolleyMatch _boardMatch;
+        VolleyMode _boardMode;
+        bool _boardAlbanian;
     }
 }

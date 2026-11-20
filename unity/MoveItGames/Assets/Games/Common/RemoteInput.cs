@@ -17,6 +17,18 @@ namespace MoveIt.Games
         public static bool Confirm =>
             Key(k => k.enterKey) || Key(k => k.numpadEnterKey) || Key(k => k.spaceKey) || Pad(p => p.buttonSouth.wasPressedThisFrame);
 
+        /// <summary>OK is held down right now (for a choice that needs a long, deliberate press: Pikturo!'s way to paint).</summary>
+        public static bool ConfirmHeld
+        {
+            get
+            {
+                var kb = Keyboard.current;
+                var pad = Gamepad.current;
+                return (kb != null && (kb.enterKey.isPressed || kb.numpadEnterKey.isPressed || kb.spaceKey.isPressed)) ||
+                       (pad != null && pad.buttonSouth.isPressed);
+            }
+        }
+
         public static bool Back =>
             Key(k => k.escapeKey) || Key(k => k.backspaceKey) || Pad(p => p.buttonEast.wasPressedThisFrame);
 

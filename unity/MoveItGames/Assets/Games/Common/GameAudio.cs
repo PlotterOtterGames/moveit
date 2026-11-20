@@ -31,13 +31,18 @@ namespace MoveIt.Games
             }
         }
 
+        // Read once: on Android a PlayerPrefs read is a trip into Java's preferences, and the music's level is set every
+        // frame (2 % of Gara!'s main thread on the box, 2026-11-13). Only these setters write the keys.
+        static float _musicVolume = -1f, _sfxVolume = -1f;
+
         /// <summary>0..1, remembered.</summary>
         public static float MusicVolume
         {
-            get => PlayerPrefs.GetFloat(MusicKey, 0.7f);
+            get => _musicVolume >= 0f ? _musicVolume : _musicVolume = PlayerPrefs.GetFloat(MusicKey, 0.7f);
             set
             {
-                PlayerPrefs.SetFloat(MusicKey, Mathf.Clamp01(value));
+                _musicVolume = Mathf.Clamp01(value);
+                PlayerPrefs.SetFloat(MusicKey, _musicVolume);
                 PlayerPrefs.Save();
             }
         }
@@ -45,10 +50,11 @@ namespace MoveIt.Games
         /// <summary>0..1, remembered.</summary>
         public static float SfxVolume
         {
-            get => PlayerPrefs.GetFloat(SfxKey, 1f);
+            get => _sfxVolume >= 0f ? _sfxVolume : _sfxVolume = PlayerPrefs.GetFloat(SfxKey, 1f);
             set
             {
-                PlayerPrefs.SetFloat(SfxKey, Mathf.Clamp01(value));
+                _sfxVolume = Mathf.Clamp01(value);
+                PlayerPrefs.SetFloat(SfxKey, _sfxVolume);
                 PlayerPrefs.Save();
             }
         }

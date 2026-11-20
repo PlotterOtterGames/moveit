@@ -216,6 +216,8 @@ namespace MoveIt.Games.Tennis
 
         void Start()
         {
+            // OnGUI uses no GUILayout: no layout pass (it ran all the HUD's code once more every frame)
+            useGUILayout = false;
             _input = BodyInput.Instance != null ? BodyInput.Instance : FindAnyObjectByType<BodyInput>();
             PlayerGate.Use(_input, Area);
             // the small skeleton mirror sits in the bottom-right corner: shown only while waiting, on the results and while
@@ -223,6 +225,14 @@ namespace MoveIt.Games.Tennis
             _mirror = MotionSystem.Instance != null ? MotionSystem.Instance.GetComponent<MotionDebugOverlay>() : null;
             if (_mirror != null) _mirrorWasVisible = _mirror.Visible;
             _menu.Load();
+            // PerfLab on the box (measurements): a mode for this visit only; the remembered choice is saved only when the
+            // menu is changed with the remote
+            switch (PerfSwitches.Get("mode"))
+            {
+                case "versus": _menu.Mode = TennisMode.Versus; break;
+                case "together": _menu.Mode = TennisMode.Together; break;
+                case "solo": _menu.Mode = TennisMode.Solo; break;
+            }
             _humans[0].RightHanded = PlayerPrefs.GetInt(HandKey, 1) == 1;
             _humans[1].RightHanded = PlayerPrefs.GetInt(HandKey + "2", 1) == 1;
             foreach (var h in _humans) h.Detector.RightHanded = h.RightHanded;
@@ -251,6 +261,7 @@ namespace MoveIt.Games.Tennis
 
         void OnDestroy()
         {
+            AndroidMotionService.SetFocus(0);
             if (_dot != null) Destroy(_dot);
             if (_cup != null) Destroy(_cup);
             if (_netCell != null) Destroy(_netCell);
@@ -423,6 +434,7 @@ namespace MoveIt.Games.Tennis
                     break;
             }
 
+            UpdateFocus();
             if (_mirror != null) _mirror.Visible = _mirrorWasVisible && (Current is Phase.Waiting or Phase.Results or Phase.Bracket || _paused);
             UpdateViews(dt);
             UpdateBall();
@@ -618,16 +630,47 @@ namespace MoveIt.Games.Tennis
             SetPhase(Phase.MatchEnd);
         }
 
-        /// <summary>Two players: the match waits while one of them is out of view or hasn't stood still since coming back
-        /// (their steps are measured from there).</summary>
+        /// <summary>Two players: the match waits while one of them is out of view (unseen for <see cref="GoneAfter"/>) or
+        /// hasn't stood still since coming back (their steps are measured from there).</summary>
         bool TwoPlayersPaused()
         {
             for (int k = 0; k < 2; k++)
             {
                 var s = _slots[k];
-                if (!s.Present || !s.Calibrated) return true;
+                if (!s.SeenWithin(GoneAfter) || !s.Calibrated) return true;
             }
             return false;
+        }
+
+        /// <summary>Two players: a player unseen this long (s) is out of view and the match waits. Each is seen ~10-20 times
+        /// a second (they share the box's pose AI) and a dip of the pose model's score skips a few of those: at a quarter
+        /// second (<see cref="PlayerSlots.Slot.Present"/>) the match stopped and started again for such gaps.</summary>
+        const float GoneAfter = 0.6f;
+
+        /// <summary>The share of the box's pose AI the player who has to move gets (<see cref="UpdateFocus"/>).</summary>
+        const float FocusShare = 0.67f;
+
+        /// <summary>
+        /// Two players share the box's pose AI: each is seen ~15 times a second, and at that rate a third of the strong swings
+        /// went unseen and the rest came ~30 ms later than with one player (2026-11-12, docs/hardware.md "Two players after
+        /// the tracking rework"). Only one of them has to swing at a time, so the one the ball is coming to (or who serves)
+        /// gets two of every three looks (~20 a second, the other ~10, enough to stay in view): on a two-person recording
+        /// their strong swings were seen 76 % of the time instead of 67 %, ~30 ms sooner. Off between points and on the
+        /// waiting screens (both raise their hands there).
+        /// </summary>
+        void UpdateFocus()
+        {
+            int slot = -1;
+            if (Mode != TennisMode.Solo && Current == Phase.Playing && !_paused && _match != null)
+            {
+                var next = _match.Next;
+                if (_match.Phase == MatchPhase.Rally && next.Active && !next.Taken && !next.Missed && next.Hitter != null)
+                    slot = next.Hitter.Controller;
+                else if (_match.Phase is MatchPhase.Serve or MatchPhase.Toss)
+                    slot = _match.Server.Controller;
+            }
+            var body = slot >= 0 && slot < PlayerSlots.Count ? _slots[slot].Body : null;
+            AndroidMotionService.SetFocus(body != null ? body.ServiceTrack : 0, FocusShare);
         }
 
         void HandleKeys()
@@ -991,7 +1034,8 @@ namespace MoveIt.Games.Tennis
         {
             bool split = Split;
             _stadium.ShowNearEnd(split);
-            BoxGraphics.SetSplit(split);
+            _stadium.LiteCrowd(split);   // the scene is drawn twice: the crowd as one light mesh a stand
+            BoxGraphics.SetSplit(split);   // and at the split screen's lower resolution (on the box)
             ApplyDetail();
             cam.rect = split ? new Rect(0f, 0f, 0.5f, 1f) : new Rect(0f, 0f, 1f, 1f);
             if (split && _cam2 == null)
@@ -1003,6 +1047,7 @@ namespace MoveIt.Games.Tennis
                 to.renderPostProcessing = from.renderPostProcessing;
                 to.renderShadows = from.renderShadows;
                 to.antialiasing = from.antialiasing;
+                _cam2.SetVolumeFrameworkUpdateMode(cam.GetVolumeFrameworkUpdateMode());
                 var listener = _cam2.GetComponent<AudioListener>();
                 if (listener != null) Destroy(listener);
             }
@@ -1374,13 +1419,30 @@ namespace MoveIt.Games.Tennis
             SportHud.Text(r, info, 28, Color.white, TextAnchor.MiddleCenter, 0f);
         }
 
+        /// <summary>The scoreboard's names and games (<see cref="DrawScoreboard"/>), made again only when they change (a
+        /// new match, mode or language; a game won): they were formatted every frame (points are fixed strings).</summary>
+        readonly string[] _boardName = new string[2], _boardGames = new string[2];
+        readonly int[] _boardGamesWon = { -1, -1 };
+        TennisMatch _boardMatch;
+        TennisMode _boardMode;
+        bool _boardAlbanian;
+
         /// <summary>Both sides (a chip in each player's shirt colour: one in singles, two in doubles) with their games and
-        /// points, a dot by the side serving: top left, or across the middle of a split screen.</summary>
+        /// points, a dot by the side serving: top left, or across the middle of a split screen. Its texts on the dark panel
+        /// have no drop shadow (two draws less each: on the box this board was ~9 % of the main thread, 2026-11-12).</summary>
         void DrawScoreboard(float w)
         {
             var score = _match.Score;
             const float y = 24f, rowH = 60f, width = 680f;
             float x = Split ? w / 2f - width / 2f : 30f;
+            if (_boardMatch != _match || _boardMode != Mode || _boardAlbanian != CommonStrings.Albanian || _boardName[0] == null)
+            {
+                _boardMatch = _match;
+                _boardMode = Mode;
+                _boardAlbanian = CommonStrings.Albanian;
+                _boardName[0] = TeamName(0);
+                _boardName[1] = TeamName(1);
+            }
             // one rounded panel (a layer less than a shadowed one: the box's GPU pays for every layer during play)
             SportHud.Panel(new Rect(x - 8f, y - 8f, width + 16f, rowH * 2f + 16f), new Color(SportHud.Night.r, SportHud.Night.g, SportHud.Night.b, 0.8f),
                            20f, null, 0f, false);
@@ -1399,10 +1461,16 @@ namespace MoveIt.Games.Tennis
                     GUI.DrawTexture(new Rect(x + 48f, ry + 20f, 20f, 20f), _dot);
                     GUI.color = Color.white;
                 }
-                GameHud.Text(new Rect(x + 78f, ry, 410f, rowH), TeamName(team), GameHud.Small, TextAnchor.MiddleLeft);
+                int games = score.Games(team);
+                if (_boardGamesWon[team] != games || _boardGames[team] == null)
+                {
+                    _boardGamesWon[team] = games;
+                    _boardGames[team] = games.ToString();
+                }
+                GameHud.Text(new Rect(x + 78f, ry, 410f, rowH), _boardName[team], GameHud.Small, TextAnchor.MiddleLeft, null, false);
                 SportHud.Rounded(new Rect(x + 500f, ry + 8f, 70f, rowH - 16f), new Color(1f, 1f, 1f, 0.14f), 10f);
-                GameHud.Text(new Rect(x + 500f, ry, 70f, rowH), score.Games(team).ToString(), GameHud.Small, TextAnchor.MiddleCenter, Sun);
-                GameHud.Text(new Rect(x + 580f, ry, 100f, rowH), score.PointsText(team), GameHud.Small, TextAnchor.MiddleCenter);
+                GameHud.Text(new Rect(x + 500f, ry, 70f, rowH), _boardGames[team], GameHud.Small, TextAnchor.MiddleCenter, Sun, false);
+                GameHud.Text(new Rect(x + 580f, ry, 100f, rowH), score.PointsText(team), GameHud.Small, TextAnchor.MiddleCenter, null, false);
             }
         }
     }

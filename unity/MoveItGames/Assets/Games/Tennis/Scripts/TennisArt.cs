@@ -40,6 +40,35 @@ namespace MoveIt.Games.Tennis
             return _lowSphere;
         }
 
+        static Mesh _diamond;
+
+        /// <summary>A head for the split screen's light crowd (2026-11-12): an octahedron of diameter 1 with round normals,
+        /// 6 vertices against <see cref="LowSphere"/>'s 35. In half of the split screen a spectator's head is a few pixels;
+        /// the box's driver and GPU pay per vertex, twice there.</summary>
+        public static Mesh Diamond()
+        {
+            if (_diamond != null) return _diamond;
+            // top, bottom, then round the middle from +x toward +z (the order LowSphere's rings go)
+            var v = new[]
+            {
+                new Vector3(0f, 0.5f, 0f), new Vector3(0f, -0.5f, 0f),
+                new Vector3(0.5f, 0f, 0f), new Vector3(0f, 0f, 0.5f), new Vector3(-0.5f, 0f, 0f), new Vector3(0f, 0f, -0.5f),
+            };
+            var t = new int[24];
+            for (int s = 0; s < 4; s++)
+            {
+                int a = 2 + s, b = 2 + (s + 1) % 4;
+                // clockwise seen from outside (Unity's front), like LowSphere's
+                t[s * 6 + 0] = 0; t[s * 6 + 1] = b; t[s * 6 + 2] = a;
+                t[s * 6 + 3] = a; t[s * 6 + 4] = b; t[s * 6 + 5] = 1;
+            }
+            _diamond = new Mesh { name = "Diamond" };
+            _diamond.vertices = v;
+            _diamond.normals = System.Array.ConvertAll(v, p => p.normalized);
+            _diamond.triangles = t;
+            return _diamond;
+        }
+
         /// <summary>A flat ring in the XY plane (facing -z), outer radius 0.5, inner <paramref name="inner"/>.</summary>
         public static Mesh Ring(float inner = 0.4f, int segments = 48)
         {

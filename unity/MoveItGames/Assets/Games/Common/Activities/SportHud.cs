@@ -73,13 +73,23 @@ namespace MoveIt.Games
         }
 
         /// <summary>Bold text with a dark outline (readable on anything).</summary>
+        /// <summary>Outlines drawn as one drop shadow (set with the split screen's lighter paths: <see cref="BoxGraphics.ApplyLite"/>).</summary>
+        public static bool LiteOutlines;
+
         public static void Text(Rect r, string text, int size, Color colour, TextAnchor anchor = TextAnchor.MiddleCenter, float outline = 3f,
                                 Color? outlineColour = null, bool bold = true)
         {
             var s = Style(size, bold);
             s.alignment = anchor;
             var oc = outlineColour ?? new Color(Night.r, Night.g, Night.b, 0.9f * colour.a);
-            if (outline > 0f)
+            if (outline > 0f && LiteOutlines)
+            {
+                // the two-player split screen on the box: one copy as a drop shadow instead of four to eight round the
+                // text (each copy is the text laid out and drawn again; Gara!'s HUD was a quarter of its main thread)
+                s.normal.textColor = oc;
+                GUI.Label(new Rect(r.x + outline * 0.7f, r.y + outline, r.width, r.height), text, s);
+            }
+            else if (outline > 0f)
             {
                 s.normal.textColor = oc;
                 // Each copy draws the whole text again: thin outlines (up to 3 px), and big text whose strokes are wider
@@ -100,6 +110,46 @@ namespace MoveIt.Games
             }
             s.normal.textColor = colour;
             GUI.Label(r, text, s);
+        }
+
+        static Font _font;
+
+        /// <summary>The font IMGUI draws these words with (the skin's, else Unity's built-in one).</summary>
+        public static Font Font => GUI.skin.font != null ? GUI.skin.font
+                                 : _font != null ? _font : _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+
+        /// <summary>
+        /// <see cref="Text(Rect, string, int, Color, TextAnchor, float, Color?, bool)"/> into a <see cref="HudBatch"/> (call
+        /// inside OnGUI): the same outline copies (or the one drop shadow with <see cref="LiteOutlines"/>), as glyphs in
+        /// the batch's mesh instead of IMGUI draws (each ~0.16 ms of the box's render thread in Gara!'s split screen,
+        /// 2026-11-13). <paramref name="grow"/> scales the line about its anchor (a pop) without another font size.
+        /// </summary>
+        public static void Text(HudBatch batch, Rect r, string text, int size, Color colour, TextAnchor anchor = TextAnchor.MiddleCenter,
+                                float outline = 3f, Color? outlineColour = null, bool bold = true, float grow = 1f)
+        {
+            var font = Font;
+            var style = bold ? FontStyle.Bold : FontStyle.Normal;
+            var padding = Style(size, bold).padding;
+            var oc = outlineColour ?? new Color(Night.r, Night.g, Night.b, 0.9f * colour.a);
+            if (outline > 0f && LiteOutlines)
+                batch.Text(font, new Rect(r.x + outline * 0.7f, r.y + outline, r.width, r.height), text, size, style, oc, anchor, padding, grow);
+            else if (outline > 0f)
+            {
+                int step = outline > 3f && size < 80 ? 1 : 2;
+                for (int i = step - 1; i < 8; i += step)
+                {
+                    float a = i * Mathf.PI / 4f;
+                    batch.Text(font, new Rect(r.x + Mathf.Cos(a) * outline, r.y + Mathf.Sin(a) * outline, r.width, r.height), text, size, style, oc,
+                               anchor, padding, grow);
+                }
+                if (outline > 3f)
+                {
+                    var shadow = oc;
+                    shadow.a *= 0.6f;
+                    batch.Text(font, new Rect(r.x + outline * 0.6f, r.y + outline * 2f, r.width, r.height), text, size, style, shadow, anchor, padding, grow);
+                }
+            }
+            batch.Text(font, r, text, size, style, colour, anchor, padding, grow);
         }
 
         public static float Width(string text, int size, bool bold = true) => Style(size, bold).CalcSize(new GUIContent(text)).x;

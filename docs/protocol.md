@@ -12,7 +12,7 @@ The same protocol is used by every backend:
 | `py-replay` | Replays a recorded `.jsonl` session (`motion-service-py/replay.py`) | Phase 0 |
 | `py-mediapipe-full` / `-lite` | PC dev service, `--model auto` picks full and drops to lite if too slow | v1.1 |
 | `android-mediapipe-gpu-full` (or `-cpu-`, `-lite`) | Android: Java library inside the APK (`Assets/Plugins/Android/MoveItMotion.androidlib`) | v1.1 |
-| `android-rknn-full` / `-lite` | Android on a Rockchip NPU: MediaPipe's models converted to RKNN, run by the same Java library's native engine (`src/main/cpp/pose_npu.cpp`), same landmarks and smoothing; used first where the APK has models for the chip | v1.1 (2026-10-30, RK3566) |
+| `android-rknn-full` / `-lite` | Android on a Rockchip NPU: MediaPipe's models converted to RKNN, run by the same Java library's native engine (`src/main/cpp/pose_npu.cpp`), same landmarks and smoothing; used first where the APK has models for the chip. Since 2026-11-10 it also listens to the model's heatmap (`pose_trust.h`): see `visibility` below | v1.1 (2026-10-30, RK3566) |
 
 ## Datagram
 
@@ -64,7 +64,13 @@ image-space depth when `wk` is missing). `v` stays `1`.
 - `x`: 0 = left edge of the camera image, 1 = right edge
 - `y`: 0 = top edge, 1 = bottom edge
 - `z`: relative depth, roughly the same scale as `x`. Smaller = closer to the camera. Origin at the hip center.
-- `visibility`: 0..1, likelihood that the joint is visible (not occluded or out of frame)
+- `visibility`: 0..1, likelihood that the joint is visible (not occluded or out of frame). MediaPipe (the PC service,
+  the Android fallback) low-passes it over ~0.3 s, so it lags a hand that disappears or comes back by ~7 frames and
+  says nothing about a joint that is in view but in the wrong place. The box's NPU engine (`android-rknn-*`, since
+  2026-11-10) sends the model's visibility smoothed over ~2 frames and **capped by how far the model's own heatmap
+  backs the joint's position in this very frame** (0.25 when the heatmap shows nothing there): under 0.5 = don't
+  trust this sample. In those frames the engine has already held the joint where it was (riding on the body), so a
+  game that ignores visibility still gets a sane position.
 
 The camera faces the player, so the player's **left** side appears on the image's **right**.
 The SDK mirrors x so the screen behaves like a mirror.
@@ -128,14 +134,32 @@ decoding takes ~1 ms on the laptop.
 **On the box: raw frames inside the process (2026-10-31).** On a Cortex-A55 the JPEG round trip was the expensive
 part (the encode ~9 % of the app's CPU in Java, the decode ~15 ms of every frame on Unity's main thread: Vishu! ran
 23.5 fps). So when the Android library can read CameraX's RGBA buffer as it is (no rotation, 4 bytes per pixel) it
-doesn't send datagrams: it scales the newest frame to the requested width into a buffer in `libtundupose.so`
-(`FrameShare.java` → `src/main/cpp/frame_share.cpp`), and the game copies it straight into its texture with two C
-calls (`[DllImport("tundupose")]` in `CameraFeed.cs`):
+doesn't send datagrams: it puts the newest frame into a buffer in `libtundupose.so` (`FrameShare.java` →
+`src/main/cpp/frame_share.cpp`), and the game copies it straight into its texture with two C calls
+(`[DllImport("tundupose")]` in `CameraFeed.cs`).
+
+**The size is the camera's own or exactly half of it** (since 2026-11-11, `SharedSize` in `frame_scale.h`): the
+smallest of the two that is still at least three quarters of the requested width. A 1024 × 768 camera gives 1024 × 768
+for a request of 1024 and 512 × 384 for the default 640; the game reads the size with each frame. Those two cost the
+camera thread ~2 ms a frame (a copy, or the average of each 2 × 2); scaling to any other width cost 8–34 ms there, on
+the thread the pose AI waits for (docs/hardware.md "The engine live in the app, and the camera picture's cost").
+
+The plugin keeps the last few frames (a game that draws on the player shows an older one, waiting for its poses), and
+with OpenGL ES Unity's render thread uploads the one the game picks straight into its texture (since 2026-11-12; before,
+the game copied each 3 MB frame twice on its main thread: ~18 % of Vishu!'s main thread). The calls:
 
 - `int64 tundu_frame_info(int32* width, int32* height, int64* time)`: the newest frame's number (0 = none yet), size
   and capture time (Unix ms, as above).
-- `int64 tundu_frame_copy(uint8* dst, int32 capacity, int32* width, int32* height, int64* time)`: copies that frame
-  (RGBA, 4 bytes per pixel, **rows bottom-up** as Unity textures want them) if it fits; returns its number or 0.
+- `void tundu_frame_keep(int32 count)`: how many recent frames to keep (1..8; fewer than before frees the others).
+- `int64 tundu_frame_pick(int64 at, int32* width, int32* height, int64* time)`: the newest kept frame captured at or
+  before `at` (Unix ms; 0 = the newest), or the oldest kept when none is that old; its number (0 = none yet).
+- `int32 tundu_frame_request(int32 id, int64 number, uint32 texture, int32 width, int32 height)` and
+  `void* tundu_frame_render_func()`: upload frame `number` into the GL texture `texture` (RGBA8, `width` x `height`,
+  Unity's `Texture2D.GetNativeTexturePtr()`) when the render thread reaches `GL.IssuePluginEvent(render_func, id)`
+  (`id` 0..3); the frame stays kept until then. Returns 0 if the frame is gone. Unity's GL state is put back after.
+- `int64 tundu_frame_copy(uint8* dst, int32 capacity, int32* width, int32* height, int64* time)`: copies the newest
+  frame (RGBA, 4 bytes per pixel, **rows bottom-up** as Unity textures want them) if it fits; returns its number or 0
+  (the fallback: another graphics API, or PerfLab's `feed=copy`).
 
 The same request (`setVideo`) turns it on and off, and the UDP stream above stays the fallback (a rotated camera, a
 build without the library); `CameraFeed` takes whichever brings frames.

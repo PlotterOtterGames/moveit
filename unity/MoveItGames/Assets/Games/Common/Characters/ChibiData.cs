@@ -13,12 +13,14 @@ namespace MoveIt.Games
         {
             "Head", "Body", "Eyes", "EyesHappy", "Mouth", "MouthOpen", "MouthSad", "Hair_Spiky",
             "Hair_Fluffy", "Hair_Shaggy", "Hair_Buns", "Hair_Short", "Hair_Spiky_Hat", "Hair_Spiky_Hood", "Hair_Fluffy_Hat", "Hair_Fluffy_Hood",
-            "Hair_Shaggy_Hat", "Hair_Shaggy_Hood", "Hair_Buns_Hat", "Hair_Buns_Hood", "Hair_Short_Hat", "Hair_Short_Hood", "Cap", "CapBack",
-            "CapStar", "Bucket", "Crown", "FrogHat", "CatHood", "CatEars", "BunnyEars", "BearEars",
-            "DevilHorns", "UnicornHorn", "Hoodie", "HoodieStar", "BearHoodie", "ZipHoodie", "Jacket", "TrackJacket",
-            "Checkered", "Tee", "TeeStar", "Polo", "Shorts", "Pants", "Skirt", "Sneakers",
-            "HighTops", "Glasses", "RoundGlasses", "HeartGlasses", "Headphones", "StarClip", "Mask", "AngelWings",
-            "DevilWings", "CatTail", "DevilTail", "RaccoonTail", "BunnyTail",
+            "Hair_Shaggy_Hat", "Hair_Shaggy_Hood", "Hair_Buns_Hat", "Hair_Buns_Hood", "Hair_Short_Hat", "Hair_Short_Hood", "Hair_Long", "Hair_Pony",
+            "Cap", "CapBack", "CapStar", "Bucket", "Crown", "FrogHat", "CatHood", "Tiara",
+            "Headgear", "Headband", "RobotHead", "CatEars", "BunnyEars", "BearEars", "DevilHorns", "UnicornHorn",
+            "Antennae", "Hoodie", "HoodieStar", "BearHoodie", "ZipHoodie", "Jacket", "TrackJacket", "Checkered",
+            "Tee", "TeeStar", "Polo", "SpaceSuit", "FairyTop", "HeroSuit", "RefShirt", "Shorts",
+            "Pants", "Skirt", "SpacePants", "PetalSkirt", "Trunks", "Sneakers", "HighTops", "SpaceBoots",
+            "FairyBoots", "Glasses", "RoundGlasses", "HeartGlasses", "Headphones", "StarClip", "Mask", "HeroMask",
+            "AngelWings", "DevilWings", "CatTail", "DevilTail", "RaccoonTail", "BunnyTail", "Jetpack",
         };
 
         /// <summary>The slot of each of <see cref="Pieces"/> (head, body, eyes, mouth, hair, hat, ears, top, bottom,
@@ -27,12 +29,14 @@ namespace MoveIt.Games
         {
             "head", "body", "eyes", "eyes", "mouth", "mouth", "mouth", "hair",
             "hair", "hair", "hair", "hair", "hair", "hair", "hair", "hair",
-            "hair", "hair", "hair", "hair", "hair", "hair", "hat", "hat",
-            "hat", "hat", "hat", "hat", "hat", "ears", "ears", "ears",
-            "ears", "ears", "top", "top", "top", "top", "top", "top",
-            "top", "top", "top", "top", "bottom", "bottom", "bottom", "shoes",
-            "shoes", "acc", "acc", "acc", "acc", "acc", "acc", "back",
-            "back", "back", "back", "back", "back",
+            "hair", "hair", "hair", "hair", "hair", "hair", "hair", "hair",
+            "hat", "hat", "hat", "hat", "hat", "hat", "hat", "hat",
+            "hat", "hat", "hat", "ears", "ears", "ears", "ears", "ears",
+            "ears", "top", "top", "top", "top", "top", "top", "top",
+            "top", "top", "top", "top", "top", "top", "top", "bottom",
+            "bottom", "bottom", "bottom", "bottom", "bottom", "shoes", "shoes", "shoes",
+            "shoes", "acc", "acc", "acc", "acc", "acc", "acc", "acc",
+            "back", "back", "back", "back", "back", "back", "back",
         };
 
         public static string SlotOf(string piece)

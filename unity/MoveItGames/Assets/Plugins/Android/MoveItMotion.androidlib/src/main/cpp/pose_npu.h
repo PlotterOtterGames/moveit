@@ -9,6 +9,12 @@
 // the landmark model runs per person. Its budget is shared: runs per second for everyone (30 = the two take turns,
 // each 15 times a second; 0 = everyone every frame), since the RK3566's single NPU core can't run it twice in every
 // 30 fps frame while a game draws (docs/hardware.md "Two players").
+//
+// Beyond MediaPipe (2026-11-10, pose_trust.h; docs/hardware.md "Tracking that listens to the model"): every landmark
+// carries a trust from the model's own heatmap, unsure samples are held on the body instead of followed, the visibility
+// the games gate on reacts within a frame, a sudden left/right flip is put back, a followed person survives a few
+// frames of a low pose score (MediaPipe drops them at the first: then the detector has to find them again, which took
+// seconds in a dark room), and the detector looks at averaged, brightened pictures.
 #pragma once
 
 #include <cstddef>
@@ -19,24 +25,26 @@
 #include <vector>
 
 #include "filters.h"
+#include "pose_trust.h"
 
 namespace tundu {
 
-constexpr int kLandmarks = 39;      // 33 pose landmarks + 2 alignment points (33 hips, 34 size and turn) + 4 unused
-constexpr int kPoseLandmarks = 33;
+constexpr int kLandmarks = kModelLandmarks;      // 33 pose landmarks + 2 alignment points (33 hips, 34 size and turn) + 4 unused
+constexpr int kPoseLandmarks = kBodyLandmarks;
 constexpr int kMaxPeople = 2;       // people followed at once
-
-struct Rgba {
-    const uint8_t* pixels;          // RGBA 8888 (an Android Bitmap)
-    int width, height, stride;      // stride in bytes
-};
 
 struct Pose {
     bool found = false;
+    bool rejected = false;          // a new track that didn't look like someone standing or sitting (the upright check)
+    bool coasting = false;          // the pose score dipped: no pose from this frame, the person is still followed
+    bool swapped = false;           // the model read the body as seen from behind: this frame's sides were put back
     bool detected = false;          // the person detector ran for this frame
+    float trust[kPoseLandmarks];    // how far the model's heatmap backs each landmark's position (0..1, pose_trust.h)
     float score = 0;                // the landmark model's "a pose is there"
     int track = 0;                  // the person's track: the same id while followed, a new one after a loss (0 = none)
-    float lm[kPoseLandmarks][5];    // x, y (0..1 of the picture), z (x's scale), visibility, presence
+    // x, y (0..1 of the picture), z (x's scale), visibility (the model's, lightly smoothed, capped by the trust: what
+    // the games gate on), presence
+    float lm[kPoseLandmarks][5];
     float world[kPoseLandmarks][3]; // metres, hips at 0
     float roi[4];                   // the crop: centre x, y and size in pixels, rotation in radians
     float detectMs = 0, landmarkMs = 0, totalMs = 0;
@@ -51,6 +59,9 @@ struct Frame {
     bool detected = false;          // the person detector ran on this frame
     int followed = 0;               // people followed after this frame
     int lost = 0;                   // people the landmark model stopped seeing on this frame
+    int coasting = 0;               // people whose pose score dipped on this frame (no pose from it, still followed)
+    int rejected = 0;               // new tracks ended by the upright check on this frame (ghosts: a guitar on a couch)
+    bool backingOff = false;        // nobody followed and tracks kept ending young: the detector looks a few times a second
     float detectMs = 0, landmarkMs = 0, totalMs = 0;
     float cropMs = 0, npuMs = 0;    // all of the frame's crops, all of its landmark runs' NPU time
     int Found() const {
@@ -77,9 +88,18 @@ public:
     // of the camera (PerfLab's npubench=1). Call while no RunJob runs (like Process).
     void SetPeople(int maxPeople, float runsPerSecond, bool twin, int keepTrack = 0, bool bench = false);
     int MaxPeople() const { return maxPeople_; }
+    // While the budget can't run everyone every frame: the person whose track is trackId gets share of the runs (0.75 =
+    // three frames in four), the others the rest, taking turns (2026-11-12: a two-player game's player who has to move
+    // now, e.g. Tenis!'s player the ball is coming to, ~22 poses a second instead of 15: their swings are seen sooner and
+    // more often). trackId 0 (or a track no longer followed) = everyone takes turns evenly. Any thread.
+    void SetFocus(int trackId, float share);
     // One camera frame: the detector (nobody followed: every frame; fewer than wanted: once per redetect interval), then
     // the landmark model on the people due this frame. False = the NPU failed (see Error()).
     bool Process(const Rgba& image, int64_t timestampNs, Frame* out);
+    // A frame the detector won't look at itself, for its running average (pose_trust.h DetectorEye): the frames just
+    // before a look while nobody is followed and the service only looks a few times a second. Cheap (no NPU). On the
+    // thread that calls Process / Prepare.
+    void Watch(const Rgba& image, int64_t timestampNs);
     // The same for the first person only (pose_npu_test): found = false = nobody there.
     bool Process(const Rgba& image, int64_t timestampNs, Pose* out);
     // Tracking pipelined over two threads, so a frame's crops and the NPU runs of the frame before overlap (the full model
@@ -110,15 +130,14 @@ public:
 
 private:
     struct Net;
-    struct Track {               // one followed person: its crop box and MediaPipe's filters
+    struct Track {               // one followed person: its crop box and its landmarks' smoothing
         bool active = false;
         bool bench = false;      // a fixed crop for measuring (SetPeople's bench)
         int id = 0;
+        int frames = 0;          // landmark runs that found the person since the track started (the upright check)
+        int low = 0;             // landmark runs in a row with a pose score under the minimum (coasting)
         float roi[4] = {0, 0, 0, 0};
-        std::vector<OneEuroFilter> lm, world;   // x, y, z per landmark
-        std::vector<LowPassFilter> vis;
-        std::vector<RelativeVelocityFilter> aux;  // x, y of the two alignment points
-        Track();
+        TrackSmoother smoother;  // MediaPipe's filters behind the trust, the hold and the left/right guard
         void ResetFilters();
     };
     struct Detection {           // a person the detector found: the landmark crop box from its alignment points
@@ -138,7 +157,7 @@ private:
         float letterbox[3];      // its scale and padding (DetectorInput)
     };
     // The detector's input: the whole picture fitted into its square, black bars; letterbox = scale, pad x, pad y.
-    void DetectorInput(const Rgba& image, uint8_t* dst, float letterbox[3]);
+    void DetectorInput(const Rgba& image, int64_t timestampNs, uint8_t* dst, float letterbox[3]);
     // The detector on what its input holds: up to kMaxDetections people, best first.
     bool RunDetector(const float letterbox[3], Detection* found, int* count);
     // The landmark model on what its input holds, the crop roi of a width x height picture.
@@ -152,6 +171,10 @@ private:
     // Two tracks that ended up on one person: the newer one ends. Under state_.
     void DropDuplicates();
     int FollowedLocked() const;
+    // A track ended within its first kUprightFrames runs (lost or rejected); BackingOff: kYoungEnds of those lately (the
+    // detector then looks only a few times a second while nobody is followed). Under state_.
+    void YoungEnd(int64_t timestampNs);
+    bool BackingOff(int64_t timestampNs) const;
     // Bench: the fixed crops, once the picture's size is known. Under state_.
     void FillBench(int width, int height);
 
@@ -166,11 +189,31 @@ private:
     double credit_ = 0;          // landmark runs saved up (the budget)
     int64_t creditNs_ = 0;
     int nextTurn_ = 0;
+    int focusId_ = 0;            // SetFocus: the person who gets more of the runs, and their share
+    float focusShare_ = 0.5f;
+    double turns_[kMaxPeople] = {0, 0};   // each track's runs owed while someone has the focus (weighted turns)
     int nextId_ = 1;
     int64_t lastDetectNs_ = 0;
+    int64_t youngEndNs_[3] = {0, 0, 0};   // the last young ends (kYoungEnds), a ring
+    int youngEnds_ = 0;                   // young ends since a track last lived past kUprightFrames
     Job jobs_[2];
     int nextSlot_ = 0;
     float warpMs_[2] = {0, 0};   // detector, landmarks
+    // The detector's input (pose_npu.cpp DetectorInput; TUNDU_NPU_BOOST=0: MediaPipe's plain one, =clahe: the local
+    // contrast of 2026-11-09), the upright check on new tracks (TUNDU_NPU_UPRIGHT=0), and pose_trust.h's parts:
+    // TUNDU_NPU_TRUST=0 (the heatmap's trust, the hold, the quick visibility), TUNDU_NPU_SWAP=0 (the left/right guard),
+    // TUNDU_NPU_COAST=0 (a low pose score ends the track at once, as MediaPipe does), TUNDU_NPU_BACKOFF=0 (the detector
+    // looks at every frame while nobody is followed, however often tracks end young). All on unless switched off in the
+    // environment (pose_npu_test, comparing).
+    enum DetInput { kDetPlain, kDetClahe, kDetAveraged };
+    DetInput detInput_ = kDetAveraged;
+    bool upright_ = true, trust_ = true, swap_ = true, coast_ = true, backoff_ = true;
+    // TUNDU_NPU_TRUST's three parts on their own (comparing): TUNDU_NPU_HOLD=0 (unsure samples followed, not held),
+    // TUNDU_NPU_CAP=0 (the visibility not capped by the trust), TUNDU_NPU_RESCUE=0 (no landmark moved onto the heatmap's
+    // peak elsewhere)
+    bool hold_ = true, cap_ = true, rescue_ = true;
+    DetectorEye eye_;
+    std::vector<uint8_t> detRgb_;   // the detector's letterboxed picture as RGB, before its local contrast (kDetClahe)
     std::string error_;
 };
 

@@ -333,6 +333,8 @@ namespace MoveIt.Games.Dress
         public const float TemplateEyes = 0.128f, TemplateHeadWidth = 0.30f, TemplateEyeY = -0.47f;
 
         public float MinCutoff = 1.5f, Beta = 6f;
+        /// <summary>The joints come smoothed already (<see cref="OutfitTracker"/>): no filter of their own.</summary>
+        public bool Prefiltered;
 
         public readonly Vector2[] J = new Vector2[Skeleton.JointCount];
         /// <summary>How sure each joint is (0..1, smoothed): rigs fade sleeves and hand items with it.</summary>
@@ -373,7 +375,7 @@ namespace MoveIt.Games.Dress
         readonly bool[] _hasGood = new bool[Skeleton.JointCount];
         readonly OneEuroFilter _torso = new OneEuroFilter(0.6f, 0.5f), _roll = new OneEuroFilter(1.2f, 0.8f),
             _shoulder = new OneEuroFilter(1.2f, 0.8f), _yaw = new OneEuroFilter(1.0f, 0.6f), _headYaw = new OneEuroFilter(1.5f, 0.6f);
-        float _headWidth, _frontShoulders, _frontHips, _frontHead, _yawSign = 1f;
+        float _headRatio, _frontShoulders, _frontHips, _yawSign = 1f;
 
         public OutfitPose()
         {
@@ -391,7 +393,7 @@ namespace MoveIt.Games.Dress
             _headYaw.Reset();
             Array.Clear(_hasGood, 0, _hasGood.Length);
             Array.Clear(Seen, 0, Seen.Length);
-            _headWidth = _frontShoulders = _frontHips = _frontHead = 0f;
+            _headRatio = _frontShoulders = _frontHips = 0f;
             Yaw = HeadYaw = 0f;
         }
 
@@ -413,7 +415,7 @@ namespace MoveIt.Games.Dress
                 bool seen = visibility[i] >= 0.4f;
                 Seen[i] = !Valid ? (seen ? 1f : 0f) : Mathf.MoveTowards(Seen[i], seen ? 1f : 0f, dt / 0.15f);
                 if (!seen) continue;
-                _good[i] = _filters[i].Filter(joints[i], dt, scale);
+                _good[i] = Prefiltered ? joints[i] : _filters[i].Filter(joints[i], dt, scale);
                 _hasGood[i] = true;
             }
             Valid = true;
@@ -511,7 +513,7 @@ namespace MoveIt.Games.Dress
                 float evidence = Mathf.Max(Smooth(0.03f, 0.11f, Mathf.Abs(nose)), c < 0.45f ? 1f : 0f);
                 yaw = _yawSign * Mathf.Acos(c) * evidence;
             }
-            Yaw = _yaw.Filter(Unwrap(yaw, Yaw), dt);
+            Yaw = _yaw.Filter(Unwrap(Facing(yaw, FrontYaw), Yaw), dt);
 
             // Across the body: the shoulder line while it is long and points the right way, else across the torso axis
             float trust = Mathf.Clamp01(Mathf.Cos(Yaw)) * Smooth(0.5f, 0.8f, sr / Mathf.Max(_frontShoulders, 0.05f));
@@ -530,28 +532,29 @@ namespace MoveIt.Games.Dress
             float roll = Mathf.Atan2(eyeLine.y, eyeLine.x);
             if (Seen[(int)Joint.LeftEar] > 0.5f && Seen[(int)Joint.RightEar] > 0.5f)
                 roll = Mathf.Atan2(eyeLine.y + earLine.y, eyeLine.x + earLine.x);
+            // The head's width: from the eyes (the pose model's steadiest face points; its ears sit ~1.9 eye spacings apart,
+            // narrower than the head), as a share of the torso learnt slowly while the face and the body are toward the
+            // camera. A turn narrows the eyes and a lean toward the camera makes the head look bigger: neither resizes a
+            // crown any more (before, the widest measure of the last ~25 s was kept: one lean or noisy frame made every hat
+            // too big and too high, players saw hats floating above their heads). Children's heads are a bigger share.
+            float eyes = eyeLine.magnitude;
+            float ratio = Mathf.Clamp(eyes * (TemplateHeadWidth / TemplateEyes) / Mathf.Max(T, 1f), 0.22f, 0.62f);
+            bool facing = Mathf.Abs(HeadYaw) < 0.3f && Mathf.Abs(Mathf.Sin(Yaw)) < 0.4f && Mathf.Cos(Yaw) > 0f &&
+                          Seen[(int)Joint.LeftEye] > 0.6f && Seen[(int)Joint.RightEye] > 0.6f;
+            if (_headRatio <= 0f) _headRatio = ratio;
+            else if (facing) _headRatio = Mathf.Lerp(_headRatio, ratio, 1f - Mathf.Exp(-dt / 1.2f));
+            float frontHead = _headRatio * T;
+            HeadScale = frontHead / TemplateHeadWidth;
             // a turned head's eye line gets short and unreliable: lean on the body's tilt then
-            float eyeTrust = Smooth(0.25f, 0.6f, eyeLine.magnitude / Mathf.Max(_headWidth * TemplateEyes / TemplateHeadWidth, 1f));
+            float eyeTrust = Smooth(0.25f, 0.6f, eyes / Mathf.Max(frontHead * TemplateEyes / TemplateHeadWidth, 1f));
             roll = ShoulderAngle + (Unwrap(roll, ShoulderAngle) - ShoulderAngle) * eyeTrust;
             HeadRoll = _roll.Filter(Unwrap(roll, HeadRoll), dt);
-            // The head's width: both measures shrink when the head turns, so the widest recent one is kept (it grows at
-            // once, shrinks slowly), and it stays in a sensible range for the body (children's heads are bigger).
-            float eyes = eyeLine.magnitude, ears = earLine.magnitude;
-            float target = Mathf.Max(eyes * (TemplateHeadWidth / TemplateEyes), ears);
-            target = Mathf.Clamp(target, 0.22f * T, 0.62f * T);
-            _headWidth = _headWidth <= 0f ? target : target > _headWidth
-                ? Mathf.Lerp(_headWidth, target, 1f - Mathf.Exp(-dt / 0.12f))
-                : Mathf.Lerp(_headWidth, target, 1f - Mathf.Exp(-dt / 1.5f));
-            // as wide as when facing the camera (in torso lengths, like the shoulders): a turned head keeps its hats' size
-            _frontHead = Front(_frontHead, target / Mathf.Max(T, 1f), 0.22f, 0.62f, dt);
-            float frontHead = _frontHead * T;
-            HeadScale = Mathf.Max(_headWidth, 0.92f * frontHead) / TemplateHeadWidth;
 
             // The head's turn: the nose sits about 0.62 head widths in front of the ears, so its offset from their middle
             // gives the angle; the head's axis is then behind the eyes by their depth
             Vector2 headAcross = new Vector2(Mathf.Cos(HeadRoll), Mathf.Sin(HeadRoll));
             float noseOff = Vector2.Dot(J[(int)Joint.Nose] - (lr + rr) * 0.5f, headAcross);
-            float headYaw = Mathf.Clamp(Mathf.Asin(Mathf.Clamp(noseOff / (0.62f * Mathf.Max(frontHead, 1f)), -1f, 1f)), -1.4f, 1.4f);
+            float headYaw = Facing(Mathf.Clamp(Mathf.Asin(Mathf.Clamp(noseOff / (0.62f * Mathf.Max(frontHead, 1f)), -1f, 1f)), -1.4f, 1.4f), FrontHeadYaw);
             // the nose can't tell a face turned 45 degrees from the back of a head turned 135: the body's turn can
             if (Mathf.Cos(Yaw) < 0f) headYaw = Mathf.Sign(Yaw) * Mathf.PI - headYaw;
             HeadYaw = _headYaw.Filter(Unwrap(headYaw + Mathf.Round((Yaw - headYaw) / (2f * Mathf.PI)) * 2f * Mathf.PI, HeadYaw), dt);
@@ -559,6 +562,23 @@ namespace MoveIt.Games.Dress
         }
 
         float _worldYaw = float.NaN;
+
+        /// <summary>Turns smaller than this (radians) read as facing the camera: the pose model's few degrees of noise
+        /// and the slant of someone standing off the camera's axis would otherwise slide the clothes sideways (measured on
+        /// a box recording: -5 degrees +- 3 facing the camera).</summary>
+        public float FrontYaw = 0.26f, FrontHeadYaw = 0.21f;
+
+        /// <summary>A soft dead zone round facing the camera: nothing below <paramref name="dead"/>, then the angle less
+        /// the dead zone, the full angle again from 2.6 times it (a real turn keeps its size).</summary>
+        public static float Facing(float yaw, float dead)
+        {
+            float a = yaw;
+            while (a > Mathf.PI) a -= 2f * Mathf.PI;
+            while (a < -Mathf.PI) a += 2f * Mathf.PI;
+            float m = Mathf.Abs(a);
+            float give = dead * (1f - Smooth(1.6f * dead, 2.6f * dead, m));
+            return Mathf.Sign(a) * Mathf.Max(0f, m - give);
+        }
 
         static float Front(float current, float sample, float min, float max, float dt)
         {

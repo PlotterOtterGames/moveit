@@ -1,0 +1,20 @@
+{
+    "name": "MoveIt.Games.Fairy",
+    "rootNamespace": "MoveIt.Games.Fairy",
+    "references": [
+        "MoveIt.Motion",
+        "MoveIt.Games.Common",
+        "Unity.InputSystem",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.RenderPipelines.Universal.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

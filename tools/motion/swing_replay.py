@@ -169,7 +169,7 @@ class Detector:
     SWING, STRONG, TRAVEL, WINDOW, ANCHOR_AGE = 1.6, 3.0, 0.18, 0.08, 0.12   # SwingSpeed, StrongSpeed, MinTravel, ...
     STEP_SHARE, MAX_STEP_SHARE, STEP_NOISE, SURE_VIS = 0.3, 0.7, 0.05, 0.8
     BACK_SHARE, BACK_SAMPLES, CONFIRM_WITHIN, REARM_SHARE = 0.45, 2, 0.2, 0.5
-    REPEAT_AFTER, COOLDOWN, MIN_VIS, SETTLE, PEAK_SAMPLES, VERTICAL, LEAD, HISTORY = 0.7, 0.22, 0.6, 0.25, 3, 0.77, 0.05, 16
+    REPEAT_AFTER, COOLDOWN, MIN_VIS, SETTLE, PEAK_SAMPLES, VERTICAL, LEAD, HISTORY = 0.7, 0.22, 0.45, 0.25, 3, 0.77, 0.05, 16
 
     def __init__(self, right_handed=True):
         self.right_handed = right_handed
@@ -233,9 +233,7 @@ class Detector:
         return -1
 
     def _sample(self, h, t, p, vis):
-        if vis < self.MIN_VIS:
-            if h['pending']:
-                self._reject(h)
+        if vis < self.MIN_VIS:      # skipped, also in the middle of a swing (2026-11-12; it used to drop the swing)
             return False
         if h['t']:
             since = t - h['t'][-1]
